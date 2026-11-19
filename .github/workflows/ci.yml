@@ -65,7 +65,7 @@ jobs:
       - run: cargo test --workspace --locked --no-fail-fast
 
   oracle:
-    name: go vet (tools/oracle)
+    name: go vet and go test (tools/oracle)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +75,52 @@ jobs:
           cache-dependency-path: tools/oracle/go.sum
       - run: go vet ./...
         working-directory: tools/oracle
+      # The oracle carries verbatim copies of dcrwallet code it cannot
+      # import (internal packages, unexported functions); these tests fail
+      # unless each copy still matches the pinned module.
+      - run: go test ./...
+        working-directory: tools/oracle
+
+  flint:
+    name: FLINT differential (purse-mixsolver)
+    # The reference root solver is Go over the C library FLINT.  FLINT comes
+    # from the image's archive, so the image is pinned, not ubuntu-latest.
+    runs-on: ubuntu-26.04
+    env:
+      PURSE_REQUIRE_FLINT: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/oracle/go.sum
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libflint-dev libgmp-dev libmpfr-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: go vet -tags flint ./cmd/mixsolver
+        working-directory: tools/oracle
+      - name: Build the FLINT oracle and the reference csppsolver
+        working-directory: tools/oracle
+        run: |
+          go build -tags flint -o "$RUNNER_TEMP/oracle/purse-oracle-mixsolver" ./cmd/mixsolver
+          go build -o "$RUNNER_TEMP/oracle/csppsolver" decred.org/cspp/v2/cmd/csppsolver
+      # PURSE_ORACLE_DIR applies to every oracle binary a test asks for, so
+      # only this crate runs here.  Release, so the large degrees run too.
+      - run: cargo test -p purse-mixsolver --release --locked --no-fail-fast
+        env:
+          PURSE_ORACLE_DIR: ${{ runner.temp }}/oracle
+
+  mixsolver-speed-gate:
+    name: mixsolver speed gate (ADR-0010)
+    # The gate is a 1 s median at 512 roots on the slowest runner.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # Build on every core; pin only the measurement.
+      - run: cargo test --release -p purse-mixsolver --locked --test timing --no-run
+      - run: taskset -c 0 cargo test --release -p purse-mixsolver --locked --test timing -- --ignored --exact speed_gate --nocapture
 
   deny:
     name: cargo-deny (licenses, advisories, sources, bans)

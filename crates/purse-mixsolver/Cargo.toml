@@ -1,0 +1,22 @@
+[package]
+name = "purse-mixsolver"
+description = "The StakeShuffle slot-reservation root solver: the distinct roots of a polynomial over F = 2^127 - 1, native and deterministic (ADR-0010)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# BLAKE-256, for the deterministic splitting values (ADR-0010, Decision
+# 1): no_std, no features, already pinned for the other crates.  Nothing
+# else: the field and polynomial arithmetic are this crate's own.
+dcroxide-crypto.workspace = true
+
+[dev-dependencies]
+# The oracle harness (tools/oracle/cmd/mixsolver) and SplitMix64.
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

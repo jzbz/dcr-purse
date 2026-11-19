@@ -17,6 +17,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 purse-boltread = { path = "../crates/purse-boltread" }
 purse-hdkeychain = { path = "../crates/purse-hdkeychain" }
+purse-mixsolver = { path = "../crates/purse-mixsolver" }
 purse-seed = { path = "../crates/purse-seed" }
 
 [[bin]]
@@ -36,6 +37,13 @@ bench = false
 [[bin]]
 name = "boltread_open"
 path = "fuzz_targets/boltread_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mixsolver_roots"
+path = "fuzz_targets/mixsolver_roots.rs"
 test = false
 doc = false
 bench = false

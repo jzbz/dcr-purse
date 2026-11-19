@@ -1,0 +1,44 @@
+# Determinism self-vectors for purse-mixsolver.
+#
+# SELF-GENERATED: every value below was computed by this crate, not by Go or
+# FLINT. They pin that the crate is deterministic across platforms and
+# releases: the BLAKE-256 splitting values (delta0 = attempt 0, delta_last =
+# the last attempt drawn), the number of attempts, whether the first split
+# (delta = 0) was nontrivial, the most attempts one factor needed, and a
+# digest of the roots. They say nothing about parity with Go; that is the
+# FLINT differential's (tests/oracle.rs) and the FLINT vectors'. A change
+# here means the splitting path changed, which is observable only as time
+# but must be deliberate: the roots themselves are checked independently by
+# the property tests.
+#
+# delta(c) is this crate's rule, which ADR-0010 leaves open in its encodings
+# (crate documentation, "Departures from ADR-0010"): the first 16 bytes,
+# read big-endian and reduced modulo 2^127 - 1, of BLAKE-256(a_0 || ... ||
+# a_n || c), each coefficient as given (before scaling to monic) as 16 bytes
+# big-endian and the counter c as 8 bytes big-endian.
+#
+# Inputs: src/tests.rs self_vector_cases, from SplitMix64 seed 0x73656c6676656301
+# (coeffs = the first 16 bytes of BLAKE-256 over the coefficients, 16 bytes
+# big-endian each; roots likewise over the sorted roots).
+# Regenerate: PURSE_MIXSOLVER_REGEN=1 cargo test -p purse-mixsolver --lib --
+#   --ignored regenerate_self_vectors
+# entries: 18
+# body-blake256: 5b387b6566c06ddc700bff63c0439b59bc39f54ba6e4d06d6368ad8613b9f6bf
+random-1-client degree=1 coeffs=da9de7c2c724a63a119d5e34b75877cd attempts=0 first_split=0 worst=0 delta0=3a559de45e396cf58dfd882831eb13b6 delta_last=- roots=35b1a3d3b41bf6f82aee6cc99fcad5a5
+random-1-random degree=1 coeffs=801f5c2995eef4f61212387208743399 attempts=0 first_split=0 worst=0 delta0=68365eec45ffb32b094cfd4615f5e62e delta_last=- roots=aa2eee68da3e33ace22e387d0bd00696
+random-2-client degree=2 coeffs=1787d372c5c405ef00a8d74ca2913786 attempts=0 first_split=1 worst=0 delta0=1d223bcb7b0713144c5a4affdbc8a5be delta_last=- roots=56cda2548772d457566904bb9c61adff
+random-3-one degree=3 coeffs=53b7971bfd2dd85f4ea582ff8498434b attempts=2 first_split=0 worst=1 delta0=7bbcde62505b0411529126156610c47b delta_last=6e3296c274498f58042a5782d571abb5 roots=a4ba5e60db52c34300f4f5de2170e1c5
+random-4-random degree=4 coeffs=1599e4f3c2c1783a8c192f8f85c909ca attempts=7 first_split=0 worst=4 delta0=5583b59f6e567cb9ca95c243a65d9240 delta_last=32c3a3d258f66330f7813170b96a3291 roots=b02f86773e2febc4a81da97aeada24ed
+random-5-client degree=5 coeffs=fe91716ced7482cc67f4fa2b5bdeed4b attempts=4 first_split=1 worst=2 delta0=501c302610cf83e6c0393453c18225b delta_last=51f356bd51c39ebe9c816ea4500378bc roots=a79fa8f297587ccba02639fa08e2453b
+random-8-client degree=8 coeffs=11157cf4d4d0bb9f96948be78ef463dd attempts=11 first_split=1 worst=3 delta0=169eea43ed8a69d9902a421a69ca4961 delta_last=6ed2133da604fd157ed3e9fd59e24abe roots=f1bd20b8b8766319bc2858bd4539c75b
+random-16-one degree=16 coeffs=460ced28f6f89df59042b3081f6d515f attempts=20 first_split=1 worst=3 delta0=7c968533c78e52c4990aa0804b5ff11 delta_last=2ad87e82170b4d3f04f57840923eab7a roots=6228abe0b2745e4f39c46eb474c63fbd
+random-33-client degree=33 coeffs=27a05803e23ad3e233f0b153c24fc213 attempts=36 first_split=1 worst=3 delta0=5df188b8bdafb530006106593c62a020 delta_last=3e0535ebac534880ace28b3f1a2281fc roots=d96123d8867984fa3c4c86182ac26429
+random-64-client degree=64 coeffs=d70123040c43a65371c8d29afeefcdd2 attempts=98 first_split=1 worst=10 delta0=6d15092b95002f8ac00f06f82523038e delta_last=7aeb34423ee89aa3fefe636d758bc131 roots=e5a5a64a204f9f513d96f4335b04d3fc
+random-100-random degree=100 coeffs=dcc5783a652b47907b66ff12719314cc attempts=135 first_split=1 worst=7 delta0=6063523258ee34e429805bbf2d6689b0 delta_last=56b330a717da5883b496eb41bb6d4ecf roots=dacb75214d2cbb9734fabc15d501bf4b
+random-128-client degree=128 coeffs=f12d71017994733b06125627b78af142 attempts=215 first_split=1 worst=9 delta0=c07a111405b26d6c570d0d717293cc7 delta_last=30a3419172ccadead1f65ea79575ae9 roots=4289b4ec28d4841ed829a05a0f5dec54
+random-256-client degree=256 coeffs=a95b9debc01430d4ddacfbbe8878eb01 attempts=362 first_split=1 worst=7 delta0=2bd6a88c6971663ee045eb71777cb1ca delta_last=21edb002950325d8514e26231d365073 roots=2584f01424abab198ee0367efc07c255
+edges-16 degree=16 coeffs=0ba4ac333153bb0ece567e86070a6389 attempts=16 first_split=1 worst=2 delta0=2b5b9383abc1c5e0b1bfd5a16acc50f5 delta_last=62a4a1cd35fdcefadddd35496fb7ccef roots=1ff9f6481f400e30bfcab66fbfc29589
+squares-32 degree=32 coeffs=248bce5a9b212d763aa09d2dfb7c8ae6 attempts=40 first_split=0 worst=3 delta0=47ac98b1313c20d38192077218047eaa delta_last=3668865bf473864e1e0a7a60ef9136f7 roots=410b4b8009223829bf12526c8004628b
+non-squares-32 degree=32 coeffs=eccc489ae96e831fa5595cd554fe90d9 attempts=52 first_split=0 worst=5 delta0=25244a124760a9d44104d07d2079adab delta_last=67aa0e916aa5a8716963cf34ec2c275e roots=26bcb514bc118edb28fbcffdcf29c722
+ground-3 degree=2 coeffs=bc167605431636c35309b81179a21192 attempts=4 first_split=0 worst=4 delta0=4dcca69ab1e96528bb77fe5d80a16db4 delta_last=332921447c87a9575806d68f3d90b1 roots=4dded6c182b21fa7c6a561dc42600991
+ground-8 degree=2 coeffs=52499e6c8c48fb86f5329447976d9d60 attempts=9 first_split=0 worst=9 delta0=4c012d61ca151452dd87bf623928d71e delta_last=447de175c144201dd4d0ec5999882e8a roots=7f693f01e11b1ea0ca5c1f147c1e662f

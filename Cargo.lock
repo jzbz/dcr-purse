@@ -317,6 +317,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcroxide-txscript"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1#5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1"
+dependencies = [
+ "dcroxide-base58",
+ "dcroxide-chaincfg",
+ "dcroxide-chainhash",
+ "dcroxide-crypto",
+ "dcroxide-dcrec",
+ "dcroxide-wire",
+ "sha1",
+ "sha2",
+]
+
+[[package]]
 name = "dcroxide-uint256"
 version = "0.1.0"
 source = "git+https://github.com/jzbz/dcroxide?rev=5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1#5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1"
@@ -598,6 +613,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "purse-bench"
+version = "0.1.0"
+dependencies = [
+ "dcroxide-base58",
+ "dcroxide-chaincfg",
+ "dcroxide-txscript",
+ "hmac",
+ "purse-dcrutil",
+ "purse-hdkeychain",
+ "purse-mixsolver",
+ "purse-snacl",
+ "purse-testutil",
+ "sha2",
+]
+
+[[package]]
 name = "purse-boltread"
 version = "0.1.0"
 dependencies = [
@@ -648,7 +679,9 @@ dependencies = [
  "dcroxide-chaincfg",
  "dcroxide-crypto",
  "dcroxide-dcrec",
+ "dcroxide-txscript",
  "hmac",
+ "purse-errors",
  "purse-testutil",
  "sha2",
  "zeroize",
@@ -822,6 +855,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

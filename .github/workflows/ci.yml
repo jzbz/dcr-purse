@@ -97,7 +97,11 @@ jobs:
           cache-dependency-path: tools/oracle/go.sum
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libflint-dev libgmp-dev libmpfr-dev
       - uses: Swatinem/rust-cache@v2
-      - run: go vet -tags flint ./cmd/mixsolver
+      - run: go vet -tags flint ./cmd/mixsolver ./cmd/bench
+        working-directory: tools/oracle
+      # The benchmark's Go solver arm checks FLINT's roots against each
+      # instance's; its test needs the tag too.
+      - run: go test -count=1 -tags flint ./cmd/bench
         working-directory: tools/oracle
       - name: Build the FLINT oracle and the reference csppsolver
         working-directory: tools/oracle
@@ -121,6 +125,30 @@ jobs:
       # Build on every core; pin only the measurement.
       - run: cargo test --release -p purse-mixsolver --locked --test timing --no-run
       - run: taskset -c 0 cargo test --release -p purse-mixsolver --locked --test timing -- --ignored --exact speed_gate --nocapture
+
+  bench-gate:
+    name: benchmark ratios against Go (ADR-0014, 2x)
+    # Rust and Go alternate in one job on the micro workloads, and each
+    # ratio of Rust's time to Go's is held to twice its baseline
+    # (crates/purse-bench/gate-baseline.tsv, from docs/bench-ledger.md): the
+    # regression gate ADR-0014 allows on shared runners. The memory-bound
+    # derivations and the FLINT solver are left out; the 15%/25% gates and
+    # the exit criteria run on a dedicated machine.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/oracle/go.sum
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p purse-bench --locked
+      - run: >-
+          target/release/purse-bench drive --out "$RUNNER_TEMP/bench"
+          --oracle-dir tools/oracle --runs 3 --reps 5 --ms 100
+          --only hd.,crypto.,snacl.seal,snacl.open,dcrutil.
+          --gate crates/purse-bench/gate-baseline.tsv
 
   deny:
     name: cargo-deny (licenses, advisories, sources, bans)

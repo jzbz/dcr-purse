@@ -36,6 +36,15 @@ chaincfg = ["dep:dcroxide-chaincfg"]
 # The general base58 codec the crate's own fixed-buffer codec is tested
 # against (the crate does not use it: its working vectors are not wiped).
 dcroxide-base58.workspace = true
+# The wallet-level differential (tests/wallet_diff.rs) and the upstream
+# examples: each network's coin types and address prefixes, and the P2PKH
+# address encoding dcr-purse uses (stdaddr), at the dcroxide pin. The crate
+# is no_std without `std`, and its stake-script code then fails to build
+# (f64::log2), so `std` is on.
+dcroxide-chaincfg.workspace = true
+dcroxide-txscript = { workspace = true, features = ["std"] }
+# Renders the one wallet-level error dcrwallet wraps (an unusable seed).
+purse-errors.workspace = true
 purse-testutil.workspace = true
 
 [lints]

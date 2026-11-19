@@ -35,6 +35,15 @@ pub const FIXTURE_VECTORS: &str = "fixture_vectors.txt";
 pub const GENERATED_DB: &str = "generated-simnet.db.gz";
 pub const GENERATED_EXPECT: &str = "generated_db.txt";
 
+/// The scrypt costs (N, r, p) dcrwallet writes for its master keys on
+/// mainnet, testnet3 and regnet (`udb.scryptOptionsForNet` at the pin).
+/// `dcrwallet_scrypt_costs_are_the_ones_go_wrote` in `tests/oracle.rs`
+/// holds this to the upstream fixture databases.
+pub const DCRWALLET_SCRYPT: (i64, i64, i64) = (262_144, 8, 1);
+/// The scrypt costs dcrwallet writes on simnet (`udb.scryptOptionsForNet`),
+/// held to the generated simnet database by the same test.
+pub const DCRWALLET_SIMNET_SCRYPT: (i64, i64, i64) = (2, 1, 1);
+
 /// The PRNG seed the frozen corpus is generated from.
 pub const FROZEN_RNG_SEED: u64 = 0x736e_6163_6c00_0001;
 

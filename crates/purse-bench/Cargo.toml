@@ -1,0 +1,33 @@
+[package]
+name = "purse-bench"
+description = "The benchmark harness of ADR-0014: dcr-purse's workloads against the Go reference on the same inputs, alternating in one session (not for release)"
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The crates measured, as the wallet will link them.
+purse-dcrutil = { path = "../purse-dcrutil" }
+purse-hdkeychain = { path = "../purse-hdkeychain" }
+purse-mixsolver = { path = "../purse-mixsolver" }
+purse-snacl = { path = "../purse-snacl" }
+# The address and script encoding dcr-purse uses (stdaddr) and mainnet's
+# parameters, at the dcroxide pin. dcroxide-txscript does not build without
+# `std` at the pin (f64::log2 in its stake-script code).
+dcroxide-base58.workspace = true
+dcroxide-chaincfg.workspace = true
+dcroxide-txscript = { workspace = true, features = ["std"] }
+# HMAC-SHA512 on its own, the same releases purse-hdkeychain derives with;
+# SHA-256 for the digests the two sides cross-check.
+hmac = { version = "0.13", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+# SplitMix64 (the generator both sides draw inputs from), the oracle
+# directory, the reference Go release.
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

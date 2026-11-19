@@ -249,9 +249,20 @@ impl Amount {
     /// dcrwallet code formats in such a unit: the daemon uses only
     /// [`AmountUnit::COIN`], through `String`.
     pub fn format(self, u: AmountUnit) -> String {
+        // The number's own buffer takes the unit, so the text is not copied
+        // into a third allocation (purse-bench `dcrutil.amount_string`).
+        let mut text = self.number(u);
+        text.push(' ');
+        push_unit(&mut text, u);
+        text
+    }
+
+    /// The number part of [`Amount::format`], before the space and the
+    /// unit.
+    fn number(self, u: AmountUnit) -> String {
         let q = self.to_unit(u);
         let prec = u.0.wrapping_add(8).wrapping_neg();
-        let number = if q.is_nan() {
+        if q.is_nan() {
             "NaN".to_owned()
         } else if q.is_infinite() {
             if q > 0.0 { "+Inf" } else { "-Inf" }.to_owned()
@@ -265,8 +276,7 @@ impl Amount {
             // Rust's fixed-precision formatting is exact and rounds half
             // to even, as Go's bigFtoa does.
             format!("{q:.places$}")
-        };
-        format!("{number} {u}")
+        }
     }
 
     /// Go's `MulF64` (`amount.go:120-122`): `round(float64(a) * f)`, with
@@ -284,11 +294,27 @@ impl Amount {
 /// divisor is at least `math.Pow10(-323)`.
 const MAX_FINITE_PREC: i64 = 323;
 
+/// Appends `u` as [`AmountUnit`]'s `Display` writes it.
+fn push_unit(text: &mut String, u: AmountUnit) {
+    match u.name() {
+        Some(name) => text.push_str(name),
+        None => {
+            use fmt::Write as _;
+            // Writing to a String cannot fail.
+            let _ = write!(text, "{u}");
+        }
+    }
+}
+
 /// Go's `Amount.String()` (`amount.go:112-114`): [`Amount::format`] in
 /// coins, such as `0.001 DCR`. dcrwallet puts this text in log lines and
 /// some error messages.
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.format(AmountUnit::COIN))
+        // The parts go to the formatter as they are, without first being
+        // joined into a String of their own. " DCR" is the space and
+        // AmountUnit::COIN's name.
+        f.write_str(&self.number(AmountUnit::COIN))?;
+        f.write_str(" DCR")
     }
 }

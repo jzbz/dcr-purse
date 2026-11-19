@@ -28,6 +28,9 @@
 //	               with "#\n" after every path; otherwise the lines.
 //	parse          {"net": ..., "keys": [string]}: one line per key.
 //	generate_seed  {"lengths": [int]}: "len=<n>" or "E|<error>" per length.
+//	wallet         {"net": name, "digest": bool, "seeds": [hex]}: the account
+//	               extended public keys and first addresses dcrwallet derives
+//	               from each seed (see wallet.go).
 package main
 
 import (
@@ -345,5 +348,6 @@ func main() {
 		"derive":        derive,
 		"parse":         parse,
 		"generate_seed": generateSeed,
+		"wallet":        wallet,
 	})
 }

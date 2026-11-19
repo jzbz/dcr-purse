@@ -22,6 +22,7 @@ dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f7
 dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
 dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
 dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
 dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
 
 purse-errors = { path = "crates/purse-errors" }

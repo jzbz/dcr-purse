@@ -9,9 +9,12 @@ package deps
 import (
 	_ "decred.org/dcrwallet/v5/errors"
 	_ "decred.org/dcrwallet/v5/pgpwordlist"
+	_ "decred.org/dcrwallet/v5/rpc/walletrpc"
 	_ "decred.org/dcrwallet/v5/wallet"
 	_ "decred.org/dcrwallet/v5/wallet/udb"
 	_ "decred.org/dcrwallet/v5/walletseed"
 	_ "github.com/decred/dcrd/hdkeychain/v3"
 	_ "go.etcd.io/bbolt"
+	_ "google.golang.org/grpc"
+	_ "google.golang.org/grpc/credentials"
 )

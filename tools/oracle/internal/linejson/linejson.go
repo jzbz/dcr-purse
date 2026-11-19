@@ -10,8 +10,17 @@
 // handler may return an *Error to add a "kind" member. A request that panics
 // ends the process, so that a Go panic is seen as one by the Rust side.
 //
-// Every binary also answers "build.info" with {"go": "<runtime.Version()>"},
-// so the Rust side can hold the oracle to the project's reference Go release.
+// Every binary also answers "build.info" with the Go release it was built
+// with and the modules it links:
+//
+//	{"go": "<runtime.Version()>", "main": "<main module path>",
+//	 "deps": [{"path": "...", "version": "...", "sum": "h1:..."}, ...]}
+//
+// "deps" is runtime/debug.ReadBuildInfo's list, in its order (sorted by
+// path); an entry a replace directive redirected carries a "replace" object
+// of the same shape. The Rust side holds the oracle to the project's
+// reference Go release, and holds every module it links to the version
+// dcrwallet's go.mod requires (ADR-0009, decision item 3).
 package linejson
 
 import (
@@ -20,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
 )
 
 // Handler serves one command. args is the request's raw "args" member, or
@@ -50,6 +60,46 @@ type response struct {
 // buildInfo is the command every binary answers itself.
 const buildInfo = "build.info"
 
+// Module is one module of the binary's build list.
+type Module struct {
+	Path    string  `json:"path"`
+	Version string  `json:"version"`
+	Sum     string  `json:"sum,omitempty"`
+	Replace *Module `json:"replace,omitempty"`
+}
+
+// BuildInfo is the result of "build.info".
+type BuildInfo struct {
+	Go   string   `json:"go"`
+	Main string   `json:"main,omitempty"`
+	Deps []Module `json:"deps"`
+}
+
+// ReadBuildInfo returns what "build.info" answers. Deps is empty, not nil,
+// when the binary carries no module information (a build outside module
+// mode), so the Rust side sees an empty list rather than null.
+func ReadBuildInfo() BuildInfo {
+	info := BuildInfo{Go: runtime.Version(), Deps: []Module{}}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return info
+	}
+	info.Main = bi.Main.Path
+	for _, d := range bi.Deps {
+		info.Deps = append(info.Deps, toModule(d))
+	}
+	return info
+}
+
+func toModule(d *debug.Module) Module {
+	m := Module{Path: d.Path, Version: d.Version, Sum: d.Sum}
+	if d.Replace != nil {
+		r := toModule(d.Replace)
+		m.Replace = &r
+	}
+	return m
+}
+
 // maxLine bounds one request line.
 const maxLine = 256 << 20
 
@@ -60,6 +110,7 @@ func Serve(handlers map[string]Handler) {
 	defer out.Flush()
 	enc := json.NewEncoder(out)
 	enc.SetEscapeHTML(false)
+	info := ReadBuildInfo()
 	for {
 		line, err := readLine(in)
 		if err != nil {
@@ -70,7 +121,7 @@ func Serve(handlers map[string]Handler) {
 		if err := json.Unmarshal(line, &req); err != nil {
 			resp = response{Error: "bad request: " + err.Error(), Failed: true}
 		} else if req.Cmd == buildInfo {
-			resp = response{Result: map[string]string{"go": runtime.Version()}}
+			resp = response{Result: info}
 		} else if h, ok := handlers[req.Cmd]; !ok {
 			resp = response{Error: fmt.Sprintf("unknown command %q", req.Cmd), Failed: true}
 		} else {

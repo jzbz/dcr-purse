@@ -25,6 +25,8 @@ use std::sync::Mutex;
 pub use serde_json;
 use serde_json::Value;
 
+pub mod skew;
+
 /// The dcrwallet commit every parity claim names (master, 2.2.0-pre).
 pub const DCRWALLET_PARITY_COMMIT: &str = "54b85b336077587eaf20112dc695355ce06fc76e";
 
@@ -347,6 +349,69 @@ pub struct Oracle {
     line: String,
 }
 
+/// An oracle binary's build, as its `build.info` command reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuildInfo {
+    /// The Go release, as `runtime.Version` reports it.
+    pub go: String,
+    /// The main module's path (empty when the binary carries no module
+    /// information).
+    pub main: String,
+    /// Every module the binary links, sorted by path.
+    pub deps: Vec<LinkedModule>,
+}
+
+/// One module an oracle binary links.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkedModule {
+    /// The module path.
+    pub path: String,
+    /// The version the build selected.
+    pub version: String,
+    /// The module's `h1:` hash, when Go recorded one.
+    pub sum: Option<String>,
+    /// What a `replace` directive substituted, if one did.
+    pub replace: Option<Box<LinkedModule>>,
+}
+
+impl LinkedModule {
+    fn from_json(v: &Value) -> Self {
+        let text = |key: &str| v.get(key).and_then(Value::as_str).map(str::to_owned);
+        LinkedModule {
+            path: text("path").expect("build.info module has a path"),
+            version: text("version").expect("build.info module has a version"),
+            sum: text("sum"),
+            replace: v
+                .get("replace")
+                .filter(|r| !r.is_null())
+                .map(|r| Box::new(LinkedModule::from_json(r))),
+        }
+    }
+}
+
+impl BuildInfo {
+    /// Reads `build.info`'s result. An oracle older than the dependency
+    /// report answers only `go`, which reads as no modules.
+    pub fn from_json(v: &Value) -> Self {
+        BuildInfo {
+            go: v["go"]
+                .as_str()
+                .expect("build.info reports the Go release")
+                .to_owned(),
+            main: v
+                .get("main")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            deps: v
+                .get("deps")
+                .and_then(Value::as_array)
+                .map(|deps| deps.iter().map(LinkedModule::from_json).collect())
+                .unwrap_or_default(),
+        }
+    }
+}
+
 /// An error an oracle command returned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OracleError {
@@ -413,10 +478,13 @@ impl Oracle {
     /// The Go release the oracle was built with, as `runtime.Version`
     /// reports it.
     pub fn go_version(&mut self) -> String {
-        self.call("build.info", Value::Null)["go"]
-            .as_str()
-            .expect("build.info reports the Go release")
-            .to_owned()
+        self.build_info().go
+    }
+
+    /// What the oracle reports of its build: the Go release and the modules
+    /// it links (`runtime/debug.ReadBuildInfo`).
+    pub fn build_info(&mut self) -> BuildInfo {
+        BuildInfo::from_json(&self.call("build.info", Value::Null))
     }
 
     /// As [`Oracle::try_call`], panicking on a Go error.

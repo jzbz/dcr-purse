@@ -20,7 +20,9 @@ use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 pub use serde_json;
 use serde_json::Value;
@@ -364,7 +366,9 @@ pub fn is_reference_go(version: &str) -> bool {
 /// A running oracle process.
 #[derive(Debug)]
 pub struct Oracle {
-    child: Child,
+    /// Shared with the watchdog of [`Oracle::call_within`], which kills the
+    /// process when a call outlives its limit.
+    child: Arc<Mutex<Child>>,
     stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
     line: String,
@@ -454,7 +458,7 @@ impl Oracle {
         let stdin = child.stdin.take();
         let stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
         Oracle {
-            child,
+            child: Arc::new(Mutex::new(child)),
             stdin,
             stdout,
             line: String::new(),
@@ -465,6 +469,45 @@ impl Oracle {
     /// error Go returned. Panics if the oracle process dies (a Go panic) or
     /// breaks the protocol.
     pub fn try_call(&mut self, cmd: &str, args: Value) -> Result<Value, OracleError> {
+        let line = self.exchange(cmd, args);
+        assert!(line, "oracle exited while serving {cmd} (a Go panic?)");
+        self.response(cmd)
+    }
+
+    /// As [`Oracle::call`], but gives up after `limit`: the oracle process
+    /// is killed and `None` returned, for a command Go may never answer
+    /// (bbolt's `Cursor.Last` on a bucket emptied in the transaction loops
+    /// forever, QK-0750). The oracle cannot be used after a `None`.
+    pub fn call_within(&mut self, cmd: &str, args: Value, limit: Duration) -> Option<Value> {
+        let (done, wait) = mpsc::channel::<()>();
+        let child = Arc::clone(&self.child);
+        let killed = Arc::new(AtomicBool::new(false));
+        let killed_by_watchdog = Arc::clone(&killed);
+        let watchdog = std::thread::spawn(move || {
+            if let Err(mpsc::RecvTimeoutError::Timeout) = wait.recv_timeout(limit) {
+                killed_by_watchdog.store(true, Ordering::SeqCst);
+                let mut c = child.lock().unwrap_or_else(|e| e.into_inner());
+                let _ = c.kill();
+            }
+        });
+        let line = self.exchange(cmd, args);
+        // The watchdog may have fired just as the answer came; it is then
+        // dead either way.
+        let _ = done.send(());
+        let _ = watchdog.join();
+        if killed.load(Ordering::SeqCst) {
+            return None;
+        }
+        assert!(line, "oracle exited while serving {cmd} (a Go panic?)");
+        Some(
+            self.response(cmd)
+                .unwrap_or_else(|e| panic!("oracle {cmd} failed: {} ({:?})", e.text, e.kind)),
+        )
+    }
+
+    /// Writes one request and reads one line into `self.line`; `false` when
+    /// the oracle's output ended instead.
+    fn exchange(&mut self, cmd: &str, args: Value) -> bool {
         let request = serde_json::json!({ "cmd": cmd, "args": args });
         let stdin = self.stdin.as_mut().expect("oracle stdin open");
         let mut line = serde_json::to_string(&request).expect("serialize request");
@@ -478,7 +521,11 @@ impl Oracle {
             .stdout
             .read_line(&mut self.line)
             .unwrap_or_else(|e| panic!("oracle {cmd}: read: {e}"));
-        assert!(n != 0, "oracle exited while serving {cmd} (a Go panic?)");
+        n != 0
+    }
+
+    /// Parses the line [`Oracle::exchange`] read.
+    fn response(&mut self, cmd: &str) -> Result<Value, OracleError> {
         let mut response: Value = serde_json::from_str(&self.line)
             .unwrap_or_else(|e| panic!("oracle {cmd}: bad response {:?}: {e}", self.line));
         if response.get("failed").and_then(Value::as_bool) == Some(true) {
@@ -519,7 +566,8 @@ impl Drop for Oracle {
     fn drop(&mut self) {
         // Closing stdin makes the oracle exit at EOF.
         drop(self.stdin.take());
-        let _ = self.child.wait();
+        let mut c = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = c.wait();
     }
 }
 

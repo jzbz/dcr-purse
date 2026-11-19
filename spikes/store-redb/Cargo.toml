@@ -14,15 +14,15 @@ license = "ISC"
 
 [dependencies]
 # The engine under test: redb 5, the major the project owner chose
-# (ADR-0003).  The spike was also run on 4.5.0, the release dcroxide locks;
-# ADR-0003 has both.  Keep REDB_VERSION in src/lib.rs equal to this.
+# (ADR-0003).  The spike was also run on 4.5.0, the release dcroxide locked
+# until its f4b3d2e moved to redb 5.0.0; ADR-0003 has both.  Keep REDB_VERSION in src/lib.rs equal to this.
 redb = "=5.0.0"
 # Transactions and block headers in Decred's wire format, so the generated
 # history hashes exactly as dcrwallet hashes it.
-dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
-dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
 # BLAKE-256 and RIPEMD-160 for HASH160 of derived public keys.
-dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
 # Address derivation, so the generated scripts pay to the addresses the Go
 # address manager derives from the same seed.
 purse-hdkeychain = { path = "../../crates/purse-hdkeychain" }

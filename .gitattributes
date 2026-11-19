@@ -2,3 +2,4 @@
 # checked-in vectors and compare them byte for byte against Go's output.
 * text=auto eol=lf
 *.db binary
+*.redb binary

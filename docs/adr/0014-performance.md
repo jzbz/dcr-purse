@@ -331,7 +331,10 @@ Most valuable first.
    Recommended: yes, fetching on demand for rescans below it.
 6. *S4 against ADR-0003 item 2* **Decided as recommended (project owner, 2026-11-19).** (Phase 2 keys by hash). Recommended:
    decide in Phase 2 from a grown-file measurement of both, detached rows
-   by hash (ADR-0003 Open point 5).
+   by hash (ADR-0003 Open point 5). *Measured (ADR-0003, addendum of
+   2026-11-19): by hash, initial sync writes 3.4 times the bytes and takes
+   2.8 times as long with durable commits; height keys are recommended,
+   and the schema change waits on the owner.*
 7. *ADR-0008 addendum* **Decided as recommended (project owner, 2026-11-19).** Recorded as ADR-0008's
    "Addendum (ADR-0014)". (items 2 and 3, Accepted). Recommended: permit S3's
    lock span and S5–S9, R6, R7's request sets, each with its PARITY row.

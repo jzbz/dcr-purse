@@ -450,11 +450,14 @@ neither tear nor reorder a write: it could not have caught the repair fault
 redb 4.6.0 fixed ("repair falling back to a commit slot that failed its
 checksum", redb `CHANGELOG.md:92`).
 
-**Crash safety: power cuts.** dcroxide's `PowerLossBackend` implements redb
-4's `StorageBackend`, whose methods return `std::io::Error`; redb 5's return
-`BackendError` (redb 5.0.0 `src/db.rs:72-90`), so it does not build against
-redb 5, and linking `dcroxide-testutil` as it stands would also put redb 4
-back in the graph. The spike carries a port (`src/powerloss.rs`) over an
+**Crash safety: power cuts.** dcroxide's `PowerLossBackend` implemented redb
+4's `StorageBackend` at the revision the spike was written against
+(`5c6742f`), whose methods return `std::io::Error`; redb 5's return
+`BackendError` (redb 5.0.0 `src/db.rs:72-90`), so it did not build against
+redb 5, and linking `dcroxide-testutil` then would also have put redb 4
+back in the graph. (dcroxide `f4b3d2e` moved it to redb 5 and the pin
+moved there on 2026-11-19; the store's port is in `purse-store`'s tests,
+see the addendum of that date.) The spike carries a port (`src/powerloss.rs`) over an
 in-memory image, which counts every write, length change and sync. `spike
 powerloss` lets the tiny workload run to each storage operation in turn,
 cuts the power there, discarding every write since the last sync or, torn,
@@ -502,7 +505,9 @@ session noise):
 - **Input selection: 4x to 71x**, growing with size: `MakeInputSource`
   counts the unspent bucket with `KeyN`, a full walk, every time it is
   created; the prototype keeps the count in `meta`, and each candidate
-  costs one read instead of three to four. The eligible set is now
+  costs one read instead of three to four. (`purse-store` reads redb's
+  table length instead, kept in the table's root at no cost, and has no
+  counter row; addendum of 2026-11-19, "Schema version 1 as built".) The eligible set is now
   cross-checked (Correctness).
 - **History by account: 11x to 230x**; dcrwallet has no such path, and a
   client walks history backward resolving every credit and debited output
@@ -634,7 +639,8 @@ to allow it is Open point 4.
 
    | table | key | value | dcrwallet access path it serves |
    |---|---|---|---|
-   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
+   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker *(as built: no unspent count, which is the length of `unspent`; birth state and have-cfilters added; addendum of 2026-11-19)* | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
+   | `wallet` *(added, addendum of 2026-11-19)* | name | master-key parameters, sealed crypto keys, coin-type keys, slip0044 account 0, watch-only, last account, last imported account | the address manager's wallet-wide rows (`waddrmgr/main`, `waddrmgr/meta`) |
    | `accounts` | account u32 **LE** | last used and last returned child per branch; name | account iteration in dcrwallet's order, `AccountProperties`, `MarkUsedChildIndex` |
    | `account_names` | name | account | `LookupAccount` |
    | `addr_by_hash` | HASH160 | account, branch, index | `Manager.Address`, `AddrAccount` by script; ownership on ingest |
@@ -768,7 +774,8 @@ to allow it is Open point 4.
 - Balance, selection, cold-start and per-account history costs no longer
   grow with the wallet; ingest commits once per write instead of twice.
 - `balances`, `balance_heights`, `history`, `acct_history`,
-  `addr_by_path`, `addr_by_acct_sha` and the unspent counter are maintained
+  `addr_by_path`, `addr_by_acct_sha` and the unspent counter (as built,
+  no counter: redb's table length serves; addendum of 2026-11-19) are maintained
   only by the write path, in the same transaction as the data, including
   through stake invalidation, validation and rollback; nothing builds them
   in bulk.
@@ -781,7 +788,11 @@ to allow it is Open point 4.
   rule 5); until then no wallet crate may link `dcroxide-stake` or
   `dcroxide-gcs`. The power-loss rig either moves to redb 5 with dcroxide's
   `dcroxide-testutil` in that move, or the spike's port goes into the
-  wallet's own test utilities.
+  wallet's own test utilities. *Since 2026-11-19: dcroxide's redb 5 move
+  landed at `f4b3d2e` and the pin moved to it, so the redb majors match;
+  the stake gate has not landed, so a wallet crate linking `dcroxide-stake`
+  links `dcroxide-database` until it does (ADR-0006 addendum). The rig went
+  into `purse-store`'s own tests (`tests/support/powerloss.rs`).*
 - The spike's oracle command imports `blockchain/stake/v5`, `txscript/v4`
   and `gcs/v4`, which `tools/oracle/go.mod` lists as indirect; a future
   `go mod tidy` would mark them direct.
@@ -856,7 +867,9 @@ to allow it is Open point 4.
      `block_by_hash` and `cfilters`, or other tables every block commit
      touches, would cut the pages each commit writes (see "What the schema
      costs"); not measured. Recommended: measure in Phase 2 before the
-     schema is frozen.
+     schema is frozen. *Measured (2026-11-19 addendum): each further table
+     a commit touches costs about 6.9 KiB and well under 1 ms; not merging
+     is recommended.*
 - **Power-loss rig before acceptance.** The sweep above ran on redb 5.0.0
   at every storage operation of the tiny workload; it should be repeated
   on the exact 5.0.x the wallet pins when dcroxide moves (ADR-0006 rule 5),
@@ -865,3 +878,167 @@ to allow it is Open point 4.
 
 No disagreement between the specs read (02, 03, 04, 05) and the Go source
 was found on the paths the spike exercised.
+
+## Addendum, 2026-11-19 — Phase 2 measurements: headers and filters by height or by hash, and tables per commit
+
+ADR-0014 Open point 6 and this ADR's Open point 9 were both decided as
+"measure in Phase 2". The measurements are `crates/purse-store/tests/measure.rs`
+(ignored tests, rerun with the command in its header) and the
+2026-11-19 rows of [`docs/bench-ledger.md`](../bench-ledger.md).
+
+**Method.** Every store is a real file written through `purse-store`'s own
+commit path (`Store::update`, `Durability::Immediate`, redb 5.0.0 as
+pinned) under a backend that wraps redb's file backend and counts bytes
+written, write calls and syncs. Byte, write and sync counts are
+deterministic and were identical in all three runs; times are medians of
+three runs in one session with their range, on an x86_64 Linux desktop
+(16 cores, NVMe SSD, btrfs with compression over an encrypted mapping)
+that was carrying other work (load average 9 to 27), so a single durable
+commit's sync drifted between 8 and 20 ms from run to run. Release build,
+Rust 1.100.0. No Go was run: both questions are between layouts of the
+Rust store.
+
+**Headers and filters (ADR-0014 Open point 6).** 1,050,000 blocks (about
+mainnet's height when the pin's chaincfg was cut), a 180-byte header and a
+committed filter of 170 to 369 bytes (270 on average, the assumption of
+"Header and filter ingest" above) each, in 525 commits of 2,000 blocks,
+in three layouts: *hash*, the schema as built (`headers` and `cfilters` by
+block hash, `blocks` by height, `block_by_hash`); *height* (`headers` and
+`cfilters` by height, the other two unchanged); and *merged* (Open point
+9: one table by height holding block row, header and filter, plus
+`block_by_hash`). Then 200 single-block commits at the tip of the grown
+file, and warm reads.
+
+| | hash | height | merged |
+|---|---:|---:|---:|
+| whole ingest, median (range) | 90.0 s (89.3–91.5) | 32.4 s (30.1–45.5) | 32.5 s (28.8–43.2) |
+| bytes written by the ingest | 13.99 GiB | 4.06 GiB | 4.05 GiB |
+| write calls | 3,667,272 | 1,065,867 | 1,062,337 |
+| one 2,000-block commit, last 50, p50 | 201.8 ms (198.0–212.8) | 71.9 ms (68.3–88.9) | 65.2 ms (64.8–69.2) |
+| bytes per 2,000-block commit, last 50 | 32.25 MiB | 9.21 MiB | 9.18 MiB |
+| one-block tip commit, p50 | 18.25 ms (9.73–18.78) | 18.28 ms (17.40–19.46) | 18.59 ms (17.01–19.84) |
+| bytes and writes per tip commit | 85.2 KiB, 22.2 | 84.4 KiB, 22.0 | 52.5 KiB, 14.0 |
+| header by height, warm | 1.59 µs | 0.65 µs | 0.80 µs |
+| header by hash, warm | 0.87 µs | 1.57 µs | 1.87 µs |
+| 2,000 consecutive filters by height, warm | 1.79 ms | 0.17 ms | 0.26 ms |
+| file after the ingest; after close | 1,088 MiB; 1,088 MiB | 1,088 MiB; 1,029 MiB | 1,088 MiB; 1,031 MiB |
+
+Keyed by hash, every batch of new headers lands on random leaves of two
+grown trees, so a 2,000-block commit rewrites 3.5 times the bytes of the
+same commit keyed by height, whose new rows append to the right edge;
+initial sync with every commit durable takes 2.8 times as long. A
+rescan's filter
+reads by height are about ten times faster by height, one range scan
+instead of a lookup per block. A commit of one block at the tip costs the
+same either way: one leaf per table. What the height layout costs is a
+header looked up by hash (`getblockheader`, `GetBlockMetaForHash`): two
+lookups instead of one, 1.57 against 0.87 µs warm. Detached headers and
+filters, which the height layout keeps in their own tables keyed by hash
+(Open point 5), were not exercised: the measurement has no
+reorganisation, and how a reorganisation moves rows between the main-chain
+and detached tables is not designed yet.
+
+*Answer to ADR-0014 Open point 6:* key main-chain headers and filters by
+height, detached ones by hash in separate tables. The relaxed-durability
+figures of "Header and filter ingest" above were measured on the spike's
+height keys and assume this layout. The schema in `purse-store` still keys
+them by hash; changing it adds tables to Decision item 2's list and changes
+`SyncBatch`, and waits on the owner.
+
+**Tables per commit (Open point 9).** Fifteen tables of 100,000 rows each
+(36-byte random keys, 60-byte values: the shape of credit and unspent
+rows), 272 MiB; then commits of 30 new rows with random keys spread evenly
+over 1, 2, 4, 8 or 15 tables chosen at random, 100 commits per spread, the
+spreads interleaved.
+
+| tables a commit touches | 1 | 2 | 4 | 8 | 15 |
+|---|---:|---:|---:|---:|---:|
+| bytes per commit | 222.6 KiB | 245.9 KiB | 264.6 KiB | 287.6 KiB | 319.8 KiB |
+| write calls per commit | 56.6 | 62.4 | 67.1 | 72.8 | 80.9 |
+| p50, median of three runs | 18.21 ms | 18.38 ms | 18.36 ms | 18.62 ms | 19.11 ms |
+
+Each further table a commit touches adds about 6.9 KiB (under two pages:
+its root-to-leaf path above the leaves the rows need anyway) and, within
+any one run, 0.9 to 1.2 ms over fifteen tables, 5 to 15 % of a commit that
+the single sync dominates. Merging `blocks`, `headers` and `cfilters`
+into one table beside `block_by_hash` (four tables a commit to two: the
+*merged* layout above) cuts a tip commit's bytes by 38 % (52.5 against
+85.2 KiB) and changes nothing measurable in its time or in a 2,000-block
+batch. Open point 9 also proposed folding `block_by_hash` in; that
+variant, one table a commit, was not measured.
+
+*Answer to Open point 9:* do not merge. A block commit that touches about
+fifteen tables pays at most about 15 % in time and 44 % in bytes over one
+that touched a single table, against the read-side gains the derived tables
+buy (Performance, above: balances 670x and more, history by account 11x to
+230x); the header-and-filter gain comes from height keys, not from fewer
+tables. Revisit if bytes written per commit come to matter in their own
+right (flash wear on small devices), which was not studied.
+
+**The power-loss rig on the pinned release** ("Power-loss rig before
+acceptance", above). The spike's port of dcroxide's backend now lives in
+`purse-store`'s tests (`tests/support/powerloss.rs`, answering the last
+Consequences bullet), and the sweep ran on redb 5.0.0 exactly as the
+workspace pins it: a power cut at every storage operation of a workload
+(creation, wallet-shaped commits, an initial sync with a reorganisation,
+a bulk delete), clean, torn, and with every write kept as a killed process
+leaves it; with every commit durable and with relaxed initial-sync
+batches. Every reopened store held exactly the rows of one commit, at or
+after the last acknowledged durable one, and relaxed commits were lost
+only within their bound; a backend that acknowledges syncs without making
+anything durable fails the sweep (`tests/powerloss.rs`). Migrations cut at
+every write end at the old or the new version (`tests/migration.rs`).
+These run on Linux in this measurement; CI runs them on every platform of
+its matrix.
+
+## Addendum, 2026-11-19 — Schema version 1 as built: wallet-wide rows, no unspent counter
+
+Review of `purse-store` found two places where Decision item 2's schema,
+as first built, did not match what the store must hold. Both are changed
+in schema version 1 before it is released (no dcr-purse release exists,
+and no wallet has been written at version 1, since `purse-udb` is not
+built); the checked-in version-1 fixture
+(`crates/purse-store/tests/data/schema-v1.redb`) was regenerated with them,
+and its pinned SHA-256 in `tests/migration.rs` changed with it.
+
+**Wallet-wide rows.** ADR-0001, accepted, exports the address manager's
+wallet-wide state (§6.1 `[wallet]`: watch-only, last account, last
+imported account; §6.2 `[masterkeys]`; §6.3 `[cryptokeys]`; §6.4
+`[cointypes]` with the parked SLIP0044 account 0 row) and the transaction
+store's birthday and have-cfilters rows (§6.8), and its restore contract
+needs the active coin type and the birthday; §11 has the Rust producer
+take every field from dcr-purse's own state. Neither Decision item 2's
+table nor its "Phase 2 adds" list had a place for them, and the closed
+`meta` names turned any such row into a corrupt-row error on a typed walk.
+The schema now has:
+
+- a `wallet` table keyed by name, one value type per name
+  (`purse_store::wallet::WalletRecord`): `cointype_legacy` and
+  `cointype_slip0044` (sealed extended public and private key, each
+  optional), `crypto_pub` and `crypto_priv` (sealed bytes),
+  `last_account` and `last_imported` (u32 BE), `master_pub` and
+  `master_priv` (salt, digest, scrypt N, r, p; 88 bytes),
+  `slip0044_acct0` (the two version-1 counters, sealed keys, name) and
+  `watch_only` (one byte); the layouts are on the value types in
+  `crates/purse-store/src/values.rs`;
+- in `meta`, `birth` (dcrwallet's 45-byte `birthstate` layout: options,
+  hash, height BE, time BE) and `have_cfilters` (one byte).
+
+dcrwallet's `mgrcreated`, `wtxmgr/date` and `wtxmgr/bal` are not kept:
+each is written from udb's own clock or balance and read by nothing at the
+pin (ADR-0001 §6.1), so under ADR-0001 §11 comparisons of those fields use
+the observable profile. The VSP host index (`vsphostindex`) belongs to the
+VSP records, which come with them in a later schema version, as do the
+other records "Phase 2 adds" names (multisig, voting accounts, agenda and
+treasury policies, spec 05's aux buckets).
+
+**No unspent counter.** The `meta` unspent count duplicated what redb
+already keeps: every table's length is in its root and read in O(1)
+(redb 5.0.0 `src/tree_store/btree.rs:937-938`, `:1226-1227`), the
+uncommitted writes of a write transaction included. The counter row could
+only drift from the table, and nothing would have noticed. It is gone;
+`KeyN` of `u` is `ReadTx::unspent_count`, the length of `unspent`. In a
+write transaction that count includes the transaction's own writes, where
+bbolt's does not (QK-0003); dcrwallet's one such call, `txToMultisig`'s,
+comes before any write to `unspent` in its transaction (PARITY.md,
+`purse-store`).

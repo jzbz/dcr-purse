@@ -29,8 +29,9 @@ brief writes "address manager at v3.0.0 semantics (D7)", §6) and Phase 11
 directly and four more indirectly (dcrwallet `go.mod:7-28`, `:50-53`),
 with no `replace` (spec 23 §5.4.2 item 1). dcr-purse consumes dcroxide as
 git dependencies at one revision since the first crates (`3237b79`); the
-revision is `5c6742f` since `b40513c` (`Cargo.toml`,
-`[workspace.dependencies]`). Its dcrd pin is master `46e9df48` (dcroxide
+revision was `5c6742f` from `b40513c` and is `f4b3d2e` since the pin
+move of 2026-11-19 (`Cargo.toml`, `[workspace.dependencies]`; addendum
+below). Its dcrd pin is master `46e9df48` (dcroxide
 `docs/PARITY.md:3-4`). dcroxide moves that pin at upstream milestones and
 on its owner's word, and each move brings frozen batteries due (dcroxide
 `docs/PARITY.md:5-7`; dcroxide `docs/adr/README.md`, ADR-0001 entry). An
@@ -302,3 +303,15 @@ day. Three things it found bear on this record:
 
 The mainnet seeder dcrd added after chaincfg v3.3.0 is `dcr-seed.jz.bz`; the
 ledger names it at the owner's direction.
+
+## Addendum, 2026-11-19 — pin moved to dcroxide `f4b3d2e`
+
+The pin moved from `5c6742f` to `f4b3d2e`, two dcroxide commits: the
+Rust 1.100.0 toolchain (`5ce3046`) and redb 5.0.0 in `dcroxide-database`
+and `dcroxide-testutil` (`f4b3d2e`). No crate dcr-purse links changed, and
+dcroxide's dcrd pin and reference Go are unchanged, so no ledger row's
+delta moved; `docs/SKEW.md` records the move in its 2026-11-19 section.
+The constraint under Consequences, that linking `dcroxide-stake` or
+`dcroxide-gcs` puts redb 4 and 5 in one graph, no longer holds: dcroxide
+now resolves redb 5. The `dcroxide-stake` storage gate has not landed, so
+linking either crate still links `dcroxide-database` (ADR-0006 rule 5).

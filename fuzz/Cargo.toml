@@ -19,6 +19,7 @@ purse-boltread = { path = "../crates/purse-boltread" }
 purse-hdkeychain = { path = "../crates/purse-hdkeychain" }
 purse-mixsolver = { path = "../crates/purse-mixsolver" }
 purse-seed = { path = "../crates/purse-seed" }
+purse-store = { path = "../crates/purse-store" }
 sntrup4591761 = { path = "../crates/sntrup4591761" }
 
 [[bin]]
@@ -52,6 +53,20 @@ bench = false
 [[bin]]
 name = "sntrup_decapsulate"
 path = "fuzz_targets/sntrup_decapsulate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_decode"
+path = "fuzz_targets/store_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_open"
+path = "fuzz_targets/store_open.rs"
 test = false
 doc = false
 bench = false

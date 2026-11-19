@@ -11,12 +11,13 @@ dcrwallet's behaviour at the pinned commit is the specification. The plan is
 in [dcr-purse-project-brief.md](docs/dcr-purse-project-brief.md), the 25
 specifications it rests on are in [docs/specs](docs/specs/README.md),
 [PARITY.md](docs/PARITY.md) maps every dcrwallet package to its crate and
-status, and [QUIRKS.md](docs/QUIRKS.md) lists the upstream behaviours that are
-reproduced or deliberately not.
+status, [QUIRKS.md](docs/QUIRKS.md) lists the upstream behaviours that are
+reproduced or deliberately not, and [bench-ledger.md](docs/bench-ledger.md)
+records the performance measurements.
 
 **Status: early. This is not a wallet yet, and nothing here should hold
-funds.** The first libraries exist; there is no daemon, no store, no sync and
-no RPC server.
+funds.** The first libraries exist, the wallet's store among them with no
+wallet logic over it yet; there is no daemon, no sync and no RPC server.
 
 ## What "drop-in" means
 
@@ -58,6 +59,7 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-txauthor` | dcrwallet `wallet/txauthor`: the fee, input and change loop over abstract input and change sources, change-position randomization with an injectable random source, and the input-signing loop | implemented, differential against Go |
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
 | `sntrup4591761` | `companyzero/sntrup4591761`: the Streamlined NTRU Prime 4591^761 KEM of the mixing key exchange, byte-compatible down to the randomness it draws | implemented, differential against Go; 13 to 44 times faster than Go, constant time |
+| `purse-store` | the wallet's own store on redb 5 in place of `walletdb` and bbolt (ADR-0003): every table of the schema with documented encodings, typed transactions, bbolt-ordered cursors, schema versioning and migrations, relaxed durability confined to initial sync | in progress: cursors conform to bbolt through the oracle; a power cut at every storage operation, a model-based property test and a migration cut at every write pass (brief Phase 2's exit tests); the multisig, voting-account, VSP, agenda and treasury records and spec 05's aux buckets, and backup, not yet written |
 | `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
 | `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
 | `purse-bench` | — | the benchmark harness of [ADR-0014](docs/adr/0014-performance.md): dcr-purse's workloads against their Go counterparts (`tools/oracle/cmd/bench`) on the same inputs, alternating in one session; not shipped. Results: [bench-ledger.md](docs/bench-ledger.md) |

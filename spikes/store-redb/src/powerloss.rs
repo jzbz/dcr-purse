@@ -1,9 +1,11 @@
 //! Storage that models power loss under the store, for redb 5.
 //!
 //! A port of `dcroxide-testutil`'s `PowerLossBackend` (dcroxide
-//! `crates/dcroxide-testutil/src/powerloss.rs`), which implements redb 4's
-//! `StorageBackend` with `std::io::Error` results and does not build
-//! against redb 5, whose trait returns `BackendError`. Two changes beyond
+//! `crates/dcroxide-testutil/src/powerloss.rs`), which at the revision this
+//! spike was written against (`5c6742f`) implemented redb 4's
+//! `StorageBackend` with `std::io::Error` results and did not build against
+//! redb 5, whose trait returns `BackendError` (dcroxide moved it to redb 5
+//! at `f4b3d2e`). Two changes beyond
 //! the port: the storage is an in-memory image rather than a file (a sweep
 //! over every storage operation of a run reopens thousands of images), and
 //! a cut can tear the unsynced writes instead of discarding them all.

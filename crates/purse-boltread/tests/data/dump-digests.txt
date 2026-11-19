@@ -1,0 +1,16 @@
+# Canonical dumps of the fixtures in this directory, as the Go oracle
+# (tools/oracle/cmd/boltdump, bbolt v1.3.12) writes them.
+# "frozen-4k.db@meta0" is frozen-4k.db with meta page 1 invalidated, so
+# that bbolt falls back to the older snapshot on meta page 0.
+# <file> <txid> <entries> <sha256>
+upstream/v1.db.gz 3 3462 ef7714b4b7864e12d893e916d3bcfedf0696088a98be6502c7bd3afa133d199a
+upstream/v11.db.gz 4 223 f9bb7a0b28125f64d1b8134f596d324cf19601730c7c1d312cf93457c6a3ceb8
+upstream/v2.db.gz 3 59 fb21b4c8cca15e07d74c7aa61e39da67a641f72ab5cb99fd8f72228037a0c846
+upstream/v24.db.gz 3 87 99be2ea48ee6b83939689c114ced0c9771a464a50aa9dc1db76056cb3b839091
+upstream/v3.db.gz 3 56 9ca029b979fa4c18614a07ea0594ca1245944f11621a5c1b88f2a5dce82d4465
+upstream/v4.db.gz 4 79 3774f0d8edc29d4019cb8c093d96d9a1dcc2484708a337bb686439e0b45301f7
+upstream/v5.db.gz 4 100 d38e3ffd55dda1fe17bb0c7e6fec56d3e8df1b3f37d2adbf363eab143c470db0
+upstream/v7.db.gz 4 80 5b84807d671ce63fe2ff81ff03a4041e53a921ebf210714e288824cfdfebf64e
+frozen-4k.db 5 57 44a82d3108ba60c061d82c43c4abd93687558ce8d96718198d2334790d40ef44
+frozen-deep-4k.db 3 46 05990cfc7674e76063dbee96090287a92c5722c7608630ec6d9b775b61e02fd7
+frozen-4k.db@meta0 4 53 eff4467df29042c20174b8d45c7ecd2312f06324e59186d94ddc0e951d62c480

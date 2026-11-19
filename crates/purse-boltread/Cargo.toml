@@ -1,0 +1,20 @@
+[package]
+name = "purse-boltread"
+description = "Read-only reader for bbolt v1.3.12 database files, the format of dcrwallet's wallet.db"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2 = "0.11.1"
+
+[dev-dependencies]
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
+purse-testutil.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

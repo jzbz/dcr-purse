@@ -543,6 +543,17 @@ fn check(label: &str, sep: &'static str, nodes: &[Value], go: &Value) -> usize {
     let vals = build(nodes);
     let rust = eval(&vals);
     let program = serde_json::to_string(nodes).expect("serialize");
+    // The text compared with Go is Display's, which streams; the explicit
+    // String rendering must give the same bytes.
+    for (i, v) in vals.iter().enumerate() {
+        if let Some(v) = v {
+            assert_eq!(
+                Some(v.render(sep).as_str()),
+                rust["nodes"][i]["text"].as_str(),
+                "{label}: node {i}: render differs from Display (sep {sep:?})\nprogram: {program}"
+            );
+        }
+    }
     let go_nodes = go["nodes"].as_array().expect("go nodes");
     let rust_nodes = rust["nodes"].as_array().expect("rust nodes");
     assert_eq!(go_nodes.len(), rust_nodes.len(), "{label}: node count");

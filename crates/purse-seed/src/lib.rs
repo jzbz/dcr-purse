@@ -13,9 +13,38 @@
 //!
 //! Seed material is returned in [`SecretBytes`], [`SecretString`] and
 //! [`MnemonicWords`], which zero their buffers on drop and never print their
-//! contents. Errors render as dcrwallet's `errors.Error` does, byte for byte
-//! ([`Error`]); [`ErrorCause`]'s `Display` is the bare leaf text, such as
-//! the `encoding/hex` message of [`walletseed::go_hex_decode`].
+//! contents.
+//!
+//! # Errors
+//!
+//! The fallible functions return [`purse_errors::Error`] (re-exported as
+//! [`Error`]), built as dcrwallet builds them with its `errors` package:
+//! the same operations ([`pgpwordlist::OP_DECODE_MNEMONICS`],
+//! [`walletseed::OP_GENERATE_RANDOM_SEED`],
+//! [`walletseed::OP_DECODE_USER_INPUT`]), kinds and nesting. Its text
+//! (`Display`, or `render` / `render_to` with an explicit separator) is
+//! therefore dcrwallet's byte for byte under either separator, and
+//! `kind`, `as_kind`, `is` and `matches` answer as Go's do. The leaves are
+//! this crate's [`WordError`] (which quotes a word, possibly a seed word,
+//! in wiped memory with a redacted `Debug`) and [`HexError`], the sentinel
+//! [`ERR_INVALID_SEED_LEN`], [`walletseed::RandomSourceError`], and the
+//! text `checksum mismatch`. [`SeedErrorExt`] adds a wiped rendering, the
+//! seed-length test and the leaf. "What is wiped" in the [`error`] module
+//! documentation states what is and is not wiped after rendering an error
+//! that quotes a word.
+//!
+//! **`render(sep)` no longer wipes.** This crate's former `Error::render`
+//! returned a `Zeroizing<String>`; on [`purse_errors::Error`] the same call
+//! still compiles and returns the same text, but as an ordinary `String`
+//! that is not wiped. Use [`SeedErrorExt::render_zeroizing`] (or
+//! `render_to` into a sink that wipes its memory) for any rendering of an
+//! error that may quote a seed word.
+//!
+//! Since the errors became [`purse_errors::Error`],
+//! [`std::error::Error::source`] also returns the chain as Go's `Unwrap`
+//! sees it (the nested level, then the leaf) where it used to return
+//! `None`; a reporter that prints every link of that chain prints a quoted
+//! word once per link (see "What is wiped").
 //!
 //! # Text input
 //!
@@ -25,12 +54,26 @@
 //! decide how to convert it before calling them; only
 //! [`walletseed::go_hex_decode`] takes bytes.
 
-mod error;
+pub mod error;
 pub mod pgpwordlist;
 mod secret;
 pub mod walletseed;
 mod wordlist;
 
-pub use error::{DAEMON_SEPARATOR, Error, ErrorCause, ErrorKind, LIBRARY_SEPARATOR, Op};
+pub use error::{ERR_INVALID_SEED_LEN, HexError, INVALID_SEED_LEN_TEXT, SeedErrorExt, WordError};
+/// The error every fallible function of this crate returns:
+/// [`purse_errors::Error`], re-exported.
+///
+/// **Its `render(sep)` returns an ordinary `String` that is not wiped,**
+/// unlike this crate's former `Error::render`, which returned a
+/// `Zeroizing<String>`. Code written against the old method still compiles
+/// unless it named that type, so the loss is silent. To render an error
+/// that may quote a seed word, call [`SeedErrorExt::render_zeroizing`], or
+/// write it with `render_to` into a sink that wipes its memory. Its
+/// [`std::error::Error::source`] chain hands out the nested level and the
+/// quoted word's [`WordError`], each of whose `Display` writes the word;
+/// see "What is wiped" in the [`error`] module documentation.
+#[doc(inline)]
+pub use purse_errors::Error;
 pub use secret::{MnemonicWords, SecretBytes, SecretString};
 pub use wordlist::WORD_LIST;

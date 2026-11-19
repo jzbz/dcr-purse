@@ -19,8 +19,9 @@ use common::{
     oracle_outcome, rust_decode_mnemonics, rust_decode_user_input, rust_encode, rust_generate,
     rust_generate_injected, user_input_corpus,
 };
+use purse_errors::MULTILINE_SEPARATOR;
+use purse_seed::WORD_LIST;
 use purse_seed::walletseed::encode_mnemonic_slice;
-use purse_seed::{LIBRARY_SEPARATOR, WORD_LIST};
 use purse_testutil::serde_json::{self, Value, json};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, Oracle, SplitMix64, hex, oracle_or_skip};
 
@@ -127,7 +128,7 @@ fn decode_user_input_mutations() {
     let mut rng = SplitMix64::from_env("purse-seed decode_user_input_mutations");
     let mut diffs = Diffs::default();
     for input in user_input_corpus(&mut rng, 2000) {
-        for sep in [None, Some(LIBRARY_SEPARATOR)] {
+        for sep in [None, Some(MULTILINE_SEPARATOR)] {
             let rust = rust_decode_user_input(&input, sep);
             let go = oracle_decode_user_input(&mut o, &input, sep);
             diffs.check("decode-user-input", &json!(input), &rust, &go);
@@ -146,7 +147,7 @@ fn decode_mnemonics_mutations() {
     let mut rng = SplitMix64::from_env("purse-seed decode_mnemonics_mutations");
     let mut diffs = Diffs::default();
     for words in mnemonics_corpus(&mut rng, 1000) {
-        for sep in [None, Some(LIBRARY_SEPARATOR)] {
+        for sep in [None, Some(MULTILINE_SEPARATOR)] {
             let rust = rust_decode_mnemonics(&words, sep);
             let go = oracle_decode_mnemonics(&mut o, &words, sep);
             diffs.check("decode-mnemonics", &json!(words), &rust, &go);
@@ -234,7 +235,7 @@ fn regenerate_frozen_vectors() {
         let daemon = oracle_outcome(o.try_call(cmd, decode_args(key, input.clone(), None)));
         let library = oracle_outcome(o.try_call(
             cmd,
-            decode_args(key, input.clone(), Some(LIBRARY_SEPARATOR)),
+            decode_args(key, input.clone(), Some(MULTILINE_SEPARATOR)),
         ));
         let mut entry = json!({ key: input, "outcome": daemon });
         if library != entry["outcome"] {

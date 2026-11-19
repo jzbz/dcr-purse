@@ -131,8 +131,39 @@ impl Error {
     /// [`Foreign`](crate::Foreign) leaf renders through its own
     /// [`Display`](fmt::Display), so an [`Error`] printed inside one uses the
     /// process-wide [`separator`].
+    ///
+    /// # Not wiped
+    ///
+    /// The returned `String` is ordinary heap memory: it is not wiped when
+    /// dropped, and while it grew it may have been reallocated, leaving
+    /// freed copies of a prefix of the text behind. For a chain whose
+    /// [`Foreign`](crate::Foreign) leaves may quote secret material, write
+    /// the text with [`render_to`](Self::render_to) into a sink that wipes
+    /// its memory instead; see "Secrets" in the [crate
+    /// documentation](crate#secrets).
     pub fn render(&self, sep: &str) -> String {
         chain::render(Node::Error(self), sep)
+    }
+
+    /// Writes the text [`render`](Self::render) returns into `out`, piece
+    /// by piece, without building it in an intermediate buffer first (a
+    /// [`Foreign`](crate::Foreign) leaf's [`Display`](fmt::Display) writes
+    /// straight into `out` too). [`Display`](fmt::Display) streams this way.
+    ///
+    /// This is the form for a sink the caller controls, such as one that
+    /// wipes its memory; see "Secrets" in the [crate
+    /// documentation](crate#secrets).
+    ///
+    /// # Errors
+    ///
+    /// Only an error from `out` itself, which ends the writing at once,
+    /// even when the foreign leaf being written ignores it; `out` then
+    /// holds a prefix of the text, and nothing is written to it after the
+    /// failure. An error a foreign leaf's `Display` returns on its own is
+    /// ignored and the rest of the text is written, exactly as `render`
+    /// writes it.
+    pub fn render_to<W: fmt::Write + ?Sized>(&self, out: &mut W, sep: &str) -> fmt::Result {
+        chain::render_to(Node::Error(self), sep, out)
     }
 }
 
@@ -146,9 +177,11 @@ impl Drop for Error {
     }
 }
 
+/// Streams the text into the formatter ([`Error::render_to`] with the
+/// process-wide [`separator`]); nothing is buffered on the way.
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.render(separator()))
+        self.render_to(f, separator())
     }
 }
 

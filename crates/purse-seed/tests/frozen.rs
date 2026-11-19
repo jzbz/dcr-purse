@@ -12,7 +12,8 @@ use common::{
     FROZEN_PATH, rust_decode_mnemonics, rust_decode_user_input, rust_encode, rust_generate,
     rust_generate_injected,
 };
-use purse_seed::{LIBRARY_SEPARATOR, WORD_LIST};
+use purse_errors::MULTILINE_SEPARATOR;
+use purse_seed::WORD_LIST;
 use purse_testutil::serde_json::{self, Value, json};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, unhex};
 
@@ -59,7 +60,7 @@ fn encode() {
 fn check_decode(e: &Value, decode: impl Fn(Option<&str>) -> Value) {
     assert_eq!(decode(None), e["outcome"], "{e}");
     let library = e.get("outcome_library_separator").unwrap_or(&e["outcome"]);
-    assert_eq!(&decode(Some(LIBRARY_SEPARATOR)), library, "{e}");
+    assert_eq!(&decode(Some(MULTILINE_SEPARATOR)), library, "{e}");
 }
 
 #[test]

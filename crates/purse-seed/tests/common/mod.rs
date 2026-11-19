@@ -7,12 +7,13 @@
 
 #![allow(dead_code)]
 
+use purse_errors::{DAEMON_SEPARATOR, Kind};
 use purse_seed::pgpwordlist::decode_mnemonics;
 use purse_seed::walletseed::{
     decode_user_input, encode_mnemonic, encode_mnemonic_slice, generate_random_seed,
     generate_random_seed_with,
 };
-use purse_seed::{Error, WORD_LIST};
+use purse_seed::{Error, SeedErrorExt, WORD_LIST};
 use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{OracleError, SplitMix64, hex};
 
@@ -22,13 +23,44 @@ pub const FROZEN_PATH: &str = "tests/data/seed_vectors.json";
 /// The fixed PRNG seed the frozen corpus is generated from.
 pub const FROZEN_RNG_SEED: u64 = 0x5eed_d0c5_2026_0001;
 
+/// The oracle's name for a kind: the Go constant's name for the kinds these
+/// packages use, `Kind(<n>)` for any other (`kindName` in
+/// tools/oracle/cmd/seed/main.go).
+fn kind_name(k: Kind) -> String {
+    match k {
+        Kind::Other => "Other".to_owned(),
+        Kind::Invalid => "Invalid".to_owned(),
+        Kind::Encoding => "Encoding".to_owned(),
+        other => format!("Kind({})", other.code()),
+    }
+}
+
+/// The oracle's kind of an error: that of the first `*Error` in the chain
+/// (Go's `errors.As(err, &e)`), which is the error itself.
+fn error_kind(e: &Error) -> String {
+    let first = e.as_error().expect("an Error is its own first Error");
+    kind_name(first.kind)
+}
+
+/// The text of an error under `separator`, or the daemon's when `None` (the
+/// oracle's default). The process-wide separator is never consulted, so
+/// tests running in parallel cannot disturb each other. Every rendering
+/// path must give the same bytes: `render`, `render_to` (which `Display`
+/// uses) and the wiped rendering.
+fn error_text(e: &Error, separator: Option<&str>) -> String {
+    let sep = separator.unwrap_or(DAEMON_SEPARATOR);
+    let text = e.render(sep);
+    let mut streamed = String::new();
+    e.render_to(&mut streamed, sep)
+        .expect("a String takes everything");
+    assert_eq!(streamed, text);
+    assert_eq!(e.render_zeroizing(sep).as_str(), text);
+    text
+}
+
 /// An error outcome: `{"error": text, "kind": name}`.
 fn error_value(e: &Error, separator: Option<&str>) -> Value {
-    let text = match separator {
-        Some(sep) => e.render(sep).as_str().to_owned(),
-        None => e.to_string(),
-    };
-    json!({ "error": text, "kind": e.kind().name() })
+    json!({ "error": error_text(e, separator), "kind": error_kind(e) })
 }
 
 /// The oracle's answer as an outcome value: its result, or the error shape.
@@ -88,8 +120,8 @@ pub fn rust_generate_injected(size: u64, start: u8) -> Value {
     match generate_random_seed_with(size, &mut source) {
         Ok(b) => json!({ "seed": hex(b.as_bytes()), "served": served.get() }),
         Err(e) => json!({
-            "error": e.to_string(),
-            "kind": e.kind().name(),
+            "error": error_text(&e, None),
+            "kind": error_kind(&e),
             "served": served.get(),
         }),
     }

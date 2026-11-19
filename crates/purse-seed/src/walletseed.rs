@@ -8,12 +8,25 @@
 
 use std::fmt;
 
+use purse_errors::{AnyError, Error, Kind, Op, e};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
-use crate::error::{Error, ErrorCause, ErrorKind, Op};
+use crate::error::{ERR_INVALID_SEED_LEN, HexError};
 use crate::pgpwordlist::{byte_to_mnemonic, decode_words, go_trim_space, word_index};
 use crate::secret::{MnemonicWords, SecretBytes, SecretString};
+
+/// The operation of [`generate_random_seed`]'s errors (Go's `const op` in
+/// `GenerateRandomSeed`, `walletseed/seed.go:22`).
+pub const OP_GENERATE_RANDOM_SEED: Op = Op::new("walletseed.GenerateRandomSeed");
+
+/// The operation of [`decode_user_input`]'s errors (Go's `const op` in
+/// `DecodeUserInput`, `walletseed/seed.go:72`).
+pub const OP_DECODE_USER_INPUT: Op = Op::new("walletseed.DecodeUserInput");
+
+// The three seed lengths are dcrd hdkeychain's, repeated here (as `usize`)
+// rather than taken from purse-hdkeychain, whose curve arithmetic this
+// crate does not need; a test checks that they are equal.
 
 /// The shortest seed accepted, in bytes (dcrd `hdkeychain.MinSeedBytes`,
 /// 128 bits).
@@ -27,7 +40,9 @@ pub const MAX_SEED_BYTES: usize = 64;
 /// `hdkeychain.RecommendedSeedLen`, 256 bits).
 pub const RECOMMENDED_SEED_LEN: usize = 32;
 
-/// A failure of a [`RandomSource`].
+/// A failure of a [`RandomSource`]; the underlying error of the [`Error`]
+/// that [`generate_random_seed_with`] then returns, held as a
+/// [`purse_errors::Foreign`] leaf.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RandomSourceError(String);
 
@@ -103,22 +118,23 @@ pub fn generate_random_seed(size: usize) -> Result<SecretBytes, Error> {
 ///
 /// # Errors
 ///
-/// A `size` of 255 or more, or outside
-/// [`MIN_SEED_BYTES`]`..=`[`MAX_SEED_BYTES`], gives kind
-/// [`ErrorKind::Invalid`] with cause [`ErrorCause::InvalidSeedLen`]:
+/// Every error has op [`OP_GENERATE_RANDOM_SEED`]. A `size` of 255 or
+/// more, or outside [`MIN_SEED_BYTES`]`..=`[`MAX_SEED_BYTES`], gives Go's
+/// `errors.E(op, errors.Invalid, hdkeychain.ErrInvalidSeedLen)`: kind
+/// [`Kind::Invalid`] wrapping [`ERR_INVALID_SEED_LEN`], which renders as
 /// `walletseed.GenerateRandomSeed: invalid operation: seed length must be
-/// between 128 and 512 bits`. A failing source gives kind
-/// [`ErrorKind::Other`] with cause [`ErrorCause::RandomSource`] (in Go the
-/// standard library's reader does not fail).
+/// between 128 and 512 bits`. A failing source gives Go's `errors.E(op,
+/// err)`: kind [`Kind::Other`] with the [`RandomSourceError`] as a foreign
+/// leaf (in Go the standard library's reader does not fail).
 pub fn generate_random_seed_with<R: RandomSource + ?Sized>(
     size: usize,
     rng: &mut R,
 ) -> Result<SecretBytes, Error> {
     let invalid_len = || {
-        Error::new(
-            Op::GenerateRandomSeed,
-            ErrorKind::Invalid,
-            ErrorCause::InvalidSeedLen,
+        e!(
+            OP_GENERATE_RANDOM_SEED,
+            Kind::Invalid,
+            &*ERR_INVALID_SEED_LEN
         )
     };
     // Go checks `size >= 255` (its uint8 narrowing guard) before the range
@@ -130,13 +146,8 @@ pub fn generate_random_seed_with<R: RandomSource + ?Sized>(
         return Err(invalid_len());
     }
     let mut seed = SecretBytes::zeroed(size);
-    rng.fill(seed.as_mut_bytes()).map_err(|e| {
-        Error::new(
-            Op::GenerateRandomSeed,
-            ErrorKind::Other,
-            ErrorCause::RandomSource(e.0),
-        )
-    })?;
+    rng.fill(seed.as_mut_bytes())
+        .map_err(|err| e!(OP_GENERATE_RANDOM_SEED, AnyError::foreign(err)))?;
     Ok(seed)
 }
 
@@ -208,22 +219,32 @@ pub fn encode_mnemonic(seed: &[u8]) -> SecretString {
 ///
 /// # Errors
 ///
-/// Every error has op [`Op::DecodeUserInput`] and kind
-/// [`ErrorKind::Encoding`]. The cause is [`ErrorCause::InvalidHexByte`] or
-/// [`ErrorCause::OddLengthHex`] for hex input (an invalid byte is reported
-/// in preference to odd length), [`ErrorCause::Nested`] wrapping the
-/// [`crate::pgpwordlist::decode_mnemonics`] error for a bad word,
-/// [`ErrorCause::ChecksumMismatch`], or [`ErrorCause::InvalidSeedLen`] for a
-/// decoded seed of the wrong length (including empty input).
+/// Every error is Go's `errors.E(op, errors.Encoding, err)`: op
+/// [`OP_DECODE_USER_INPUT`], kind [`Kind::Encoding`], and as `err`:
+///
+/// - for hex input, the [`HexError`] of [`go_hex_decode`] as a foreign leaf
+///   (an invalid byte is reported in preference to odd length);
+/// - for a bad word, the [`crate::pgpwordlist::decode_mnemonics`] error, a
+///   nested level (`E` neither collapses it nor changes its fields, since
+///   its op differs), whose leaf quotes the word;
+/// - the text `checksum mismatch` (a string argument, as in Go);
+/// - [`ERR_INVALID_SEED_LEN`] for a decoded seed of the wrong length
+///   (including empty input).
+///
+/// The error may quote a seed word. Render it with
+/// [`SeedErrorExt::render_zeroizing`](crate::SeedErrorExt::render_zeroizing),
+/// not `render(sep)`, whose `String` is no longer wiped; and log its
+/// `Display` once rather than its `source()` chain, which repeats the word
+/// at each of its three links (see "What is wiped" in [`crate::error`]).
 pub fn decode_user_input(input: &str) -> Result<SecretBytes, Error> {
-    let encoding = |cause| Error::new(Op::DecodeUserInput, ErrorKind::Encoding, cause);
     let trimmed = go_trim_space(input);
     let word_count = trimmed.split(' ').count();
     let seed = if word_count == 1 {
-        go_hex_decode(trimmed.as_bytes()).map_err(encoding)?
+        go_hex_decode(trimmed.as_bytes())
+            .map_err(|err| e!(OP_DECODE_USER_INPUT, Kind::Encoding, AnyError::foreign(err)))?
     } else {
         let decoded = decode_words(trimmed.split(' '), word_count)
-            .map_err(|e| encoding(ErrorCause::Nested(Box::new(e))))?;
+            .map_err(|err| e!(OP_DECODE_USER_INPUT, Kind::Encoding, err))?;
         match decoded.as_bytes().split_last() {
             // Need data and a checksum byte to check the checksum. Fewer
             // than two decoded words cannot follow from two or more
@@ -231,7 +252,11 @@ pub fn decode_user_input(input: &str) -> Result<SecretBytes, Error> {
             // check below.
             Some((&checksum, data)) if !data.is_empty() => {
                 if checksum_byte(data) != checksum {
-                    return Err(encoding(ErrorCause::ChecksumMismatch));
+                    return Err(e!(
+                        OP_DECODE_USER_INPUT,
+                        Kind::Encoding,
+                        "checksum mismatch"
+                    ));
                 }
                 SecretBytes::from_slice(data)
             }
@@ -239,7 +264,11 @@ pub fn decode_user_input(input: &str) -> Result<SecretBytes, Error> {
         }
     };
     if !(MIN_SEED_BYTES..=MAX_SEED_BYTES).contains(&seed.len()) {
-        return Err(encoding(ErrorCause::InvalidSeedLen));
+        return Err(e!(
+            OP_DECODE_USER_INPUT,
+            Kind::Encoding,
+            &*ERR_INVALID_SEED_LEN
+        ));
     }
     Ok(seed)
 }
@@ -256,22 +285,23 @@ pub fn decode_user_input(input: &str) -> Result<SecretBytes, Error> {
 ///
 /// # Errors
 ///
-/// [`ErrorCause::InvalidHexByte`] or [`ErrorCause::OddLengthHex`], whose
-/// `Display` is Go's error text (`encoding/hex: invalid byte: U+0067 'g'`,
-/// `encoding/hex: odd length hex string`).
-pub fn go_hex_decode(src: &[u8]) -> Result<SecretBytes, ErrorCause> {
+/// [`HexError::InvalidByte`] or [`HexError::OddLength`], whose `Display` is
+/// Go's error text (`encoding/hex: invalid byte: U+0067 'g'`,
+/// `encoding/hex: odd length hex string`), with no operation or kind, as
+/// the prompt prints it.
+pub fn go_hex_decode(src: &[u8]) -> Result<SecretBytes, HexError> {
     let mut out = SecretBytes::with_capacity(src.len() / 2);
     let (pairs, remainder) = src.as_chunks::<2>();
     for &[p, q] in pairs {
-        let hi = hex_value(p).ok_or(ErrorCause::InvalidHexByte(p))?;
-        let lo = hex_value(q).ok_or(ErrorCause::InvalidHexByte(q))?;
+        let hi = hex_value(p).ok_or(HexError::InvalidByte(p))?;
+        let lo = hex_value(q).ok_or(HexError::InvalidByte(q))?;
         out.push(hi.wrapping_shl(4) | lo);
     }
     if let &[last] = remainder {
         if hex_value(last).is_none() {
-            return Err(ErrorCause::InvalidHexByte(last));
+            return Err(HexError::InvalidByte(last));
         }
-        return Err(ErrorCause::OddLengthHex);
+        return Err(HexError::OddLength);
     }
     Ok(out)
 }
@@ -285,11 +315,14 @@ fn hex_value(c: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use purse_errors::DAEMON_SEPARATOR;
+
     use super::*;
+    use crate::SeedErrorExt;
 
     #[test]
     fn hex_error_precedence() {
-        let err = |s: &str| decode_user_input(s).unwrap_err().to_string();
+        let err = |s: &str| decode_user_input(s).unwrap_err().render(DAEMON_SEPARATOR);
         let prefix = "walletseed.DecodeUserInput: invalid encoding: ";
         assert_eq!(
             err("abc"),
@@ -333,18 +366,28 @@ mod tests {
         for size in [0, 15, 65, 254, 255, 256, usize::MAX] {
             let e = generate_random_seed_with(size, &mut rng).unwrap_err();
             assert_eq!(counter.get(), 16, "size {size} consumed randomness");
-            assert_eq!(e.kind(), ErrorKind::Invalid);
+            assert_eq!(e.kind, Kind::Invalid);
+            assert_eq!(e.op, OP_GENERATE_RANDOM_SEED);
             assert!(e.is_invalid_seed_len());
             assert_eq!(
-                e.to_string(),
+                e.render(DAEMON_SEPARATOR),
                 "walletseed.GenerateRandomSeed: invalid operation: \
                  seed length must be between 128 and 512 bits"
             );
         }
         let mut failing = |_: &mut [u8]| Err(RandomSourceError::new("no entropy"));
         let e = generate_random_seed_with(32, &mut failing).unwrap_err();
-        assert_eq!(e.kind(), ErrorKind::Other);
-        assert_eq!(e.to_string(), "walletseed.GenerateRandomSeed: no entropy");
+        assert_eq!(e.kind, Kind::Other);
+        assert_eq!(e.as_kind(), None);
+        assert!(!e.is_invalid_seed_len());
+        assert_eq!(
+            e.find_foreign::<RandomSourceError>(),
+            Some(&RandomSourceError::new("no entropy"))
+        );
+        assert_eq!(
+            e.render(DAEMON_SEPARATOR),
+            "walletseed.GenerateRandomSeed: no entropy"
+        );
         for size in [MIN_SEED_BYTES, RECOMMENDED_SEED_LEN, MAX_SEED_BYTES] {
             assert_eq!(generate_random_seed(size).unwrap().len(), size);
         }

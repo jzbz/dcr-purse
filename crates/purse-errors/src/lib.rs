@@ -76,7 +76,52 @@
 //! that must quote secret material belongs in an error type local to the
 //! crate that owns the secret, passed in through [`AnyError::foreign`],
 //! which holds the secret in `Zeroizing` and whose `Debug` redacts it
-//! (`purse-seed`'s `ErrorCause` is the model).
+//! (`purse-seed`'s `WordError` is the model).
+//!
+//! A [`Foreign`] leaf is shared, not copied, by clones of the chain, and
+//! [`Debug`](std::fmt::Debug) of a chain prints it through the leaf's own
+//! `Debug`. Its text leaves the leaf only when the chain is rendered:
+//!
+//! - [`Display`](std::fmt::Display) and [`Error::render_to`] /
+//!   [`AnyError::render_to`] write each piece straight into the caller's
+//!   sink, with no intermediate buffer; whatever that sink is (a
+//!   `to_string()` result, a log line) belongs to the caller. If the sink
+//!   fails, nothing more is written to it, so it holds a prefix of the
+//!   text, and `render_to` reports the failure even when a leaf's
+//!   `Display` ignored it.
+//! - [`Error::render`] and [`AnyError::render`] return an ordinary
+//!   `String`, which is not wiped and may have been reallocated while it
+//!   grew, leaving freed copies of a prefix behind. To render into wiped
+//!   memory, size a buffer with one `render_to` into a byte counter and
+//!   write it with a second through a writer that refuses to grow it,
+//!   starting again in a larger buffer if `render_to` reports that refusal
+//!   (a leaf's text may be longer the second time).
+//! - [`AnyError::matches`] / [`Error::matches`], and [`AnyError::is`] /
+//!   [`Error::is`] with an [`AnyError::Error`] target (Go's `errors.Is`
+//!   with an `*Error` template), may render the candidate. This happens
+//!   when every template level above matches on operation and kind and
+//!   the template's underlying error at some depth is not an [`Error`]:
+//!   the candidate's whole underlying error at that depth, including any
+//!   nested [`Error`] levels with their operation prefixes and the leaf
+//!   below them, is then rendered with the process-wide [`separator`] into
+//!   a temporary `String` that is not wiped and may leave freed copies
+//!   behind from reallocation (the template's side is rendered the same
+//!   way). A template with no underlying error at that depth renders
+//!   nothing.
+//! - [`std::error::Error::source`] hands out each nested [`Error`] level
+//!   and then the foreign leaf itself (as Go's `Unwrap` does), and every
+//!   one of those links' `Display` includes the leaf's text. A reporter
+//!   that walks the source chain and prints each link (anyhow's or eyre's
+//!   chain formats, tracing's error-chain formatting) therefore writes the
+//!   leaf's text once per link. To log a chain whose leaf may quote secret
+//!   material, print its `Display` once instead.
+//!
+//! The streaming is pinned by tests where safe Rust can observe it: the
+//! pieces a sink receives from `render_to` and from `Display`, and that a
+//! failed sink receives nothing more. The absence of freed heap copies in
+//! general, for example from inside a leaf's own `Display`, is checked by
+//! review only, since observing it would need a custom global allocator,
+//! and this crate forbids `unsafe`.
 
 #![forbid(unsafe_code)]
 

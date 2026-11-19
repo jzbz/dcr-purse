@@ -10,11 +10,17 @@ repository.workspace = true
 
 [dependencies]
 getrandom = "0.4.3"
+# dcrwallet's errors package: the errors these packages return.
+purse-errors.workspace = true
 # `zeroize` wipes the hasher state and block buffer on drop.
 sha2 = { version = "0.11.1", default-features = false, features = ["zeroize"] }
 zeroize = "1.9.2"
 
 [dev-dependencies]
+# Only to check that the seed-length constants and the ErrInvalidSeedLen
+# text equal hdkeychain's: a normal dependency would pull its curve
+# arithmetic into a crate that needs three numbers and one sentence.
+purse-hdkeychain = { path = "../purse-hdkeychain" }
 purse-testutil.workspace = true
 
 [lints]

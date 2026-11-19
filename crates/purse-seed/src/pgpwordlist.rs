@@ -8,11 +8,16 @@
 
 use std::sync::LazyLock;
 
+use purse_errors::{AnyError, Error, Kind, Op, e};
 use zeroize::Zeroizing;
 
-use crate::error::{Error, ErrorCause, ErrorKind, Op};
+use crate::error::WordError;
 use crate::secret::SecretBytes;
 use crate::wordlist::WORD_LIST;
+
+/// The operation of [`decode_mnemonics`]'s errors (Go's `const op` in
+/// `DecodeMnemonics`, `pgpwordlist/pgpwordlist.go:37`).
+pub const OP_DECODE_MNEMONICS: Op = Op::new("pgpwordlist.DecodeMnemonics");
 
 /// The length of the longest word in the list.
 const MAX_WORD_LEN: usize = 11;
@@ -51,9 +56,19 @@ pub fn byte_to_mnemonic(b: u8, index: usize) -> &'static str {
 ///
 /// # Errors
 ///
-/// Kind [`ErrorKind::Encoding`], op [`Op::DecodeMnemonics`], with cause
-/// [`ErrorCause::UnknownWord`] or [`ErrorCause::WrongPosition`]; the
-/// message quotes the trimmed word as given.
+/// Go's `errors.E(op, errors.Encoding, err)`: op [`OP_DECODE_MNEMONICS`],
+/// kind [`Kind::Encoding`], and as the underlying error a [`WordError`]
+/// ([`WordError::UnknownWord`] or [`WordError::WrongPosition`]) held as a
+/// [`purse_errors::Foreign`] leaf, where Go has the text error of
+/// `errors.Errorf`. The text is Go's and quotes the trimmed word as given;
+/// the leaf keeps the word in wiped memory and out of `Debug` output (see
+/// "What is wiped" in [`crate::error`]).
+///
+/// Render the error with
+/// [`SeedErrorExt::render_zeroizing`](crate::SeedErrorExt::render_zeroizing),
+/// not `render(sep)`, whose `String` is no longer wiped; and log its
+/// `Display` once rather than its `source()` chain, which repeats the word
+/// at each of its two links.
 pub fn decode_mnemonics<S: AsRef<str>>(words: &[S]) -> Result<SecretBytes, Error> {
     decode_words(words.iter().map(AsRef::as_ref), words.len())
 }
@@ -71,22 +86,22 @@ pub(crate) fn decode_words<'a>(
             continue;
         }
         let Some(b) = lookup(w) else {
-            return Err(Error::new(
-                Op::DecodeMnemonics,
-                ErrorKind::Encoding,
-                ErrorCause::UnknownWord {
+            return Err(e!(
+                OP_DECODE_MNEMONICS,
+                Kind::Encoding,
+                AnyError::foreign(WordError::UnknownWord {
                     word: Zeroizing::new(w.to_owned()),
-                },
+                })
             ));
         };
         if usize::from(b & 1) != idx & 1 {
-            return Err(Error::new(
-                Op::DecodeMnemonics,
-                ErrorKind::Encoding,
-                ErrorCause::WrongPosition {
+            return Err(e!(
+                OP_DECODE_MNEMONICS,
+                Kind::Encoding,
+                AnyError::foreign(WordError::WrongPosition {
                     word: Zeroizing::new(w.to_owned()),
                     position: idx,
-                },
+                })
             ));
         }
         decoded.push(u8::try_from(b.wrapping_shr(1)).unwrap_or_default());

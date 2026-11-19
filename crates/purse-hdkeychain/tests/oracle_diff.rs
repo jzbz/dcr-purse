@@ -10,7 +10,8 @@
 //!   (default 3000).
 //! - `PURSE_HD_LZ_PER_WORKER`: seeds each of the 16 leading-zero search
 //!   streams screens (default 25000).
-//! - `PURSE_TEST_SEED`: the PRNG seed (printed by each test).
+//! - `PURSE_TEST_SEED`: the run seed, mixed with each test's label (printed
+//!   by each test); unset, every run uses the same inputs.
 //! - `PURSE_REQUIRE_ORACLE`: fail instead of skipping without Go.
 
 #![allow(

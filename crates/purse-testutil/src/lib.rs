@@ -62,29 +62,43 @@ pub fn unhex(s: &str) -> Vec<u8> {
 pub struct SplitMix64(pub u64);
 
 impl SplitMix64 {
-    /// A generator seeded from `PURSE_TEST_SEED` (decimal or `0x` hex) when
-    /// set, and from a fixed per-label default otherwise. The seed is printed
-    /// so a failing run can be reproduced.
+    /// The generator for `label`, from `PURSE_TEST_SEED` (decimal or `0x`
+    /// hex; 0 when unset), through [`SplitMix64::for_label`].
+    ///
+    /// With the variable unset every label has a fixed stream, the same on
+    /// every run; setting it moves every label to another stream. The value
+    /// to set is printed (with the label's resulting state) so a failing run
+    /// can be reproduced.
     pub fn from_env(label: &str) -> Self {
-        let seed = env::var("PURSE_TEST_SEED")
+        let base = env::var("PURSE_TEST_SEED")
             .ok()
             .and_then(|v| parse_seed(&v))
-            .unwrap_or_else(|| {
-                label.bytes().fold(0x9e37_79b9_7f4a_7c15_u64, |h, b| {
-                    (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-                })
-            });
-        eprintln!("{label}: PURSE_TEST_SEED={seed:#x}");
-        SplitMix64(seed)
+            .unwrap_or(0);
+        let rng = Self::for_label(label, base);
+        eprintln!("{label}: PURSE_TEST_SEED={base:#x} (state {:#x})", rng.0);
+        rng
+    }
+
+    /// The generator for `label` under the run seed `base`: the label's
+    /// hash (FNV-1a style) XORed with `base` passed through SplitMix64's
+    /// output mix, a bijection that maps 0 to 0.
+    ///
+    /// Different labels therefore get different states under every `base`,
+    /// so two tests that share a run seed do not start from one state (with
+    /// the run seed used directly as the state, they did, and replayed one
+    /// stream); and `base` 0 gives each label the state it has always had
+    /// by default.
+    pub fn for_label(label: &str, base: u64) -> Self {
+        let hash = label.bytes().fold(0x9e37_79b9_7f4a_7c15_u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+        SplitMix64(hash ^ mix64(base))
     }
 
     /// The next 64 bits.
     pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
+        mix64(self.0)
     }
 
     /// A value in `0..n` (`n` must be nonzero; slightly biased, fine for tests).
@@ -106,6 +120,13 @@ impl SplitMix64 {
         self.fill(&mut out);
         out
     }
+}
+
+/// SplitMix64's output function: a bijection on `u64` with `mix64(0) == 0`.
+fn mix64(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
 }
 
 /// Parses a seed given as decimal or `0x`-prefixed hex.
@@ -511,6 +532,44 @@ mod tests {
         let mut rng = SplitMix64(7);
         let bytes = rng.bytes(33);
         assert_eq!(unhex(&hex(&bytes)), bytes);
+    }
+
+    /// With no run seed each label keeps the state it has always had
+    /// (recorded results name these), e.g. the wallet leading-zero search's.
+    #[test]
+    fn default_label_states_are_unchanged() {
+        assert_eq!(
+            SplitMix64::for_label("hdkeychain-wallet-leading-zero", 0).0,
+            0x4020_8241_5563_402f
+        );
+        assert_eq!(mix64(0), 0);
+    }
+
+    /// Two labels under one run seed do not share a stream. The run seed was
+    /// once used as the state directly, so every label replayed one stream
+    /// (the wallet differential's random seeds reappeared in its
+    /// leading-zero search); this compares the first outputs of two labels
+    /// under several run seeds, that full run's included.
+    #[test]
+    fn labels_under_one_run_seed_get_disjoint_streams() {
+        const N: usize = 50_000;
+        for base in [0, 1, 7, 0x0050_6873_6531_0001, u64::MAX] {
+            let a = SplitMix64::for_label("hdkeychain-wallet-random", base);
+            let b = SplitMix64::for_label("hdkeychain-wallet-leading-zero", base);
+            assert_ne!(a.0, b.0, "run seed {base:#x}");
+            let mut a_out = a.clone();
+            let seen: std::collections::HashSet<u64> = (0..N).map(|_| a_out.next_u64()).collect();
+            let mut b_out = b.clone();
+            assert!(
+                (0..N).all(|_| !seen.contains(&b_out.next_u64())),
+                "run seed {base:#x}: the two labels' streams overlap"
+            );
+        }
+        // Different run seeds move a label.
+        assert_ne!(
+            SplitMix64::for_label("x", 1).0,
+            SplitMix64::for_label("x", 2).0
+        );
     }
 
     #[test]

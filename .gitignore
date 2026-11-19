@@ -1,0 +1,18 @@
+# Rust (the build directory normally lives outside the tree)
+/target
+fuzz/target
+fuzz/coverage
+
+# Go oracle binaries from a manual `go build` in tools/oracle (the test
+# harness builds into <target-dir>/<profile>/oracle instead)
+tools/oracle/purse-oracle-*
+tools/oracle/*.exe
+
+# Editors
+*.swp
+.idea/
+.vscode/
+
+# cargo-fuzz output from a run that named no corpus or artifact directory
+fuzz/corpus
+fuzz/artifacts

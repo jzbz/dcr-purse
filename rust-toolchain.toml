@@ -1,0 +1,6 @@
+# The toolchain every build uses, and — because `rust-version` in Cargo.toml
+# names the same release — also the oldest one the workspace supports.  The
+# two are bumped together: moving this pin is an MSRV bump.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]

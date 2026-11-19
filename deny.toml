@@ -1,0 +1,58 @@
+# Policy is dcroxide's (its deny.toml and ADR-0012): pure Rust, no duplicate
+# versions, crates.io plus dcroxide's own repository as the only sources.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = [
+    "ISC",
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
+
+[bans]
+# A new duplicate fails the build.  Cargo.lock is committed, so the check
+# is deterministic and trips only on a deliberate lockfile change.
+multiple-versions = "deny"
+
+# Refuse C where a build would get it.  cargo-deny matches a ban by name,
+# so a -sys crate is refused through the driver it builds or finds its C
+# with: cc, cmake, pkg-config, vcpkg and bindgen.  The crypto libraries in
+# C and assembly are refused by name as well, as is libsecp256k1's binding:
+# secp256k1 runs on k256.  cc's one permitted taker is blake3, which
+# dcroxide's chain parameters bring in: its build script asks the C compiler
+# about two flags, and its features are held to `pure` below so it compiles
+# no C or assembly.  Only this workspace is read: fuzz/, with its own lock,
+# keeps libFuzzer's C++.
+deny = [
+    { crate = "ring", reason = "C and assembly" },
+    { crate = "aws-lc-rs", reason = "binds aws-lc-sys, C and assembly" },
+    { crate = "aws-lc-sys", reason = "C and assembly" },
+    { crate = "secp256k1-sys", reason = "libsecp256k1's C; secp256k1 runs on k256" },
+    { crate = "cc", wrappers = ["blake3"], reason = "runs a C or C++ compiler from a build script" },
+    { crate = "cmake", reason = "drives a C or C++ build through CMake" },
+    { crate = "pkg-config", reason = "finds a system C library for a build script to link" },
+    { crate = "vcpkg", reason = "finds or builds a C or C++ library to link" },
+    { crate = "bindgen", reason = "reads C headers through libclang, for C a crate compiles or links" },
+]
+
+[[bans.features]]
+crate = "blake3"
+allow = ["pure"]
+exact = true
+reason = "only `pure` keeps blake3's C and assembly out of a build"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# dcroxide's crates are consumed from its repository at one pinned revision.
+[sources.allow-org]
+github = ["jzbz"]

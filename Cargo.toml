@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# cargo-fuzz targets: a workspace of their own, built on nightly.
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["The dcr-purse developers"]
+edition = "2024"
+# The pinned build toolchain itself (rust-toolchain.toml); bumped together.
+rust-version = "1.100.0"
+license = "ISC"
+repository = "https://github.com/jzbz/dcr-purse"
+
+# Decred primitives come from dcroxide at one pinned revision (brief, D3).
+# Every dcroxide crate names the same `rev`; move them together.
+[workspace.dependencies]
+dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
+
+purse-testutil = { path = "crates/purse-testutil" }
+
+serde_json = "1"
+
+# Release binaries: single codegen unit with thin LTO, line tables kept.
+# A panic aborts: state a panic left half-mutated cannot be reasoned about in
+# a process that holds keys and a database.  Overflow wraps, as Go's does;
+# sites that rely on it say so with `wrapping_*`.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+debug = "line-tables-only"
+panic = "abort"
+overflow-checks = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+arithmetic_side_effects = "warn"

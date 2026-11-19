@@ -1,0 +1,16 @@
+[package]
+name = "purse-testutil"
+description = "Internal test utilities: the dcrwallet oracle harness and a deterministic PRNG (not for release)"
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

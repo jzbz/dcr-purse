@@ -1,0 +1,4 @@
+# Force LF line endings in the working tree on every platform: tests embed
+# checked-in vectors and compare them byte for byte against Go's output.
+* text=auto eol=lf
+*.db binary

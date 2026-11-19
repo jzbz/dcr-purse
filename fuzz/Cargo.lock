@@ -357,12 +357,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "purse-errors"
+version = "0.1.0"
+
+[[package]]
 name = "purse-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "purse-boltread",
  "purse-hdkeychain",
+ "purse-mixsolver",
  "purse-seed",
 ]
 
@@ -378,10 +383,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "purse-mixsolver"
+version = "0.1.0"
+dependencies = [
+ "dcroxide-crypto",
+]
+
+[[package]]
 name = "purse-seed"
 version = "0.1.0"
 dependencies = [
  "getrandom",
+ "purse-errors",
  "sha2",
  "zeroize",
 ]

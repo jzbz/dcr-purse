@@ -55,6 +55,7 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-snacl` | dcrwallet `snacl` and `kdf`: scrypt and secretbox key sealing, Argon2id and XChaCha20-Poly1305 for account passphrases | implemented, differential against Go |
 | `purse-dcrutil` | dcrd `dcrutil` v4.0.3: `Amount` with Go's float conversion, WIF, transaction sorting | implemented, differential against Go |
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
+| `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
 | `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
 
 Decred primitives (BLAKE-256, RIPEMD-160, secp256k1 through `dcroxide-dcrec`,

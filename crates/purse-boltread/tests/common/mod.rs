@@ -378,27 +378,40 @@ impl Synth {
     }
 }
 
+/// How long one case may run.  A case takes milliseconds; the margin is for
+/// a slow, loaded CI runner in a debug build.
+const CASE_DEADLINE: Duration = Duration::from_secs(30);
+
 /// Aborts the process when one case runs past its deadline: a removed guard
 /// in the reader then fails the suite at once instead of hanging it.
+///
+/// Nothing is timed until the first [`Watchdog::case`], so a test's setup,
+/// which may build the Go oracle from cold, is not held to a case's deadline.
 pub struct Watchdog {
-    state: Arc<Mutex<(String, Instant)>>,
+    state: Arc<Mutex<Option<(String, Instant)>>>,
     stop: Arc<AtomicBool>,
 }
 
 impl Watchdog {
     pub fn new(test: &str) -> Self {
-        let state = Arc::new(Mutex::new((format!("{test}: setup"), Instant::now())));
+        let state: Arc<Mutex<Option<(String, Instant)>>> = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
         let (s, st) = (state.clone(), stop.clone());
+        let test = test.to_owned();
         std::thread::spawn(move || {
             while !st.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(100));
-                let (name, since) = s
+                let current = s
                     .lock()
                     .map(|g| g.clone())
                     .unwrap_or_else(|e| e.into_inner().clone());
-                if since.elapsed() > Duration::from_secs(10) {
-                    eprintln!("watchdog: case {name:?} ran over 10 s; aborting");
+                if let Some((name, since)) = current
+                    && since.elapsed() > CASE_DEADLINE
+                {
+                    eprintln!(
+                        "watchdog: {test}: case {name:?} ran over {} s; aborting",
+                        CASE_DEADLINE.as_secs()
+                    );
                     std::process::abort();
                 }
             }
@@ -409,7 +422,7 @@ impl Watchdog {
     /// Starts the deadline of a new case.
     pub fn case(&self, name: &str) {
         let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *g = (name.to_owned(), Instant::now());
+        *g = Some((name.to_owned(), Instant::now()));
     }
 }
 

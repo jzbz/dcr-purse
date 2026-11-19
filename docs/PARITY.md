@@ -4,7 +4,7 @@ Maps every dcrwallet package, and every linked dependency the port has to supply
 
 Status values: **not started**, **in progress**, **ported** (implemented, upstream tests ported), **pinned** (differential coverage against the Go oracle in CI), **n/a** (deliberately not ported, with the reason).
 
-The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, dcrd's `hdkeychain`, and the read path of bbolt (a test utility only, not shipped in the wallet: ADR-0013). `purse-snacl`, `purse-dcrutil` and `purse-mixsolver` are in progress. Everything else is not started. The rows marked "pinned" below have their upstream tests ported and a differential against the Go oracle that CI runs on Linux (x86-64 and arm64), macOS and Windows, with frozen Go-generated vectors beside it.
+The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, dcrd's `hdkeychain`, and the read path of bbolt (a test utility only, not shipped in the wallet: ADR-0013). `purse-snacl`, `purse-dcrutil` and `purse-mixsolver` are in progress. Everything else is not started. The rows marked "pinned" below have their upstream tests ported and a differential against the Go oracle that CI runs on Linux (x86-64 and arm64), macOS and Windows, with frozen Go-generated vectors beside it. What holds each parity clause of the Phase 1 exit, test by test, is recorded in [PHASE1-EXIT.md](PHASE1-EXIT.md).
 
 ## dcrwallet packages
 

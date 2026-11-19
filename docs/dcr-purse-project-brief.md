@@ -200,7 +200,8 @@ Phases are ordered by dependency and sized S/M/L/XL including tests. Every exit 
 
 - `purse-errors` first: it fixes the error text every later crate emits.
 - `purse-seed`, `purse-hdkeychain`, `purse-dcrutil`, `purse-snacl`; the `dcroxide-dcrec`, `dcroxide-crypto` and `dcroxide-wire` additions.
-- **Exit:** for at least 10⁶ random seeds plus every seed whose path contains a leading-zero key in a targeted search, account xpubs and the first addresses of both branches equal the Go oracle's; all `hdkeychain`, `pgpwordlist`, `walletseed`, `snacl` upstream vectors pass; secretbox/Argon2 blobs written by Go open in Rust and the reverse; error rendering equals Go's for a generated corpus of nested errors.
+- **Exit:** for at least 10⁶ random seeds plus every seed whose path contains a leading-zero key in a targeted search, account xpubs and the first addresses of both branches equal the Go oracle's; all `hdkeychain`, `pgpwordlist`, `walletseed`, `snacl` upstream vectors pass; secretbox/Argon2 blobs written by Go open in Rust and the reverse; error rendering equals Go's for a generated corpus of nested errors; measured by `purse-bench` against Go in one session (ADR-0014's Phase 1 row), no slower than Go on public derivation, address, script, HMAC, hash160 and base58, at most 1.15 times Go's time on the secret paths (master key, hardened and private child with the public key), and at least 1.5 times faster on 20,000 addresses.
+- **Status (2026-11-19):** the four parity clauses of the exit are met, each held by tests in the normal suite; the full 10⁶-seed run is an ignored test, run once with its result recorded. What holds each clause, with test names and counts, and what is left uncovered: [PHASE1-EXIT.md](PHASE1-EXIT.md). Speed, first measured 2026-11-19 on a shared desktop ([bench-ledger.md](bench-ledger.md), first entry): public derivation, address, script, HMAC, hash160 and base58 encoding meet the row (Rust's time 0.55 to 0.95 of Go's), and 20,000 addresses are derived 1.8 times as fast; base58 decoding is at parity with Go, neither met nor missed (Rust/Go 0.98 to 1.02 over ten sessions, the verdict flipping with noise; about half of Rust's time is dcroxide-crypto's portable BLAKE-256 against Go's AVX assembly); the secret paths do not meet it (1.57 to 1.59 times Go's time against at most 1.15), because dcroxide-dcrec multiplies the generator without k256's precomputed tables (ADR-0014 O1, being changed in dcroxide). The speed clause is therefore not met until the dcroxide pin moves past that change and a dedicated machine confirms the row, base58 decoding included.
 
 ### Phase 2 — Store design *(M)* — spec 04 §5.1, D2 (spec 01 as reference)
 
@@ -322,7 +323,7 @@ Policy is dcroxide's: pure Rust (dcroxide's ADR-0012), `cargo-deny` on licenses,
 | JSON | `dcroxide-dcrjson` Go-compatible emitter | wallet types written as descriptors; no serde in the RPC crates |
 | Config | dcroxide's go-flags layer, taught v1.5.0 | v1.5.0 and v1.6.1 differ in integer bases and boolean values |
 | Terminal | a minimal no-echo prompt | Windows console and Unix termios without `unsafe` in our crates |
-| Test/QA | `proptest`, `cargo-fuzz` (separate `fuzz/` workspace), `cargo-deny`; benchmarks through a purpose-built harness and a bench ledger | as dcroxide, which does not use `criterion` |
+| Test/QA | `proptest`, `cargo-fuzz` (separate `fuzz/` workspace), `cargo-deny`; benchmarks through a purpose-built harness, `purse-bench`, with its Go counterpart in `tools/oracle`, and the bench ledger `docs/bench-ledger.md` (ADR-0014) | as dcroxide, which does not use `criterion` |
 
 ---
 
@@ -370,7 +371,7 @@ Each becomes an ADR. Recommendations are the brief's, not settled outcomes; the 
 | Milestone | Phases | Demo / acceptance |
 |---|---|---|
 | **M0 — Rig** | P0 | CI, oracle shims, bbolt reader's dump equal to Go's (met for the upstream fixtures and generated databases, not for a funded simnet wallet, Phase 0; the reader is a test utility since 2026-11-18, ADR-0013), D1–D10 decided |
-| **M1 — Wallet libraries, store and database logic** | P1–P3 | keys and addresses equal to Go's across 10⁶ seeds; wallets of every shape built by the same operation scripts in Go and Rust have equal logical exports (*Proposed*, ADR-0013 Open point 6, replacing "Go-written wallets of every shape import losslessly"); operation-script differential green |
+| **M1 — Wallet libraries, store and database logic** | P1–P3 | keys and addresses equal to Go's across 10⁶ seeds (met at Phase 1, [PHASE1-EXIT.md](PHASE1-EXIT.md)); wallets of every shape built by the same operation scripts in Go and Rust have equal logical exports (*Proposed*, ADR-0013 Open point 6, replacing "Go-written wallets of every shape import losslessly"); operation-script differential green |
 | **M2 — Syncing wallet (RPC mode)** | P4–P6 | Go-created wallet restored from its seed, synced through dcrd and dcroxide, sends and receives, in agreement with Go restored from the same seed, and on balances and mined history with the original Go wallet, which holds only seed-derived state within the default gap limits (*Proposed*, ADR-0013 Open point 6, replacing "imported … in agreement with Go on the original") |
 | **M3 — JSON-RPC drop-in** | P7–P8 | golden suite (non-deferred methods) and `dcrctl --wallet` sweep green; config and IPC parity; paired-wallet soak |
 | **M4 — Staking** | P9 | tickets, VSP, votes byte-equal to Go's on simnet |

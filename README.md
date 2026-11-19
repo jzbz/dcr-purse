@@ -57,6 +57,7 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
 | `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
 | `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
+| `purse-bench` | — | the benchmark harness of [ADR-0014](docs/adr/0014-performance.md): dcr-purse's workloads against their Go counterparts (`tools/oracle/cmd/bench`) on the same inputs, alternating in one session; not shipped. Results: [bench-ledger.md](docs/bench-ledger.md) |
 
 Decred primitives (BLAKE-256, RIPEMD-160, secp256k1 through `dcroxide-dcrec`,
 chain parameters and, later, wire, txscript, stake, gcs and the rest) come from
@@ -105,7 +106,7 @@ Environment variables the tests read:
 |---|---|
 | `PURSE_REQUIRE_ORACLE` | a missing Go toolchain fails differential tests instead of skipping them, and so does an oracle built with any Go release but the reference one |
 | `PURSE_ORACLE_DIR` | use prebuilt `purse-oracle-<name>` binaries from this directory instead of building them |
-| `PURSE_TEST_SEED` | seed for generated test inputs (decimal or `0x` hex); every run prints the one it used |
+| `PURSE_TEST_SEED` | run seed for generated test inputs (decimal or `0x` hex); unset, every test uses the same fixed inputs on every run; each test mixes it with its own label, so tests with different labels start from different states; every run prints the value to set to reproduce it |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |
 | `PURSE_ERRORS_PROGRAMS` | number of random programs in the `purse-errors` differential |
 | `PURSE_REQUIRE_FLINT` | the `purse-mixsolver` comparison against the FLINT-backed reference solver fails instead of skipping when that oracle is missing; it needs FLINT installed and the oracle built with `-tags flint` into `PURSE_ORACLE_DIR` |
@@ -116,6 +117,30 @@ Fuzz targets build on nightly with
 ```sh
 RUSTUP_TOOLCHAIN=nightly cargo fuzz run --fuzz-dir fuzz seed_decode
 ```
+
+## Benchmarks
+
+Speed is measured against Go on the same machine in one session
+([ADR-0014](docs/adr/0014-performance.md)); results are entries in
+[bench-ledger.md](docs/bench-ledger.md), under the rules at its top. The
+driver builds the Go side from `tools/oracle`, runs the two sides
+alternately (at least 3 processes each), checks that both produced the same
+outputs, and prints the table; the raw output goes to the directory named,
+which must be new or empty:
+
+```sh
+cargo build --release -p purse-bench
+target/release/purse-bench drive --out <new directory> --runs 5 --cpus 12-15 --go-tags flint
+```
+
+`--cpus` pins every measured process with `taskset -c` (Linux);
+`--go-tags flint` adds the mixing solver's Go reference, which needs FLINT
+installed (see `tools/oracle/cmd/mixsolver`); `--only` takes comma-separated
+substrings of workload names; `--smoke` runs each workload once at reduced
+sizes, which the test suite does. The CI gate is the same driver with
+`--gate crates/purse-bench/gate-baseline.tsv`: it fails when a ratio of
+Rust's time to Go's is more than twice its baseline. The workloads and
+their criteria are listed in `crates/purse-bench/src/lib.rs`.
 
 ## Conventions
 

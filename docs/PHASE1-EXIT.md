@@ -1,0 +1,88 @@
+# Phase 1 exit record (parity)
+
+The brief's Phase 1 exit (section 6) has four parity clauses. This record names, for each, the tests that hold it, what they compare and how many cases, and what is left. Parity pin: dcrwallet `54b85b33` (dcrd `hdkeychain` v3.1.3, `txscript/v4` `stdaddr` as dcrwallet links them); dcroxide at `5c6742f7`. ADR-0014's speed row for Phase 1 is measured by `purse-bench` and recorded in the bench ledger (`docs/bench-ledger.md`); its result is summarized under "Speed" at the end.
+
+All counts below are for the default sizes the normal test suite (`PURSE_REQUIRE_ORACLE=1 cargo test --workspace`, as CI runs it on Linux, macOS and Windows) uses, unless stated otherwise. Random inputs come from `purse_testutil::SplitMix64::from_env`: with `PURSE_TEST_SEED` unset (as in CI) each test's inputs are fixed by its label and are the same on every run; setting `PURSE_TEST_SEED` (a run seed, mixed with each label, so tests with different labels start from different states) varies them. Each test prints the value to set to reproduce it.
+
+## 1. Account xpubs and first addresses, 10⁶ seeds and every leading-zero seed
+
+> for at least 10⁶ random seeds plus every seed whose path contains a leading-zero key in a targeted search, account xpubs and the first addresses of both branches equal the Go oracle's
+
+**Held by** `crates/purse-hdkeychain/tests/wallet_diff.rs`, against the oracle command `wallet` of `tools/oracle/cmd/hdkeychain` (`wallet.go`). For each seed, Go calls dcrwallet's own `udb.HDKeysFromSeed` (what wallet creation and restore call) for the legacy and SLIP0044 coin type keys and account 0 of each; derives account 1 as `udb.Manager.NewAccount` does (reached through `Wallet.NextAccount`), from the coin type key re-parsed from its string; serializes each account's extended public key as the wallet stores it; and makes the first address of the external and internal branch from that key re-parsed, through `deriveBranches`, `deriveChildAddress` and `compat.HD2Address` (an internal package, copied verbatim into `compat.go`; `compat_test.go` fails if the copy drifts from the pinned module). The Rust side (`tests/common/wallet.rs`) composes `purse-hdkeychain` and dcroxide-txscript's `stdaddr` (the address encoding dcr-purse uses) in the same steps. Per seed and coin type, one line carries the neutered coin type key, and one line per account carries the account xpub and both addresses: four account lines per seed.
+
+Account 0 comes from the coin type key as derived, which `hdkeychain` stores stripped of leading zero bytes when it has them; account 1 comes from the re-parsed key, padded back to 32 bytes. The two routes give different accounts exactly when the coin type key was stored stripped (spec 02, the stored-stripped quirk), so both are compared.
+
+| Test | What | Default size |
+|---|---|---|
+| `random_seeds_match_go` | random seeds (32 bytes, one in eight of another allowed length), split evenly over mainnet, testnet3, simnet and regnet (the test asserts the split from the counts compared); on each network the first 8 line by line, the rest in batches by SHA-256 of the lines | 4,000 seeds, 1,000 per network, 16,000 account lines (`PURSE_HD_WALLET_SEEDS`) |
+| `leading_zero_seeds_match_go` | a search over 16 streams of 32-byte seeds with a fast filter (HMAC-SHA512 and a scalar addition per hardened step) that flags a seed when any private key on dcrwallet's own routes for mainnet's coin types 20 and 42 starts with a zero byte: master, purpose, coin type (derived from the stripped purpose key), account 0 (from the stripped coin type key) and account 1 (from the padded one); **every** seed flagged is compared on mainnet. Also asserts that each depth is reached and that stripped coin type keys occur, and checks for each that its two account-1 routes differ | 400,000 screened; about 3.1% flagged (12,392 with the default inputs, the label's state `0x402082415563402f`: 1,625 master, 1,565 purpose, 3,159 coin type, 6,147 account keys with zeros, 49 with two zero bytes; 3,164 stripped coin type keys) (`PURSE_HD_WALLET_LZ_PER_WORKER`) |
+| `seed_lengths_match_go` | seeds of 0, 1, 15, 16, 32, 64, 65 and 100 bytes on all four networks: Go's error text for the five disallowed lengths | 32 seeds |
+| `frozen_wallet_lines` | Go's full lines for a fixed set, replayed without Go: 8 random seeds per network, the empty and a 65-byte seed, and 24 leading-zero seeds (6 per hardened depth) from a fixed search; the file holds an entry count and a body hash, and is checked against the deterministic set it was made from | 58 entries, `tests/data/wallet_lines.txt` |
+| `million_seeds_match_go` (ignored) | the full run: 10⁶ random seeds, then the search over 4,000,000 seeds with every flagged seed compared | see below |
+
+**The full run, once.** Command (the oracle is built on first use):
+
+```text
+PURSE_TEST_SEED=0x50687365310001 PURSE_REQUIRE_ORACLE=1 cargo test --release \
+    -p purse-hdkeychain --test wallet_diff -- --ignored --nocapture million_seeds
+```
+
+Result, 2026-11-19, on an x86_64 Linux desktop (AMD Ryzen 9 7950X3D, 16 cores, 32 threads; shared with other work: one-minute load average 14.4 when the run started (five- and fifteen-minute 15.4 and 19.9) and 38.0 at its end, much of it the test's own threads, about 26 cores busy on average from its CPU time), Rust 1.100.0, Go 1.27.4, the repository at `6ea843d` plus the uncommitted changes that add these tests: **passed**. 1,000,000 random seeds (250,000 on each network), 4,000,000 account lines, equal to Go, in 130 s; 4,000,000 seeds screened, 123,318 flagged and every one compared on mainnet (493,272 account lines), equal to Go, in 18 s. Counted per depth (one seed can count at several): 15,638 seeds with a zero byte on the master key, 15,764 on the purpose key, 31,203 on a coin type key, 61,999 on an account key; 521 of these with two zero bytes, 1 with three; 31,260 coin type keys stored stripped, each with its two account-1 routes differing. 1,123,318 seeds compared in all. The random seeds and the search draw from different streams (the run seed is mixed with each test's label): a copy of the generators in Python found the 1,000,000 random seeds distinct and none of the 4,000,000 screened seeds among them (the search's 16 streams were not checked against each other). Wall time 157.8 s for the test, the build done beforehand.
+
+An earlier run of the same command, before the run seed was mixed with each test's label, gave both tests one stream: worker 0 of the search replayed the random seeds' generator, and 41,395 of the seeds it screened were random seeds already compared. That run also passed; the figures above are from the run after the fix.
+
+**Below the wallet level** the key derivation itself is held, line by line on every intermediate key, by the earlier `crates/purse-hdkeychain/tests/oracle_diff.rs` (`random_seeds_along_wallet_paths`: 3,000 seeds, 10 paths each, 180,000 key lines with `child`, `child_bip32_std`, re-parses and public derivation; `leading_zero_seeds`: a 400,000-seed search, every hardened depth, the provenance split; `parse_corpus_matches_go`; `public_derivation_equals_neutered_private`) and the frozen files under `crates/purse-hdkeychain/tests/data` (`leading_zero_lines.txt` 16, `leading_zero_digests.txt` 255, `random_seed_digests.txt` 128, `parse_corpus_*.txt` 399 entries each).
+
+**Also checked:** dcrwallet's own `TestAddresses` vectors (`wallet/addresses_test.go`: the first five external and internal addresses of account 0 of a simnet wallet, with HASH160 and public key) as derivation vectors, in `crates/purse-hdkeychain/tests/upstream_examples.rs` `dcrwallet_test_addresses_vectors`.
+
+**Not covered:** no wallet crate exists yet, so the Rust side of this differential is the composition in `tests/common/wallet.rs`, not `purse-udb`; when `purse-udb` derives accounts and addresses these tests must call it. The leading-zero search follows mainnet's coin types; the other networks' coin types (testnet3 1 and 11, simnet 1 and 115, regnet 1 and 1) are compared on random seeds only. Accounts above 1, address indexes above 0 and the coin type upgrade are not compared here (spec 02; Phase 3).
+
+## 2. Upstream vectors
+
+> all `hdkeychain`, `pgpwordlist`, `walletseed`, `snacl` upstream vectors pass
+
+| Upstream file (at the pin) | Port | Tests |
+|---|---|---|
+| dcrd `hdkeychain/v3@v3.1.3/extendedkey_test.go` | `crates/purse-hdkeychain/tests/upstream.rs` | all 8: `TestBIP0032Vectors` (21 vectors), `TestPrivateDerivation` (13), `TestPublicDerivation` (12), `TestGenenerateSeed` (7), `TestExtendedKeyAPI` (2), `TestErrors` (5 parse cases and the seed and hardened-from-public errors), `TestZero` (2), `TestBIP0032Vector4` (3); vector names checked equal to upstream's for the BIP32 table |
+| dcrd `hdkeychain/v3@v3.1.3/example_test.go` | `crates/purse-hdkeychain/tests/upstream_examples.rs` (new) | `Example_newMaster`, `Example_defaultWalletLayout` (two mainnet addresses), `Example_audits` (a neutered master key), with their `// Output:` text. Spec 02 had listed this file as "not needed"; its outputs are vectors, so it is ported and the spec is corrected |
+| dcrd `hdkeychain/v3@v3.1.3/bench_test.go` | not a test | five benchmarks, no vectors |
+| dcrwallet `pgpwordlist/pgpwordlist_test.go` | `crates/purse-seed/tests/upstream_pgpwordlist.rs` | `TestDecode`, `TestEncodeMnemonics` (2 vectors) |
+| dcrwallet `walletseed/seed_test.go` | `crates/purse-seed/tests/upstream_walletseed.rs` | `TestEncodeMnemonicSlice`, `TestEncodeMnemonic`, `TestDecodeMnemonic`, `TestDecodeHex` |
+| dcrwallet `wallet/internal/snacl/snacl_test.go` | `crates/purse-snacl/tests/upstream_snacl.rs` | all 10, as one test in source order because the Go tests share state (QK-0658); no fixed vectors upstream (salts and nonces are random) |
+| dcrwallet `kdf/` | — | no upstream tests; covered by the differential and frozen vectors below |
+| dcrwallet `errors/errors_test.go` (not named by the clause) | `crates/purse-errors/src/tests.rs` | `TestCollapse`, `TestIs`, `TestDoubleWrappedErrorWithKind` |
+
+Beyond the upstream vectors: `crates/purse-seed/tests/oracle.rs` and `frozen.rs` (`seed_vectors.json`), `crates/purse-snacl/tests/frozen.rs` (`snacl_vectors.txt`, 1,178 entries; `fixture_vectors.txt`, 49).
+
+## 3. Key blobs in both directions
+
+> secretbox/Argon2 blobs written by Go open in Rust and the reverse
+
+**Go to Rust.** `crates/purse-snacl/tests/oracle.rs` `differential_against_go`: 1,178 requests over 17 commands, each answered by Go and replayed by Rust, including every box and blob Go sealed (scrypt master-key parameters, XSalsa20-Poly1305 boxes under a crypto key and under a master key, Argon2id parameters, XChaCha20-Poly1305 account blobs), each opened with the right key, a wrong key, one flipped bit and every truncation; Rust reproduces each Go-sealed value byte for byte from the same nonce. `frozen_vectors_against_go` and `frozen.rs` hold the same as frozen vectors. `crates/purse-snacl/tests/fixtures.rs` opens the keys sealed in every upstream fixture database (`wallet/udb/testdata`, v1 to v24) and `generated_db.rs` and `generated_database_against_go` every sealed value of a whole database Go's `udb` wrote, at dcrwallet's real costs (Argon2id at 256 MiB included).
+
+**Rust to Go.** `crates/purse-snacl/tests/oracle.rs` `rust_written_blobs_open_in_go` (new): values this crate writes with its own randomness, through the plain constructors a wallet uses, are opened by the Go oracle: 6 scrypt master-key parameter sets (three small costs, snacl's defaults N = 16384, r = 8, p = 1, and the two costs dcrwallet itself writes, `udb.scryptOptionsForNet` at the pin: N = 2^18, r = 8, p = 1 on mainnet, testnet3 and regnet, N = 2, r = 1, p = 1 on simnet), from which Go derives the same key and refuses a wrong passphrase; 18 boxes sealed under those master keys (each master key sealing a fresh crypto key, as a wallet's do, an empty and a random plaintext); 24 boxes sealed under the crypto keys; Argon2id parameters from `Argon2idParams::new` (operating-system salt, this machine's thread count) read back by Go; and 9 account blobs under keys derived at three small Argon2id costs, opened by Go through `account-unseal` (which re-derives the key from the parameters and passphrase) and `unseal`. Go must also refuse each kind of value once tampered with: every box and account blob with one bit flipped (account blobs through both `unseal` and `account-unseal`); each scrypt parameter set with a bit flipped in its salt or digest, truncated by a byte, and with a wrong passphrase; the Argon2id parameters with a bit flipped in the salt (`account-unseal` with the right passphrase must then fail) and truncated by a byte (`argon2-unmarshal`). Bits of the cost fields (scrypt's N, r, p; Argon2id's time, memory, threads) are not flipped: a flipped high bit asks Go for terabytes of memory. The test asserts these counts. `dcrwallet_scrypt_costs_are_the_ones_go_wrote` (same file, no oracle needed) holds the two dcrwallet costs the test uses to databases Go wrote: both master key parameter sets of each upstream fixture (testnet3) carry N = 2^18, r = 8, p = 1, and those of the generated simnet database N = 2, r = 1, p = 1.
+
+**Not covered:** the Rust-to-Go direction derives Argon2id keys at small memory costs only; dcrwallet's 256 MiB Argon2id cost is used from Go to Rust (the generated database) but not from Rust to Go, to keep the test suite fast. (scrypt at dcrwallet's real costs is covered in both directions.) dcr-purse writes no database, so no whole Rust-written database is opened by Go.
+
+## 4. Error rendering
+
+> error rendering equals Go's for a generated corpus of nested errors
+
+**Held by** `crates/purse-errors/tests/oracle.rs` `differential_against_go`: 24 fixed programs and 600 random ones (2 to 9 nodes each, every node an `E` with up to five arguments, a literal `*Error`, a bare kind, `errors.New`, a `%w` wrap of up to three earlier values or a join, so values nest through earlier ones), each under the daemon separator `":: "` and the library's `":\n\t"`: 1,248 evaluations, comparing for every value the rendered text, the chain after `E`'s promote and collapse rules, `Is` against every kind and every other value, `As`, `Unwrap` and the stack count. Go panics in about 400 `Is` queries per run (the deliberate divergence QK-0628); those are not compared. `frozen_vectors` replays 168 frozen programs (the fixed ones under both separators and 120 random ones) and the kind table without Go. `crates/purse-errors/tests/deep.rs` builds, renders and drops chains a million levels deep on a small stack.
+
+## What else Phase 1 lists
+
+The second bullet of Phase 1 also lists `purse-dcrutil` and the `dcroxide-dcrec`, `dcroxide-crypto` and `dcroxide-wire` additions. They are not part of the exit sentence and were not audited for this record; `purse-dcrutil`'s status is in [PARITY.md](PARITY.md).
+
+One defect in dcroxide at the pin was met while adding these tests: `dcroxide-txscript` does not build without its `std` feature (`stdaddr.rs` calls `f64::log2`, which `core` lacks). `purse-hdkeychain`'s dev-dependency turns `std` on; nothing shipped depends on the crate yet.
+
+## Speed (ADR-0014's Phase 1 row)
+
+> no slower than Go on public derivation, address, script, HMAC, hash160, base58; secret paths (master, hardened and private child with public key) ≤1.15× [Go's time]; [at least] 1.5 times faster on 20,000 addresses
+
+**Measured by** `crates/purse-bench` against `tools/oracle/cmd/bench` (dcrwallet's own packages at the pin), the two alternating in one session, 5 processes per side; the workloads, inputs and their mapping to the clauses are in `crates/purse-bench/src/lib.rs`. Both sides' outputs (keys, addresses, scripts, digests) are cross-checked in every process (the solver workloads cross-check the instance, and each side checks its own solver's roots against it before timing), and `crates/purse-bench/tests/smoke.rs` (`smoke_session_agrees_with_go`) holds the two sides to the same 21 outputs in every test run.
+
+**Result,** 2026-11-19, the ledger's first entry (a shared desktop, measured processes pinned to four cores; to be confirmed on a dedicated machine): met for public derivation (Rust's time 0.55 of Go's), address (0.56), script (0.55), HMAC-SHA512 (0.86), hash160 (0.84), base58check encode (0.95), and the 20,000-address workload (1.80 times as fast). **Undecided** for base58check decode: the entry measured 0.98, but nine later sessions on the same machine and commits gave 0.98 to 1.02 (missed in four of them, by the driver's verdict), so decode is at parity with Go and the margin the entry showed is noise (the ledger's dated note under the first entry). About half of Rust's decode time is dcroxide-crypto's portable BLAKE-256 against Go's AVX assembly, a cause in dcroxide; the clause is decided by the dedicated-machine run or given real margin by a dcroxide change. **Not met** for the secret paths: master key 1.59, hardened child 1.58, private child 1.57 times Go's time, against at most 1.15. Profiled: about 90% of a hardened derivation is k256's generic constant-time multiplication of the generator, which dcroxide-dcrec builds without precomputed tables (ADR-0014 O1); the fix belongs to dcroxide and is being made there. The clause is met once the dcroxide pin includes it and a ledger entry shows it.
+
+**CI.** The `bench-gate` job runs the same driver on 18 micro workloads and fails when a ratio exceeds twice its baseline (`crates/purse-bench/gate-baseline.tsv`, from the ledger entry), the regression gate ADR-0014 allows CI.
+

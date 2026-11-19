@@ -251,7 +251,7 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   ratio gates, exit criteria and wall-clock runs are on a dedicated
   machine, at each phase exit and weekly, each a ledger row.
 
-### 5. Amendments to the brief (1, 2, 3 and 5 made, and 4 for Phases 5 and 10; the rest of 4 and 6 follow with the harness)
+### 5. Amendments to the brief (1, 2, 3 and 5 made; 4 made for Phases 1, 5 and 10, and 6 for §8, with the harness; the rest of 4 and 6 follow)
 
 1. **§3 W3 replaced:** "**W3 — Interoperability on the network.**
    Transactions, tickets and votes are built as dcrwallet's are, so they

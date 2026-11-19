@@ -10,14 +10,14 @@ The decisions D1 to D15 are listed in the
 
 | ADR | Decision | Subject | Status |
 |---|---|---|---|
-| [0001](0001-logical-export-format.md) | — | The logical export: the format-independent text form of a wallet | Proposed; format 2, revised for seed restore only (ADR-0013) and after review |
-| [0002](0002-operation-script-format.md) | — | The operation-script format the Go and Rust runners share | Proposed; revised after review |
-| [0003](0003-wallet-store-engine-and-schema.md) | D2 | Wallet store engine and schema | Engine accepted: redb 5 (project owner, 2026-11-18); schema and open points Proposed, revised after review |
-| [0004](0004-grpc-transport.md) | D5 | gRPC transport | Proposed; revised after review, and the recommendation changed |
+| [0001](0001-logical-export-format.md) | — | The logical export: the format-independent text form of a wallet | Accepted (project owner, 2026-11-19): format 2, revised for seed restore only (ADR-0013) and after review |
+| [0002](0002-operation-script-format.md) | — | The operation-script format the Go and Rust runners share | Accepted (project owner, 2026-11-19), with Go's in-memory state after a rolled-back transaction not reproduced (QK-0733) |
+| [0003](0003-wallet-store-engine-and-schema.md) | D2 | Wallet store engine and schema | Accepted: engine redb 5 (project owner, 2026-11-18); schema and its nine open points as recommended (project owner, 2026-11-19) |
+| [0004](0004-grpc-transport.md) | D5 | gRPC transport | Accepted (project owner, 2026-11-19), against the proposal: tonic and prost, with tokio confined to the listener; the other questions as recommended |
 | [0005](0005-name-data-directory-and-import-front-end.md) | D1 | Name, data directory and the import front end | Accepted (project owner, 2026-11-18), with the dcrd certificate fallback also trying dcroxide's directory; its import front end voided by ADR-0013 (2026-11-18), the rest (name, data directory, file names, version string, certificate fallback) standing; running as `dcrwallet` for Decrediton waits for a Phase 8 addendum |
 | [0006](0006-consuming-dcroxide-crates.md) | D3 | How dcroxide crates are consumed | Accepted (project owner, 2026-11-18), with dcr-purse kept on the latest stable Rust |
 | [0007](0007-importable-dcrwallet-databases.md) | D4 | Which dcrwallet databases can be imported, and what an import carries | Superseded by ADR-0013 (2026-11-18); kept as the record |
-| [0008](0008-concurrency-model.md) | D6 | Concurrency model | Accepted (project owner, 2026-11-19): OS threads everywhere, `crossbeam-channel`, and a runtime allowed only inside the gRPC listener if ADR-0004's spike calls for it; addendum (ADR-0014) permits the speed departures from items 2 and 3 |
+| [0008](0008-concurrency-model.md) | D6 | Concurrency model | Accepted (project owner, 2026-11-19): OS threads everywhere, `crossbeam-channel`, and a runtime allowed only inside the gRPC listener, which ADR-0004 now uses for tonic; addendum (ADR-0014) permits the speed departures from items 2 and 3 |
 | [0009](0009-version-skew-against-dcroxide.md) | D7 | Version skew between dcrwallet's dependencies and dcroxide | Accepted (project owner, 2026-11-18) |
 | [0010](0010-mixing-root-solver.md) | D8 | The mixing root solver | Accepted (project owner, 2026-11-18) |
 | [0011](0011-error-message-fidelity.md) | D9 | Error-message fidelity | Accepted (project owner, 2026-11-18) |

@@ -1,6 +1,8 @@
 # ADR-0001 — The logical wallet export, format `purse-export 2`
 
-- **Status:** Proposed
+- **Status:** **Accepted** as proposed (project owner, 2026-11-19), with the five
+  questions put to the owner answered as recommended; see "Decision by the
+  project owner" before "Discrepancies found".
 - **Date:** 2026-11-19 (format 1 drafted; revised the same day to format 2
   after an adversarial review and the owner's decisions of 2026-11-18 and
   2026-11-19, ADR-0013 above all)
@@ -94,7 +96,7 @@ dcrwallet's buckets one to one as text (it bakes dcrwallet's layout into
 dcr-purse's store, which then has to emulate indexes it does not need;
 W2 requires no schema-26 layout in dcr-purse's store).
 
-## Decision (as proposed)
+## Decision (accepted, 2026-11-19)
 
 Design A is the backbone: it is the only one whose coverage is closed and
 checked by the exporter itself. Every stored byte of the Go database is
@@ -1294,6 +1296,28 @@ section 9, each resting on the absence of a reader at the pin.
     contract. Either the restore comparator compares the `birth` record
     exactly on its own (proposed), or `@` is split into a received-time
     class and a birthday class in a later format.
+
+## Decision by the project owner (2026-11-19)
+
+Accepted as proposed, with these answers ("your recommendations for the
+rest"):
+
+1. *Format 2.* The magic line is `purse-export 2`, and the seven changed
+   sections carry version 2.
+2. *The birthday in restore differentials* (open item 10). The restore
+   comparator compares the `birth` record exactly on its own; `@` is not
+   split into two flags.
+3. *`walletgen` on ADR-0002's seamed copy of udb* (open item 5). Later,
+   after ADR-0002's open item 2 (whether the Rust store follows Go's draw
+   order) is settled.
+4. *The eof digests* leave out `[residue]` only; `[unknown]`, `[bad]` and
+   `[orphans]` stay inside them.
+5. *Chain data in comparisons* (open item 2). ADR-0003 answers the first
+   half: the store keeps every header and committed filter, detached ones
+   included (its open point 5). The projection for two sides that synced
+   different header ranges is still to be specified.
+
+The other items of "What remains open" stand as open.
 
 ## Discrepancies found
 

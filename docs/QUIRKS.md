@@ -4422,4 +4422,22 @@ The page size comes from meta 0 or, failing that, from probing for a valid meta 
 
 Spec: [02](specs/02-address-manager.md). Source: wallet/udb/addressmanager.go (`ChangePassphrase`, `SetAccountPassphrase`, `ConvertToWatchingOnly`); found by the oracle (`tools/oracle/cmd/oprunner`, corpus script `15-rollback-bookkeeping`)
 
-The manager updates its in-memory state inside the database transaction and does not restore it when the transaction rolls back. After a rolled-back private passphrase change, `Unlock` rejects the old passphrase and accepts the new one although the store still holds keys sealed under the old; `AccountHasPassphrase` and `WatchingOnly` likewise keep the values the rolled-back transaction set. dcrwallet reaches this only when one of its own write transactions fails after the manager call. Disposition: open (ADR-0002, for the project owner); proposed: not reproduced, memory stays consistent with the store (ADR-0012 Rule 2).
+The manager updates its in-memory state inside the database transaction and does not restore it when the transaction rolls back. After a rolled-back private passphrase change, `Unlock` rejects the old passphrase and accepts the new one although the store still holds keys sealed under the old; `AccountHasPassphrase` and `WatchingOnly` likewise keep the values the rolled-back transaction set. dcrwallet reaches this only when one of its own write transactions fails after the manager call. Disposition (project owner, 2026-11-19; ADR-0002): not reproduced. dcr-purse keeps memory consistent with the store (ADR-0012 Rule 2).
+
+## QK-0734 — An outpoint both mined and unmined is reported and counted twice
+
+Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txunmined.go:26-29; found by the store spike (ADR-0003, Decision item 5)
+
+When a block is disapproved and its regular transactions are later revalidated while an unmined copy rolled back from another block also exists, one outpoint is held both as a mined and as an unmined credit. `UnspentOutputs` reports it twice and the balance counts it twice; the transaction stays unmined, and `InsertMemPoolTx` refuses it as already mined. Confirmed by a run. Disposition: open; to be decided in Phase 3 with an oracle run, reproduced under ADR-0012 Rule 1 or fixed under Rule 7 (ADR-0003 Open point 2). The schema represents both outcomes.
+
+## QK-0735 — stakeInvalidate restores an unspent entry for a credit the disapproved block spends
+
+Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txmined.go:857-878, 728; wallet/udb/txdb.go:942-953
+
+`stakeInvalidate` restores an unspent entry for a credit it has just moved to the invalidated bucket when the disapproved block also spends that credit, and `stakeValidate`'s `spendCredit` then writes a zero-filled credit for it. Read from the source at the pin; not run. Disposition: open; Phase 3, as QK-0734.
+
+## QK-0736 — A regular transaction of a block disapproved and never mined again keeps its mined record
+
+Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txmined.go (`stakeInvalidate`); wallet/udb/txunmined.go:26-29
+
+Such a transaction keeps its mined record, so `InsertMemPoolTx` refuses it as already mined and the wallet cannot track it in the mempool again. Read from the source at the pin; not run. Disposition: open; Phase 3, as QK-0734.

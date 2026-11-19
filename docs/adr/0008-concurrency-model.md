@@ -214,6 +214,15 @@ server mutex and bounded per-client queues (brief §9). A expresses either;
 this ADR fixes only generation at Go's points, per-client order, and the
 mutex's place in Go's lock order.
 
+### Addendum (ADR-0004)
+
+On 2026-11-19 the project owner chose tonic for the gRPC transport
+(ADR-0004). As "ADR-0004 and D11" above prescribes, this ADR admits option C
+at that seam only: tokio stays in `purse-grpc`'s transport module, wallet
+calls run on std threads, a guard per handler future cancels its `Ctx` on
+drop, sends follow the per-stream quota rule, and `deny.toml` passes (with
+the one `base64` skip ADR-0004 names). Item 1 is otherwise unchanged.
+
 ### Addendum (ADR-0014)
 
 Accepted (project owner, 2026-11-19; ADR-0014 Open point 7). Items 2 and 3

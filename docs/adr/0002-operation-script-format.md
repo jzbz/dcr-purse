@@ -1,6 +1,8 @@
 # ADR-0002 — The operation-script format, `purse-opscript 1`
 
-- **Status:** Proposed
+- **Status:** **Accepted** as proposed (project owner, 2026-11-19), with the four
+  questions put to the owner answered as recommended; see "Decision by the
+  project owner" at the end.
 - **Date:** 2026-11-19; revised the same day to agree with the owner's
   decisions of 2026-11-18 and 2026-11-19 recorded in [README.md](README.md) (ADR-0003's
   engine, ADR-0008, ADR-0011, ADR-0012, ADR-0013) and to correct the
@@ -117,7 +119,7 @@ side-effect-free early return: `txunmined.go:25-28`,
 only reads), but not the transaction composition, with the tolerated call's
 result recorded inside the transaction that commits. Chosen: (b).
 
-## Decision (as proposed)
+## Decision (accepted, 2026-11-19)
 
 ### 1. Script
 
@@ -657,3 +659,24 @@ The differential is then:
    the in-memory state a rollback leaves (section 3).
 6. Whether the Rust side reproduces the in-memory state Go keeps after a
    rollback, or records the divergence under ADR-0012.
+
+## Decision by the project owner (2026-11-19)
+
+Accepted as proposed, with these answers ("your recommendations for the
+rest"):
+
+1. *Address issuance* is covered through dcrwallet's unmodified wallet
+   package plus the add-time interposer, not by copying the wallet package.
+2. *The in-memory state Go keeps after a rolled-back transaction* (open
+   item 6; QK-0733) is not reproduced: dcr-purse keeps memory consistent
+   with the store, and the difference is a recorded divergence under
+   ADR-0012 Rule 2. Corpus script `15-rollback-bookkeeping` keeps Go's
+   results as the record of the quirk.
+3. *The runner-defined resolution-error texts*
+   (`<what>: <entry point>: <udb text>`) are part of the format, and the
+   Rust runner reproduces them.
+4. *Freezing `15-rollback-bookkeeping` as a vector* waits until the Rust
+   runner exists, since the vector pins the results of item 2 that the Rust
+   side will not match.
+
+Open items 1 to 5 above stand as open.

@@ -80,9 +80,8 @@ is pinned by a hand-written expectation.
 - **Fuzzing.** `fuzz/` holds cargo-fuzz targets for the parsers.
 - **Wallet state, from the store on.** dcr-purse's database and dcrwallet's
   share no format, so wallet state is compared through a logical export that
-  both sides write (ADR-0001, proposed), after both have reached the
-  same state by running the same operation script (ADR-0002,
-  proposed) or by restoring the same seed against the same chain. No
+  both sides write (ADR-0001), after both have reached the
+  same state by running the same operation script (ADR-0002) or by restoring the same seed against the same chain. No
   comparison imports a Go-written database.
 
 Without Go, differential tests skip with a notice. With

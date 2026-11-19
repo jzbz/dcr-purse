@@ -2,9 +2,9 @@
 
 - **Status:** Engine **Accepted**: redb (project owner, 2026-11-14, brief §9
   D2), major 5 (project owner, 2026-11-18; [ADR index](README.md);
-  ADR-0006 rule 5 builds on it). Everything else in this record, the
-  schema, the rules around it and the answers to the open points, is
-  **Proposed**: the project owner decides.
+  ADR-0006 rule 5 builds on it). The schema, the rules around it and the
+  answers to the nine open points are **Accepted** as recommended
+  (project owner, 2026-11-19); each open point is marked.
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -620,7 +620,7 @@ what is given up is the durability of the last batches, which nothing
 outside the process depends on if Decision item 9's rule is kept. Whether
 to allow it is Open point 4.
 
-## Decision (as proposed, except item 1)
+## Decision (accepted: item 1 on 2026-11-14 and 2026-11-18, the rest on 2026-11-19)
 
 1. **Engine: redb 5** (accepted). Pinned to one exact release and moved in
    step with dcroxide, per ADR-0006 rule 5. `Durability::Immediate` for
@@ -821,38 +821,38 @@ to allow it is Open point 4.
   on both sides; the header measurement used generated filters of a
   stated size, not real ones.
 - **Open points**, each for the owner, with a recommendation:
-  1. *Schema.* Accept Decision items 2 to 8. Recommended: yes.
-  2. *The double state of Decision item 5 and the other defects above.*
+  1. *Schema.* **Decided as recommended (project owner, 2026-11-19).** Accept Decision items 2 to 8. Recommended: yes.
+  2. *The double state of Decision item 5 and the other defects above.* **Decided as recommended (project owner, 2026-11-19).**
      Reproduce what a client sees (ADR-0012 Rule 1), or fix it under Rule 7
      as a spend wrongly recorded in persisted state? Recommended: record
      them in `docs/QUIRKS.md` and decide each in Phase 3 with an oracle
      run; the schema represents both outcomes.
-  3. *Quick repair.* Recommended: off. On the 1m store it cut the reopen after a
+  3. *Quick repair.* **Decided as recommended (project owner, 2026-11-19).** Recommended: off. On the 1m store it cut the reopen after a
      kill from 1.33 s to 10 ms and raised a small commit's median from 5.3
      to 5.5 ms to 11.0 to 20.3 ms: a cost on every write against a saving
      once per crash. Revisit if multi-gigabyte wallets repair much more
      slowly.
-  4. *Relaxed durability for header and filter batches* (Decision item 9).
+  4. *Relaxed durability for header and filter batches* **Decided as recommended (project owner, 2026-11-19).** (Decision item 9).
      Recommended: yes, for header-and-filter batches during
      initial sync and rescan only, with a durable commit at least every 50
      batches (a crash then re-fetches at most 98,000 headers), at the end of
      the sync, and for every write whose effect a client or a peer can see;
      nothing a node, a peer or a client observes changes.
-  5. *Detached headers and orphan invalidated rows in the logical export.*
+  5. *Detached headers and orphan invalidated rows in the logical export.* **Decided as recommended (project owner, 2026-11-19).**
      Recommended: Phase 2 keeps detached headers and filters keyed by hash,
      as dcrwallet does, because `getblockheader` returns them; the
      invalidated rows of detached blocks are not kept, and ADR-0001 skips
      them on the Go side, with the call-site trace ADR-0012 Rule 5 asks for
      (the Go export of this spike already skips them).
-  6. *Compaction policy* (on backup, which compacts anyway, and on demand).
+  6. *Compaction policy* **Decided as recommended (project owner, 2026-11-19).** (on backup, which compacts anyway, and on demand).
      Recommended: compact only through backup in 1.0.
-  7. *Whether `addr_by_hash` stores public keys* (33 bytes per address)
+  7. *Whether `addr_by_hash` stores public keys* **Decided as recommended (project owner, 2026-11-19).** (33 bytes per address)
      so that address lookups need not derive them. Recommended: decide in
      Phase 3 against the RPCs that return keys.
-  8. *Whether `credits` keeps spent credits forever* (dcrwallet does) or
+  8. *Whether `credits` keeps spent credits forever* **Decided as recommended (project owner, 2026-11-19).** (dcrwallet does) or
      prunes them behind a history horizon. Recommended: keep them; history
      RPCs read them.
-  9. *Fewer tables per commit.* Merging `headers`, `blocks`,
+  9. *Fewer tables per commit.* **Decided as recommended (project owner, 2026-11-19).** Merging `headers`, `blocks`,
      `block_by_hash` and `cfilters`, or other tables every block commit
      touches, would cut the pages each commit writes (see "What the schema
      costs"); not measured. Recommended: measure in Phase 2 before the

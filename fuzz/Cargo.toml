@@ -1,0 +1,41 @@
+[package]
+name = "purse-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "ISC"
+
+[package.metadata]
+cargo-fuzz = true
+
+# A workspace of its own: cargo-fuzz needs nightly and sanitizer flags the
+# main workspace must not inherit.  Run with RUSTUP_TOOLCHAIN=nightly, since
+# the root rust-toolchain.toml reaches into this directory.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+purse-boltread = { path = "../crates/purse-boltread" }
+purse-hdkeychain = { path = "../crates/purse-hdkeychain" }
+purse-seed = { path = "../crates/purse-seed" }
+
+[[bin]]
+name = "seed_decode"
+path = "fuzz_targets/seed_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hdkeychain_parse"
+path = "fuzz_targets/hdkeychain_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "boltread_open"
+path = "fuzz_targets/boltread_open.rs"
+test = false
+doc = false
+bench = false

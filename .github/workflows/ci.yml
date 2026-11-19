@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Differential tests must run in CI: a missing oracle is a failure, not a skip.
+  PURSE_REQUIRE_ORACLE: "1"
+  # The Go release every oracle binary is built with. Provisional: it is
+  # dcroxide's reference Go, and dcr-purse has not yet fixed its own (spec 23
+  # leaves the choice open).
+  GO_VERSION: "1.27.3"
+
+jobs:
+  lint:
+    name: rustfmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # No toolchain action: rust-toolchain.toml names the version and its
+      # components.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # fuzz/ is a workspace of its own; resolving it with --locked fails
+      # when its lock has fallen behind its manifest.
+      - run: cargo metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml > /dev/null
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/oracle/go.sum
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  test-wrapping:
+    name: test (overflow checks off, as release ships)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_DEV_OVERFLOW_CHECKS: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/oracle/go.sum
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  oracle:
+    name: go vet (tools/oracle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/oracle/go.sum
+      - run: go vet ./...
+        working-directory: tools/oracle
+
+  deny:
+    name: cargo-deny (licenses, advisories, sources, bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  docs:
+    name: cargo doc (-D warnings)
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps --locked
+
+  fuzz-smoke:
+    name: fuzz smoke (60s per target)
+    runs-on: ubuntu-latest
+    env:
+      # cargo-fuzz needs nightly, and the root rust-toolchain.toml reaches
+      # into fuzz/ and must be overridden.
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - name: Run every target
+        run: |
+          for target in $(cargo fuzz list --fuzz-dir fuzz); do
+            cargo fuzz run --fuzz-dir fuzz "$target" -- \
+              -max_total_time=60 -timeout=20 -rss_limit_mb=2048 -max_len=4096
+          done

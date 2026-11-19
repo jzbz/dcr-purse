@@ -1,0 +1,39 @@
+[package]
+name = "purse-hdkeychain"
+description = "Decred hierarchical deterministic extended keys: a port of dcrd's hdkeychain v3.1.3, leading-zero stripping included"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# BLAKE-256 (checksum, fingerprint) and RIPEMD-160 (fingerprint).
+dcroxide-crypto.workspace = true
+# Pure-Rust secp256k1: scalar addition mod n, point addition, base point
+# multiplication, compressed encoding and decompression.  Same major line
+# and features as dcroxide-dcrec, so the graph holds one k256.
+k256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
+# HMAC-SHA512 for master and child derivation; `zeroize` wipes the hash
+# states the chain code and private key pass through, as in dcroxide-dcrec.
+hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+# Private key bytes, chain codes and seeds are wiped on drop.
+zeroize = { version = "1.9", default-features = false, features = ["alloc"] }
+# Optional: NetworkParams for dcroxide-chaincfg's Params (feature `chaincfg`).
+dcroxide-chaincfg = { workspace = true, optional = true }
+
+[features]
+# Implement NetworkParams for dcroxide_chaincfg::Params, which only this
+# crate can do (the orphan rule).
+chaincfg = ["dep:dcroxide-chaincfg"]
+
+[dev-dependencies]
+# The general base58 codec the crate's own fixed-buffer codec is tested
+# against (the crate does not use it: its working vectors are not wiped).
+dcroxide-base58.workspace = true
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

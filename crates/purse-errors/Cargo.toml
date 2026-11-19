@@ -1,0 +1,17 @@
+[package]
+name = "purse-errors"
+description = "The wallet-wide error model of dcrwallet's errors package: Op, Kind and nested errors with byte-exact rendering"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

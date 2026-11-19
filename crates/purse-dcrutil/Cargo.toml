@@ -1,0 +1,40 @@
+[package]
+name = "purse-dcrutil"
+description = "The parts of dcrd's dcrutil v4.0.3 dcrwallet uses: Amount with Go's float conversion and formatting, WIF private keys, and txsort"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# BLAKE-256 for the WIF checksum (Go's chainhash.HashB).
+dcroxide-chainhash.workspace = true
+# secp256k1 private keys with dcrd's PrivKeyFromBytes semantics (reduced
+# modulo N, zero accepted, its public key the point at infinity), for the
+# public key of an ECDSA or Schnorr WIF.
+dcroxide-dcrec.workspace = true
+# Go's strconv.FormatFloat(f, 'f', -1, 64), the shortest form Amount.Format
+# uses for every unit from the atom up.
+dcroxide-dcrjson.workspace = true
+# MsgTx, TxIn and TxOut, which txsort orders.
+dcroxide-wire.workspace = true
+# Ed25519 base-point multiplication for the public key of an Ed25519 WIF
+# (dcrd's edwards.PrivKeyFromScalar, which dcroxide does not port). The
+# same release and features dcroxide-dcrec builds, so the graph holds one
+# copy; `zeroize` (a default feature) wipes the scalar.
+curve25519-dalek = "5.0.0"
+# Private keys, their encodings and the base58 digits of a WIF are wiped on
+# drop.
+zeroize = { version = "1.9.2", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The general base58 codec the crate's own wiped codec is tested against.
+dcroxide-base58.workspace = true
+purse-testutil.workspace = true
+# The body hash of the frozen vector files.
+sha2 = { version = "0.11.1", default-features = false }
+
+[lints]
+workspace = true

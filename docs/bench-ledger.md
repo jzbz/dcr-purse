@@ -246,3 +246,57 @@ workload whose ratio depends on the processor (an AVX2 or BMI2 code path
 on one side only) can sit nearer the limit there.
 
 Raw: `gate-1/`, `gate-2/`, `gate-3/` (`run-*.txt`, `table.md`).
+
+## purse-txrules and purse-txauthor
+
+The crates' ignored `tests/bench.rs` time their main entry points against
+dcrwallet's through the Go oracles' `bench` commands
+(`tools/oracle/cmd/txrules`, `tools/oracle/cmd/txauthor`), with the same
+inputs on both sides. Each side reports the best of the timed rounds that
+fit its budget (Go: `testing.Benchmark`'s ns/op), so these figures do not
+meet this file's rules (no alternation, one process per side, best rounds
+rather than medians); they are indicative only, recorded so that the
+numbers the crates' reports cite are on file.
+
+### First entry: single unpinned runs (2026-11-19)
+
+**Session.** Machine d1, shared and loaded (other jobs ran on it; load
+averages not recorded), not pinned with `taskset`. dcr-purse `6ea843d`
+plus the uncommitted change that adds both crates; dcroxide `5c6742f7`;
+Go side at dcrwallet `54b85b33`, Go 1.27.4; Rust 1.100.0, the release
+profile. One run of each command, about 11:23 UTC, with the default
+budget of 300 ms per entry point and side:
+
+```text
+PURSE_REQUIRE_ORACLE=1 cargo test --release -p purse-txrules --test bench -- --ignored --nocapture
+PURSE_REQUIRE_ORACLE=1 cargo test --release -p purse-txauthor --test bench -- --ignored --nocapture
+```
+
+| entry point | Go ns | Rust ns | Go/Rust |
+|---|---:|---:|---:|
+| EstimateSerializeSize (2 P2PKH in, 2 P2PKH out, change) | 4.43 | 3.83 | 1.15 |
+| EstimateSerializeSizeFromScriptSizes (2 in, 2 out, change) | 4.43 | 3.63 | 1.22 |
+| FeeForSerializeSize | 1.21 | 0.84 | 1.45 |
+| IsDustOutput (P2PKH) | 21.13 | 7.87 | 2.69 |
+| CheckOutput (P2PKH) | 22.89 | 9.64 | 2.37 |
+| PaysHighFees (2 in, 2 out) | 6.58 | 5.40 | 1.22 |
+| TxPaysHighFees (2 in, 2 out) | 7.88 | 6.72 | 1.17 |
+| StakePoolTicketFee (mainnet, height 1,000,000), Rust with a kept `StakePoolFees` | 175.39 | 15.38 | 11.40 |
+| NewUnsignedTransaction (2 P2PKH out, 5 UTXOs, change) | 489.76 | 248.90 | 1.97 |
+| RandomizeOutputPosition (3 outputs) | 55.08 | 22.53 | 2.44 |
+| AddAllInputScripts (2 P2PKH inputs) | 95,187.01 | 150,046.34 | 0.63 |
+
+Go/Rust above 1 means the crate is faster (the inverse of the ratio the
+Phase 1 table reports). The free function `stake_pool_ticket_fee`, which
+builds a subsidy cache per call, took 492.59 ns, about 2.8 times Go's
+175.39. Signing is the one entry point slower than Go: dcroxide's
+`sign_tx_output` called directly took 150,030.73 ns for the two inputs,
+of which 34,554.03 ns per input deriving the secp256k1 public key and
+39,343.85 ns per ECDSA signature, so the cost is in dcroxide's signer, not
+in `purse-txauthor`. `randomize_output_position_with` over an owned `Prng`
+took 21.73 ns.
+
+**What this entry does not show.** Medians and ranges over alternating
+processes, a pinned or idle machine, other processors.
+
+Raw: `bench-txrules.log`, `bench-txauthor.log`.

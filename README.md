@@ -54,6 +54,8 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-boltread` | the read path of bbolt v1.3.12: a read-only, `mmap`-free reader of the format of dcrwallet's `wallet.db`, hardened against corrupt files. A test utility only, not shipped in the wallet and no longer the foundation of an importer: tests use it to read databases that dcrwallet wrote. The owner may later remove it (ADR-0013 Open point 2) | implemented, differential against Go |
 | `purse-snacl` | dcrwallet `snacl` and `kdf`: scrypt and secretbox key sealing, Argon2id and XChaCha20-Poly1305 for account passphrases | implemented, differential against Go |
 | `purse-dcrutil` | dcrd `dcrutil` v4.0.3: `Amount` with Go's float conversion, WIF, transaction sorting | implemented, differential against Go |
+| `purse-txrules` | dcrwallet `wallet/txsizes` and `wallet/txrules`: worst-case transaction sizes, the relay fee, dust, output checks, the high-fee guard and the VSP fee | implemented, differential against Go |
+| `purse-txauthor` | dcrwallet `wallet/txauthor`: the fee, input and change loop over abstract input and change sources, change-position randomization with an injectable random source, and the input-signing loop | implemented, differential against Go |
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
 | `sntrup4591761` | `companyzero/sntrup4591761`: the Streamlined NTRU Prime 4591^761 KEM of the mixing key exchange, byte-compatible down to the randomness it draws | implemented, differential against Go; 13 to 44 times faster than Go, constant time |
 | `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
@@ -61,7 +63,8 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-bench` | — | the benchmark harness of [ADR-0014](docs/adr/0014-performance.md): dcr-purse's workloads against their Go counterparts (`tools/oracle/cmd/bench`) on the same inputs, alternating in one session; not shipped. Results: [bench-ledger.md](docs/bench-ledger.md) |
 
 Decred primitives (BLAKE-256, RIPEMD-160, secp256k1 through `dcroxide-dcrec`,
-chain parameters and, later, wire, txscript, stake, gcs and the rest) come from
+chain parameters, wire, txscript, the subsidy functions and, later, stake, gcs
+and the rest) come from
 [dcroxide](https://github.com/jzbz/dcroxide) at one pinned revision.
 
 ## How correctness is established
@@ -114,6 +117,10 @@ Environment variables the tests read:
 | `PURSE_SNTRUP_HEAVY` | runs the `sntrup4591761` differential and property tests at their optimised-build sizes in a debug build |
 | `PURSE_SNTRUP_BENCH_REPS` | repetitions per round of the ignored `sntrup4591761` timing comparison against Go (`speed_against_go`, default 41) |
 | `PURSE_SNTRUP_DUDECT_SAMPLES` | samples per class of the ignored `sntrup4591761` timing-independence check (`secret_independence`, default 20000) |
+| `PURSE_TXRULES_SCALE` | size of the random parts of the `purse-txrules` differential corpora (default 10) |
+| `PURSE_TXRULES_CASES` | multiplier of the random instances in the `purse-txrules` property tests (default 1) |
+| `PURSE_TXAUTHOR_SCALE` | size of the random parts of the `purse-txauthor` differential corpora (default 10) |
+| `PURSE_TXAUTHOR_CASES` | multiplier of the random instances in the `purse-txauthor` property tests (default 1) |
 | `PURSE_REQUIRE_FLINT` | the `purse-mixsolver` comparison against the FLINT-backed reference solver fails instead of skipping when that oracle is missing; it needs FLINT installed and the oracle built with `-tags flint` into `PURSE_ORACLE_DIR` |
 
 Fuzz targets build on nightly with

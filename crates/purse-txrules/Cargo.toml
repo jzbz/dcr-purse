@@ -1,0 +1,43 @@
+[package]
+name = "purse-txrules"
+description = "dcrwallet's wallet/txsizes and wallet/txrules: worst-case transaction sizes, the relay fee, dust, the high-fee guard and the VSP fee"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Network parameters for the VSP fee: the ticket pool size, the subsidy
+# reduction interval, and the subsidy parameters SubsidyCache reads
+# through its SubsidyParams impl for Params.
+dcroxide-chaincfg.workspace = true
+# SubsidyCache::calc_stake_vote_subsidy_v3, the vote subsidy the VSP fee
+# formula starts from (dcrd blockchain/standalone v2.3.0, values unchanged
+# at dcroxide's pin; docs/SKEW.md).
+dcroxide-standalone.workspace = true
+# is_unspendable, is_null_data_script_v0 and ScriptType for the dust rule
+# and the stake sub-type mapping.  `std` is required: at the pinned rev the
+# crate does not build without it (stdaddr.rs calls f64::log2, which
+# core lacks); it also turns on the signature cache, unused here.
+dcroxide-txscript = { workspace = true, features = ["std"] }
+# TxOut and MsgTx with dcrd's SerializeSize, and VarIntSerializeSize.
+dcroxide-wire.workspace = true
+# The VSP fee's arbitrary-precision quotient when the operands leave the
+# i128 fast path (a negative denominator or a numerator beyond 2^127).
+# The release and features dcroxide-standalone already builds, so the
+# graph gains no crate.
+num-bigint = { version = "0.5.1", default-features = false }
+# Amount and MaxAmount.
+purse-dcrutil.workspace = true
+# The errors CheckOutput, TxPaysHighFees and the VSP fee return.
+purse-errors.workspace = true
+
+[dev-dependencies]
+purse-testutil.workspace = true
+# The body hash of the frozen vector file.
+sha2 = { version = "0.11.1", default-features = false }
+
+[lints]
+workspace = true

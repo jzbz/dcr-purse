@@ -1,0 +1,48 @@
+[package]
+name = "purse-txauthor"
+description = "dcrwallet's wallet/txauthor: the fee, input and change loop that authors unsigned transactions, change-position randomization, and the input-signing loop"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The network parameters a SecretsSource reports, from which the signing
+# loop takes the address prefixes it classifies previous scripts with.
+dcroxide-chaincfg.workspace = true
+# dcrd's crypto/rand: the process-wide generator RandomizeOutputPosition
+# draws from (GlobalRandom) and the Prng a caller may inject.  The `rand`
+# feature adds no crate to the graph: chacha20 0.10 and getrandom 0.4 are
+# already in it.
+dcroxide-crypto = { workspace = true, features = ["rand"] }
+# ReducedPrivateKey: a secp256k1 key from a SecretsSource is read as Go's
+# PrivKeyFromBytes reads it (truncated or padded to 32 bytes, reduced
+# modulo N) before dcroxide's signer, which takes only keys in [1, N).
+# Already in the graph through dcroxide-txscript; the tests also make
+# their keys with it.
+dcroxide-dcrec.workspace = true
+# sign_tx_output, the KeyDb/ScriptDb traits it calls, stdaddr::Address,
+# the script classification and MAX_SCRIPT_ELEMENT_SIZE.  `std` is
+# required at the pinned rev (see purse-txrules' manifest).
+dcroxide-txscript = { workspace = true, features = ["std"] }
+# MsgTx, TxIn and TxOut.
+dcroxide-wire.workspace = true
+# Amount.
+purse-dcrutil.workspace = true
+# The errors the authoring loop, the randomization and the signing loop
+# return, and the error values the sources hand back.
+purse-errors.workspace = true
+# The size estimates, the relay fee and the dust rule the loop is built on.
+purse-txrules.workspace = true
+
+[dev-dependencies]
+# Outpoint hashes in the test input sources.
+dcroxide-chainhash.workspace = true
+purse-testutil.workspace = true
+# The body hash of the frozen vector file.
+sha2 = { version = "0.11.1", default-features = false }
+
+[lints]
+workspace = true

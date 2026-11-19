@@ -570,8 +570,13 @@ Properties the port must preserve:
   (`wallet/txauthor/author_test.go:162-174`).
 - With `outputs` empty (sweep), the "change" output is the only output. If the remainder is dust the
   result is a transaction with **zero outputs** and `ChangeIndex = −1`, returned without error.
-- The loop terminates only because each retry strictly raises the target; a source that returns the same
-  detail forever ends in `InsufficientBalance` on the next iteration.
+- With values in range the loop terminates because each retry raises the target; a source that returns
+  the same detail forever ends in `InsufficientBalance` on the next iteration. Corrected by the oracle
+  (2026-11-19, QK-0744): a retry can also lower the target (the first estimate assumes one P2PKH input,
+  so a source answering with none makes the second target smaller), and when the output total lies
+  within the fee of `math.MaxInt64` the target wraps negative, the wallet's source answers with no
+  inputs, and the loop asks for the same negative target forever. `purse-txauthor` reproduces that
+  pending the owner's ruling.
 
 ### 4.6 Signing loop (`txauthor.AddAllInputScripts`, `wallet/txauthor/author.go:205-227`)
 
@@ -594,6 +599,16 @@ the pkScript as version 0; for P2PK/P2PKH call `GetKey(address)` and build the s
 `GetScript(address)` and sign the redeem script recursively (one level); for multisig sign with every key
 `GetKey` can supply, silently skipping addresses whose key lookup fails; null-data scripts fail with
 `"can't sign NULLDATA transactions"`, anything else with `"can't sign unknown transactions"`.
+
+Observed by the oracle (2026-11-19). Every secp256k1 key `GetKey` returns goes through
+`secp256k1.PrivKeyFromBytes`, which never fails: any length, at most the first 32 bytes taken,
+left-padded, reduced modulo N; ECDSA then signs even with a zero key, and Schnorr fails on one with
+`"cannot sign tx input: private key is zero"` (QK-0682). A P2SH redeem script that is itself P2SH,
+plain or stake-tagged, makes `sign` look up a second script and return it unsigned; the signature
+script is that script's opcodes followed by a push of the redeem script, built with the script
+builder's limits (a step that would exceed them is dropped, the script so far kept), and the merge
+with an existing script recurses until the process dies when both scripts are nonempty and parse and
+the new one ends in a push of a plain P2SH script (QK-0746).
 
 ### 4.7 `Wallet.NewUnsignedTransaction` (`wallet/createtx.go:82-161`)
 
@@ -1963,9 +1978,10 @@ Each item is observed behaviour at the pin that a faithful port must reproduce o
     with `big.Int.Int64()` (documented as undefined when the value does not fit). These differ from truncation only for
     negative or overflowing operands, which need a negative ticket price, fee term or percentage. The
     float-to-integer conversion `int64(math.Floor(poolFee * 100.0))` is implementation-defined in Go for
-    NaN and out-of-range values (`wallet/txrules/poolfees.go:43-44,73-94`). UNVERIFIED which value
-    amd64 produces; a Go oracle run with NaN/±Inf settles it. A port should define these inputs as
-    invalid rather than chase them.
+    NaN and out-of-range values (`wallet/txrules/poolfees.go:43-44,73-94`). Settled by the oracle
+    (2026-11-19, QK-0743): amd64 gives `0x8000000000000000` for a NaN, ±Inf and any value outside
+    [-2^63, 2^63), arm64 saturates and gives 0 for a NaN; `purse-txrules` gives amd64's answer
+    (ADR-0012 Rule 9(a)) and reproduces the big-integer semantics.
 58. **`SecretsSource.Close` is not idempotent-safe for later use**: after a successful close `dbtx` is
     nil and `GetKey`/`GetScript` panic; after a failed rollback the callbacks have already run and the
     transaction is kept (`wallet/createtx.go:228-238`).
@@ -2022,7 +2038,9 @@ argument handling of 4.28–4.29.
   and float-edge inputs of `StakePoolTicketFee`.
 - `txsizes.EstimateSerializeSizeFromScriptSizes`, `EstimateInputSize`, `EstimateOutputSize` directly.
 - `txauthor.AddAllInputScripts` (P2PKH, P2PK, P2SH, stake-tagged, merge with an existing script) and the
-  size-limit and oversized-change-script errors.
+  size-limit and oversized-change-script errors. Covered since 2026-11-19 by the `sign` and `author`
+  commands of the oracle `tools/oracle/cmd/txauthor` and `purse-txauthor`'s differential, which found
+  QK-0745 and QK-0746.
 - Everything in `wallet/createtx.go`: `authorTx` (including treasury), `recordAuthoredTx`,
   `publishAndWatch` failure path, multisig, consolidation, both `findEligibleOutputs*` functions,
   `ReserveOutputsForAmount`, `signP2PKHMsgTx`, `makeTicket`, `createUnsignedVote`, `signVote`.
@@ -2150,6 +2168,7 @@ with many behaviours (section 9) that need explicit keep-or-fix decisions and ne
 12. **Fee-rate validation (quirks 52–53).** Keep accepting zero and negative rates from `--txfee`,
     `fundrawtransaction` and gRPC `ConstructTransaction`, and keep `ConstructTransaction`'s independence
     from `settxfee`, or validate and unify? Any change alters fees clients can observe.
-13. **`StakePoolTicketFee` on invalid inputs (quirk 57).** UNVERIFIED Go results for NaN, infinite or
-    negative percentages and negative amounts; settle with a Go oracle shim or declare them out of
-    contract.
+13. **`StakePoolTicketFee` on invalid inputs (quirk 57).** Settled (2026-11-19): the oracle
+    `tools/oracle/cmd/txrules` gives Go's results for NaN, infinite and negative percentages and
+    negative amounts, and `purse-txrules` matches them (QK-0743); a zero denominator panics in Go and
+    is an error in the port (QK-0742).

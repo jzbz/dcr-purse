@@ -1,0 +1,35 @@
+[package]
+name = "grpc-intree-spike"
+description = "D5 spike, variant C: an in-tree HTTP/2, HPACK, gRPC and protobuf server on OS threads answering walletrpc.VersionService/Version over mutual TLS (not for release)"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "ISC"
+publish = false
+
+# A workspace of its own: a decision spike, kept out of the main workspace
+# (whose root manifest excludes spikes/) and out of its lockfile.
+[workspace]
+
+[dependencies]
+# TLS: rustls 0.23 on dcroxide's in-tree provider, at the revision the main
+# workspace pins, with no default features (no ring, no aws-lc).
+dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
+
+[dev-dependencies]
+purse-testutil = { path = "../../crates/purse-testutil" }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+debug = "line-tables-only"
+panic = "abort"

@@ -1,0 +1,47 @@
+[package]
+name = "grpc-tonic-spike"
+description = "D5 spike, variant A: tonic and prost on tokio, hyper and h2, confined to the listener, answering walletrpc.VersionService/Version over mutual TLS (not for release)"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "ISC"
+publish = false
+
+# A workspace of its own: a decision spike, kept out of the main workspace
+# (whose root manifest excludes spikes/) and out of its lockfile.
+[workspace]
+
+[dependencies]
+# TLS: the same provider and rustls as the in-tree variant, with
+# tokio-rustls on top, all without default features (no ring, no aws-lc).
+dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
+# The runtime, confined to the listener.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync"] }
+# gRPC: tonic's server-side codec plumbing and prost messages, without
+# tonic's transport (which would bring axum and tonic's own TLS); the
+# connection is served with hyper's HTTP/2 server directly.
+tonic = { version = "0.14", default-features = false, features = ["codegen"] }
+tonic-prost = "0.14"
+prost = "0.14"
+hyper = { version = "1", features = ["server", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+http = "1"
+
+[dev-dependencies]
+purse-testutil = { path = "../../crates/purse-testutil" }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+debug = "line-tables-only"
+panic = "abort"

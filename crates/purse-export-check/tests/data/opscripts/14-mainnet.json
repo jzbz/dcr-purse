@@ -1,0 +1,26 @@
+{
+  "format": "purse-opscript 1",
+  "name": "mainnet parameters",
+  "setup": {"network": "mainnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "1414141414141414141414141414141414141414141414141414141414141414", "clock": 1794990000, "chain_time": 1794000000},
+  "export": {"chain": "digest"},
+  "ops": [
+    {"op": "mgr.chain_params"},
+    {"op": "udb.coin_types"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2, "branch": 0},
+    {"op": "mgr.for_each_account_address", "account": 0},
+    {"op": "mgr.import_private_key", "key": "1111111111111111111111111111111111111111111111111111111111111111", "label": "k"},
+    {"op": "tx.build", "label": "cb", "inputs": [{"prev": "coinbase", "value": 100}], "outputs": [{"value": 100, "pay": {"ref": "k"}}]},
+    {"op": "store.extend_main_chain", "label": "b1", "filter": ["cb"]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mined_tx", "tx": "cb", "block": "b1"},
+      {"op": "store.add_credit", "tx": "cb", "block": "b1", "index": 0, "account": 2147483647}
+    ]},
+    {"op": "store.account_balances", "minconf": 1},
+    {"op": "rt.clock_set", "unix": 1800000000},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 3, "branch": 1}
+  ]
+}

@@ -1,0 +1,550 @@
+{
+ "format": "purse-opscript 1",
+ "name": "balances and input selection",
+ "setup": {
+  "network": "simnet",
+  "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "0909090909090909090909090909090909090909090909090909090909090909",
+  "clock": 1794990000,
+  "chain_time": 1794000000
+ },
+ "ops": [
+  {
+   "op": "mgr.unlock",
+   "pass": "private"
+  },
+  {
+   "op": "mgr.new_account",
+   "name": "second"
+  },
+  {
+   "op": "mgr.sync_account_to_addr_index",
+   "account": 0,
+   "index": 9,
+   "branch": 0
+  },
+  {
+   "op": "mgr.sync_account_to_addr_index",
+   "account": 1,
+   "index": 3,
+   "branch": 0
+  },
+  {
+   "op": "tx.build",
+   "label": "fan",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "0303030303030303030303030303030303030303030303030303030303030303",
+      "index": 1
+     },
+     "value": 5000000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 100000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     }
+    },
+    {
+     "value": 200000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 1
+     }
+    },
+    {
+     "value": 300000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     }
+    },
+    {
+     "value": 400000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     }
+    },
+    {
+     "value": 500000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     }
+    },
+    {
+     "value": 600000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     }
+    },
+    {
+     "value": 700000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 6
+     }
+    },
+    {
+     "value": 800000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 7
+     }
+    },
+    {
+     "value": 700000000,
+     "pay": {
+      "acct": 1,
+      "branch": 0,
+      "index": 0
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 8
+     }
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "cb",
+   "inputs": [
+    {
+     "prev": "coinbase",
+     "value": 3000000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 3000000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 9
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1",
+   "filter": [
+    "fan",
+    "cb"
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "cb",
+     "block": "b1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "cb",
+     "block": "b1",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "fan",
+     "block": "b1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 1,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 2,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 3,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 4,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 5,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 6,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 7,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 8,
+     "account": 1
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fan",
+     "block": "b1",
+     "index": 9,
+     "account": 0
+    }
+   ]
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 2
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 1,
+   "account": 5
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b5"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b6"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b7"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b8"
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 6,
+   "account": 0
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 9,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 0,
+   "syncheight": 8
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 8
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 8
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 100,
+   "syncheight": 8
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 8,
+   "targets": [
+    150000000,
+    800000000,
+    3000000000,
+    100000000000
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 8,
+   "targets": [
+    0
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 8,
+   "targets": [
+    50000000,
+    2000000000
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 1,
+   "minconf": 1,
+   "syncheight": 8,
+   "targets": [
+    1
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 8,
+   "targets": [
+    3500000000
+   ],
+   "ignore": [
+    {
+     "tx": "fan",
+     "index": 7
+    },
+    {
+     "tx": "fan",
+     "index": 6
+    },
+    {
+     "tx": "fan",
+     "index": 5
+    }
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 20,
+   "syncheight": 8,
+   "targets": [
+    1
+   ]
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "store.random_utxo",
+     "minconf": 1,
+     "syncheight": 8
+    },
+    {
+     "op": "store.select_inputs",
+     "account": 0,
+     "minconf": 1,
+     "syncheight": 8,
+     "targets": [
+      100000000
+     ]
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b9"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b10"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b11"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b12"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b13"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b14"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b15"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b16"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b17"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b18"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 18,
+   "targets": [
+    3100000000
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "sp",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "fan",
+      "index": 0
+     },
+     "value": 100000000
+    },
+    {
+     "prev": {
+      "tx": "fan",
+      "index": 1
+     },
+     "value": 200000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 299990000,
+     "pay": {
+      "acct": 1,
+      "branch": 0,
+      "index": 1
+     }
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "sp"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "sp",
+     "index": 0,
+     "account": 1
+    }
+   ]
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 1,
+   "minconf": 0,
+   "syncheight": 18,
+   "targets": [
+    800000000
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 18,
+   "targets": [
+    0
+   ]
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "rt.checkpoint",
+   "name": "funded"
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+{
+  "format": "purse-opscript 1",
+  "name": "groups that tolerate udb errors, as wallet callers do",
+  "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "1616161616161616161616161616161616161616161616161616161616161616", "clock": 1794990000, "chain_time": 1794000000},
+  "ops": [
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.import_script", "script": "5221034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa21024ce119c96e2fa357200b559b2f7dd5a5f02d5290aff74b03f3e471b273211c9752ae", "label": "ms"},
+    {"op": "tx.build", "label": "fund", "inputs": [{"prev": "coinbase", "value": 10000000000}], "outputs": [{"value": 10000000000, "pay": {"acct": 0, "branch": 0, "index": 0}}]},
+    {"op": "store.extend_main_chain", "label": "b1", "filter": ["fund"]},
+    {"op": "update", "ops": [
+      {"op": "store.extend_main_chain", "again": "b1", "tolerate": ["Exist"]},
+      {"op": "store.get_block_meta_for_hash", "block": "b1"},
+      {"op": "store.insert_mined_tx", "tx": "fund", "block": "b1"},
+      {"op": "store.add_credit", "tx": "fund", "block": "b1", "index": 0, "account": 0}
+    ]},
+    {"op": "tx.build", "label": "u1", "inputs": [{"prev": {"tx": "fund", "index": 0}, "value": 10000000000}], "outputs": [{"value": 2000000000, "script": "76a914eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee88ac"}, {"value": 7999990000, "pay": {"acct": 0, "branch": 1, "index": 0}}]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "u1"},
+      {"op": "store.add_credit", "tx": "u1", "index": 1, "change": true, "account": 0}
+    ]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "fund", "tolerate": ["Exist"]}
+    ]},
+    {"op": "update", "ops": [
+      {"op": "mgr.address", "addr": {"p2sh": "51"}, "tolerate": ["NotExist"]},
+      {"op": "mgr.import_script", "script": "5221034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa21024ce119c96e2fa357200b559b2f7dd5a5f02d5290aff74b03f3e471b273211c9752ae", "tolerate": ["Exist"]},
+      {"op": "store.set_published", "tx": "u1", "published": false},
+      {"op": "udb.set_tspend_policy", "tspend": "1616161616161616161616161616161616161616161616161616161616161616", "policy": 1}
+    ]},
+    {"op": "udb.tspend_policy", "tspend": "1616161616161616161616161616161616161616161616161616161616161616"},
+    {"op": "store.unmined_txs"},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "fund", "tolerate": ["NotExist", "Invalid"]},
+      {"op": "udb.set_tspend_policy", "tspend": "1717171717171717171717171717171717171717171717171717171717171717", "policy": 2}
+    ]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "fund", "tolerate": ["Exist"]},
+      {"op": "udb.set_tspend_policy", "tspend": "1818181818181818181818181818181818181818181818181818181818181818", "policy": 2},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "udb.tspend_policies"},
+    {"op": "view", "ops": [
+      {"op": "mgr.lookup_account", "name": "no such account", "tolerate": ["NotExist"]},
+      {"op": "mgr.last_account"}
+    ]},
+    {"op": "store.extend_main_chain", "again": "b1"},
+    {"op": "store.extend_main_chain", "label": "b2"},
+    {"op": "store.extend_main_chain", "again": "b1"},
+    {"op": "store.extend_main_chain", "again": "0000000000000000000000000000000000000000000000000000000000000001"}
+  ]
+}

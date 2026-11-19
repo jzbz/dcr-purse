@@ -1,0 +1,29 @@
+{
+  "format": "purse-opscript 1",
+  "name": "coin types and the SLIP0044 upgrade",
+  "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "1313131313131313131313131313131313131313131313131313131313131313", "clock": 1794990000, "chain_time": 1794000000},
+  "ops": [
+    {"op": "udb.coin_types"},
+    {"op": "udb.hd_keys_from_seed", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"},
+    {"op": "udb.hd_keys_from_seed", "seed": "00"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.coin_type_priv_key"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.coin_type_priv_key"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.account_extended_priv_key", "account": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.new_account", "name": "after upgrade"},
+    {"op": "mgr.account_extended_pub_key", "account": 1},
+    {"op": "rt.checkpoint", "name": "upgraded"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 1, "branch": 0},
+    {"op": "mgr.mark_used_child_index", "account": 0, "branch": 0, "child": 1},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"}
+  ]
+}

@@ -1,0 +1,596 @@
+{
+ "format": "purse-opscript 1",
+ "name": "tickets, votes and stake invalidation",
+ "setup": {
+  "network": "simnet",
+  "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "1010101010101010101010101010101010101010101010101010101010101010",
+  "clock": 1794990000,
+  "chain_time": 1794000000
+ },
+ "ops": [
+  {
+   "op": "mgr.unlock",
+   "pass": "private"
+  },
+  {
+   "op": "mgr.sync_account_to_addr_index",
+   "account": 0,
+   "index": 6,
+   "branch": 0
+  },
+  {
+   "op": "tx.build",
+   "label": "fund",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "0404040404040404040404040404040404040404040404040404040404040404",
+      "index": 0
+     },
+     "value": 20000000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 10000000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     }
+    },
+    {
+     "value": 9999990000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 1
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1",
+   "filter": [
+    "fund"
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "fund",
+     "block": "b1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fund",
+     "block": "b1",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "fund",
+     "block": "b1",
+     "index": 1,
+     "account": 0
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "ticket",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "fund",
+      "index": 0
+     },
+     "value": 10000000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 9999000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 3
+      },
+      "amount": 10000000000
+     }
+    },
+    {
+     "value": 0,
+     "script": "bd76a914000000000000000000000000000000000000000088ac"
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2",
+   "filter": [
+    "ticket"
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "ticket",
+     "block": "b2"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "ticket",
+     "block": "b2",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.add_ticket_commitment",
+     "tx": "ticket",
+     "index": 1,
+     "account": 0
+    }
+   ]
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "ticket",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "fund",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 2,
+   "include_immature": true
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 2,
+   "include_immature": false
+  },
+  {
+   "op": "store.own_ticket",
+   "ticket": "ticket"
+  },
+  {
+   "op": "store.own_ticket",
+   "ticket": "fund"
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "ticket"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "fund"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "ticket",
+   "version": 11,
+   "agenda": "maxblocksize",
+   "choice": "yes"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "ticket",
+   "version": 11,
+   "agenda": "maxblocksize"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b5"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b6"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b7"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b8"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b9"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b10"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b11"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b12"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b13"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b14"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b15"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b16"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b17"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b18"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b19"
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 19,
+   "include_immature": false
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "tx.build",
+   "label": "vote",
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 100000000
+    },
+    {
+     "prev": {
+      "tx": "ticket",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 9999000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b19"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 10099000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b20",
+   "filter": [
+    "vote"
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "vote",
+     "block": "b20"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "vote",
+     "block": "b20",
+     "index": 2,
+     "account": 0
+    },
+    {
+     "op": "store.redeem_ticket_commitments",
+     "tx": "vote",
+     "block": "b20"
+    }
+   ]
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 20,
+   "include_immature": true
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "ticket"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "ticket",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "rev",
+   "version": 2,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "ticket",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 9999000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 9999000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     },
+     "tag": "ssrtx"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "rev"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "rev"
+  },
+  {
+   "op": "tx.build",
+   "label": "t2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "fund",
+      "index": 1
+     },
+     "value": 9999990000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 9999000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 5
+      },
+      "amount": 9999990000,
+      "limits": 0
+     }
+    },
+    {
+     "value": 0,
+     "script": "bd76a914000000000000000000000000000000000000000088ac"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t2"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "t2",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.add_ticket_commitment",
+     "tx": "t2",
+     "index": 1,
+     "account": 0
+    }
+   ]
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 20,
+   "include_immature": true
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.prune_unmined",
+   "sdiff": 5000000000
+  },
+  {
+   "op": "store.unmined_tx_hashes"
+  },
+  {
+   "op": "tx.build",
+   "label": "r1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "0505050505050505050505050505050505050505050505050505050505050505",
+      "index": 0
+     },
+     "value": 300000000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 200000000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 6
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b21",
+   "filter": [
+    "r1"
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "r1",
+     "block": "b21"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "r1",
+     "block": "b21",
+     "index": 0,
+     "account": 0
+    }
+   ]
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 1,
+   "account": 0
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b22",
+   "votebits": 0
+  },
+  {
+   "op": "store.block_in_main_chain",
+   "block": "b21"
+  },
+  {
+   "op": "store.tx_details",
+   "tx": "r1"
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 1,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "r1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "rt.checkpoint",
+   "name": "invalidated"
+  },
+  {
+   "op": "store.rollback",
+   "height": 22
+  },
+  {
+   "op": "store.block_in_main_chain",
+   "block": "b21"
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 1,
+   "account": 0
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b22b"
+  },
+  {
+   "op": "store.range_transactions",
+   "begin": 19,
+   "end": -1
+  }
+ ]
+}

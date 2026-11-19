@@ -1,0 +1,22 @@
+[package]
+name = "purse-export-check"
+description = "The logical-export conformance checks (a strict parser of format purse-export 2 and its oracle tests), held here until purse-udb exists"
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2 = "0.11.1"
+
+[dev-dependencies]
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
+purse-boltread = { path = "../purse-boltread" }
+purse-testutil.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

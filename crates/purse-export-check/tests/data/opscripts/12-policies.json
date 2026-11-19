@@ -1,0 +1,358 @@
+{
+ "format": "purse-opscript 1",
+ "name": "VSP, treasury and agenda records",
+ "setup": {
+  "network": "simnet",
+  "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "1212121212121212121212121212121212121212121212121212121212121212",
+  "clock": 1794990000,
+  "chain_time": 1794000000
+ },
+ "ops": [
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "fee_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "fee_tx_status": 1,
+   "host": "https://vsp.example.org",
+   "pubkey": "0102"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222",
+   "fee_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "fee_tx_status": 2,
+   "host": "https://vsp.example.org",
+   "pubkey": "0304",
+   "vsp_host_id": 99
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "3333333333333333333333333333333333333333333333333333333333333333",
+   "fee_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "fee_tx_status": 1,
+   "host": "https://other.example.org",
+   "pubkey": ""
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 7
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 1
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 2
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 0
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 5
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp.example.org"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://none.example.org"
+  },
+  {
+   "op": "udb.set_vsp_host",
+   "id": 5,
+   "host": "https://five.example.org"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 5
+  },
+  {
+   "op": "udb.set_vsp_pub_key",
+   "host": "https://five.example.org",
+   "id": 5,
+   "pubkey": "05"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://five.example.org"
+  },
+  {
+   "op": "udb.delete_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  {
+   "op": "udb.delete_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222",
+   "fee_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "fee_tx_status": 3,
+   "host": "https://five.example.org",
+   "pubkey": "ff"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  {
+   "op": "udb.tspend_policy",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "op": "udb.set_tspend_policy",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "policy": 1
+  },
+  {
+   "op": "udb.set_tspend_policy",
+   "tspend": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "policy": 2
+  },
+  {
+   "op": "udb.tspend_policy",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "op": "udb.tspend_policies"
+  },
+  {
+   "op": "udb.set_tspend_policy",
+   "tspend": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "policy": 0
+  },
+  {
+   "op": "udb.tspend_policies"
+  },
+  {
+   "op": "udb.set_tspend_policy",
+   "tspend": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "policy": 7
+  },
+  {
+   "op": "udb.tspend_policy",
+   "tspend": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+   "op": "udb.set_vsp_tspend_policy",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "policy": 2
+  },
+  {
+   "op": "udb.set_vsp_tspend_policy",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "policy": 1
+  },
+  {
+   "op": "udb.set_vsp_tspend_policy",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222",
+   "tspend": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "policy": 0
+  },
+  {
+   "op": "udb.vsp_tspend_policy",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "op": "udb.vsp_tspend_policy",
+   "ticket": "3333333333333333333333333333333333333333333333333333333333333333",
+   "tspend": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "op": "udb.vsp_tspend_policies"
+  },
+  {
+   "op": "udb.treasury_key_policy",
+   "pikey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+  },
+  {
+   "op": "udb.set_treasury_key_policy",
+   "pikey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+   "policy": 1
+  },
+  {
+   "op": "udb.set_treasury_key_policy",
+   "pikey": "024ce119c96e2fa357200b559b2f7dd5a5f02d5290aff74b03f3e471b273211c97",
+   "policy": 2
+  },
+  {
+   "op": "udb.set_treasury_key_policy",
+   "pikey": "00",
+   "policy": 1
+  },
+  {
+   "op": "udb.treasury_key_policy",
+   "pikey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+  },
+  {
+   "op": "udb.treasury_key_policies"
+  },
+  {
+   "op": "udb.set_vsp_treasury_key_policy",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "pikey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+   "policy": 2
+  },
+  {
+   "op": "udb.set_vsp_treasury_key_policy",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "pikey": "024ce119c96e2fa357200b559b2f7dd5a5f02d5290aff74b03f3e471b273211c97",
+   "policy": 1
+  },
+  {
+   "op": "udb.set_vsp_treasury_key_policy",
+   "ticket": "3333333333333333333333333333333333333333333333333333333333333333",
+   "pikey": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+   "policy": 0
+  },
+  {
+   "op": "udb.vsp_treasury_key_policy",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "pikey": "024ce119c96e2fa357200b559b2f7dd5a5f02d5290aff74b03f3e471b273211c97"
+  },
+  {
+   "op": "udb.vsp_treasury_key_policies"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "yes"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "maxblocksize",
+   "choice": "no"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 9,
+   "agenda": "treasury",
+   "choice": ""
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 9,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 11,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "no"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "abstain"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "2222222222222222222222222222222222222222222222222222222222222222",
+   "version": 10,
+   "agenda": "x",
+   "choice": ""
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "3333333333333333333333333333333333333333333333333333333333333333",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "udb.set_tspend_policy",
+     "tspend": "3333333333333333333333333333333333333333333333333333333333333333",
+     "policy": 1
+    },
+    {
+     "op": "udb.get_vsp_ticket",
+     "ticket": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+   ]
+  },
+  {
+   "op": "udb.tspend_policy",
+   "tspend": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  {
+   "op": "udb.needs_migration"
+  },
+  {
+   "op": "rt.checkpoint",
+   "name": "policies"
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "udb.vsp_treasury_key_policies"
+  }
+ ]
+}

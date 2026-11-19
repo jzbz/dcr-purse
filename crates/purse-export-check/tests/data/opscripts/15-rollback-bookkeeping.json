@@ -1,0 +1,66 @@
+{
+  "format": "purse-opscript 1",
+  "name": "runner bookkeeping rolled back with its group",
+  "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "1515151515151515151515151515151515151515151515151515151515151515", "clock": 1794990000, "chain_time": 1794990000},
+  "ops": [
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.new_account", "name": "second"},
+    {"op": "update", "ops": [
+      {"op": "mgr.change_passphrase", "old": "public", "new": "public2", "private": false},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "rt.reopen"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "update", "ops": [
+      {"op": "mgr.change_passphrase", "old": "private", "new": "other", "private": true},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.unlock", "pass": "other"},
+    {"op": "rt.checkpoint", "name": "after-private"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.unlock", "pass": "other"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "update", "ops": [
+      {"op": "mgr.set_account_passphrase", "account": 1, "pass": "acct-pass"},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "mgr.account_has_passphrase", "account": 1},
+    {"op": "update", "ops": [
+      {"op": "mgr.import_voting_account", "name": "voter", "pass": "voting-pass", "xpriv": {"seed": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf", "path": []}},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "mgr.last_imported_account"},
+    {"op": "mgr.lookup_account", "name": "voter"},
+    {"op": "update", "ops": [
+      {"op": "store.extend_main_chain", "label": "lost"},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "store.main_chain_tip"},
+    {"op": "store.extend_main_chain", "label": "lost"},
+    {"op": "update", "ops": [
+      {"op": "mgr.import_private_key", "key": "2222222222222222222222222222222222222222222222222222222222222222", "label": "k"},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "mgr.import_private_key", "key": "2222222222222222222222222222222222222222222222222222222222222222", "label": "k"},
+    {"op": "mgr.address", "addr": {"ref": "k"}},
+    {"op": "update", "ops": [
+      {"op": "mgr.convert_to_watching_only"},
+      {"op": "mgr.lookup_account", "name": "no such account"}
+    ]},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.is_locked"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "rt.checkpoint", "name": "after-convert"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.set_account_passphrase", "account": 1, "pass": "acct-pass"},
+    {"op": "update", "ops": [
+      {"op": "mgr.change_passphrase", "old": "private", "new": "private2", "private": true},
+      {"op": "mgr.change_passphrase", "old": "public", "new": "public2", "private": false}
+    ]},
+    {"op": "rt.reopen"},
+    {"op": "mgr.unlock", "pass": "private2"}
+  ]
+}

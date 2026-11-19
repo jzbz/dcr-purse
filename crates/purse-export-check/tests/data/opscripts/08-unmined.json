@@ -1,0 +1,91 @@
+{
+  "format": "purse-opscript 1",
+  "name": "unmined transactions",
+  "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "0808080808080808080808080808080808080808080808080808080808080808", "clock": 1794990000, "chain_time": 1794000000},
+  "ops": [
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 5, "branch": 0},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 5, "branch": 1},
+    {"op": "tx.build", "label": "fund", "inputs": [{"prev": {"tx": "0202020202020202020202020202020202020202020202020202020202020202", "index": 0}, "value": 10000000000}], "outputs": [{"value": 6000000000, "pay": {"acct": 0, "branch": 0, "index": 0}}, {"value": 3999990000, "pay": {"acct": 0, "branch": 0, "index": 1}}]},
+    {"op": "store.extend_main_chain", "label": "b1", "filter": ["fund"]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mined_tx", "tx": "fund", "block": "b1"},
+      {"op": "store.add_credit", "tx": "fund", "block": "b1", "index": 0, "account": 0},
+      {"op": "store.add_credit", "tx": "fund", "block": "b1", "index": 1, "account": 0}
+    ]},
+    {"op": "rt.clock_advance", "seconds": 120},
+    {"op": "tx.build", "label": "u1", "expiry": 5, "inputs": [{"prev": {"tx": "fund", "index": 0}, "value": 6000000000}], "outputs": [{"value": 1000000000, "script": "76a914eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee88ac"}, {"value": 4999990000, "pay": {"acct": 0, "branch": 1, "index": 0}}]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "u1"},
+      {"op": "store.add_credit", "tx": "u1", "index": 1, "change": true, "account": 0},
+      {"op": "store.set_published", "tx": "u1", "published": false}
+    ]},
+    {"op": "rt.clock_advance", "seconds": 60},
+    {"op": "tx.build", "label": "u2", "inputs": [{"prev": {"tx": "u1", "index": 1}, "value": 4999990000}], "outputs": [{"value": 4999980000, "pay": {"acct": 0, "branch": 0, "index": 2}}]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "u2"},
+      {"op": "store.add_credit", "tx": "u2", "index": 0, "account": 0}
+    ]},
+    {"op": "store.insert_mem_pool_tx", "tx": "u2"},
+    {"op": "store.insert_mem_pool_tx", "tx": "fund"},
+    {"op": "store.unmined_txs"},
+    {"op": "store.unmined_tx_hashes"},
+    {"op": "store.tx_details", "tx": "u1"},
+    {"op": "store.exists_tx_mined_or_unmined", "tx": "u2"},
+    {"op": "store.unspent_output", "outpoint": {"tx": "u1", "index": 1}, "include_mempool": true},
+    {"op": "store.unspent_output", "outpoint": {"tx": "u1", "index": 1}, "include_mempool": false},
+    {"op": "store.unspent_output", "outpoint": {"tx": "u2", "index": 0}, "include_mempool": true},
+    {"op": "store.unspent_outputs"},
+    {"op": "store.spender", "outpoint": {"tx": "fund", "index": 0}},
+    {"op": "store.previous_pk_scripts", "tx": "u2"},
+    {"op": "store.account_balance", "minconf": 0, "account": 0},
+    {"op": "store.account_balance", "minconf": 1, "account": 0},
+    {"op": "store.range_transactions", "begin": -1, "end": -1},
+    {"op": "store.set_published", "tx": "u1", "published": true},
+    {"op": "store.set_published", "tx": "u1", "published": false},
+    {"op": "store.set_published", "tx": "0000000000000000000000000000000000000000000000000000000000000077", "published": false},
+    {"op": "tx.build", "label": "ds", "inputs": [{"prev": {"tx": "fund", "index": 0}, "value": 6000000000}], "outputs": [{"value": 5999990000, "pay": {"acct": 0, "branch": 0, "index": 3}}]},
+    {"op": "rt.checkpoint", "name": "two-unmined"},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "ds"},
+      {"op": "store.add_credit", "tx": "ds", "index": 0, "account": 0}
+    ]},
+    {"op": "store.unmined_txs"},
+    {"op": "store.exists_tx", "tx": "u1"},
+    {"op": "store.exists_tx_mined_or_unmined", "tx": "u1"},
+    {"op": "store.remove_unconfirmed", "tx": "ds"},
+    {"op": "store.unmined_tx_hashes"},
+    {"op": "tx.build", "label": "u3", "expiry": 3, "inputs": [{"prev": {"tx": "fund", "index": 1}, "value": 3999990000}], "outputs": [{"value": 3999980000, "pay": {"acct": 0, "branch": 1, "index": 4}}]},
+    {"op": "tx.build", "label": "u4", "inputs": [{"prev": {"tx": "u3", "index": 0}, "value": 3999980000}], "outputs": [{"value": 3999970000, "pay": {"acct": 0, "branch": 0, "index": 4}}]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "u3"},
+      {"op": "store.add_credit", "tx": "u3", "index": 0, "change": true, "account": 0},
+      {"op": "store.insert_mem_pool_tx", "tx": "u4"},
+      {"op": "store.add_credit", "tx": "u4", "index": 0, "account": 0}
+    ]},
+    {"op": "store.unmined_txs"},
+    {"op": "store.extend_main_chain", "label": "b2"},
+    {"op": "store.prune_unmined", "sdiff": 0},
+    {"op": "store.extend_main_chain", "label": "b3"},
+    {"op": "store.prune_unmined", "sdiff": 0},
+    {"op": "store.unmined_txs"},
+    {"op": "tx.build", "label": "u5", "inputs": [{"prev": {"tx": "fund", "index": 1}, "value": 3999990000}], "outputs": [{"value": 3999980000, "pay": {"acct": 0, "branch": 1, "index": 5}}]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mem_pool_tx", "tx": "u5"},
+      {"op": "store.add_credit", "tx": "u5", "index": 0, "change": true, "account": 0}
+    ]},
+    {"op": "store.extend_main_chain", "label": "b4", "filter": ["u5"]},
+    {"op": "update", "ops": [
+      {"op": "store.insert_mined_tx", "tx": "u5", "block": "b4"},
+      {"op": "store.add_credit", "tx": "u5", "block": "b4", "index": 0, "change": true, "account": 0}
+    ]},
+    {"op": "store.unmined_txs"},
+    {"op": "store.tx_details", "tx": "u5"},
+    {"op": "store.remove_unconfirmed", "tx": "u1"},
+    {"op": "store.unmined_tx_hashes"},
+    {"op": "store.account_balances", "minconf": 0},
+    {"op": "store.rollback", "height": 4},
+    {"op": "store.unmined_txs"},
+    {"op": "store.prune_unmined", "sdiff": 0}
+  ]
+}

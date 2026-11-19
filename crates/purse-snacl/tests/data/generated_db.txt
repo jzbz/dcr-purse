@@ -1,0 +1,25 @@
+# The generated database for purse-snacl
+#
+# Every expected value is the output of the Go oracle tools/oracle/cmd/snacl, built with
+# go1.27.4, which links dcrwallet 54b85b336077587eaf20112dc695355ce06fc76e's
+# kdf and udb packages, a verbatim copy of its wallet/internal/snacl and a verbatim copy
+# of udb's seal/unseal. Regenerate with:
+#   PURSE_SNACL_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-snacl --test oracle \
+#       -- --ignored regenerate_frozen_vectors
+# which also checks the Rust crate agrees. Do not edit by hand.
+# Regeneration does not reproduce this file byte for byte: Go draws salts, nonces and
+# keys from github.com/decred/dcrd/crypto/rand, a generator seeded from the operating
+# system that the oracle cannot steer, and later requests are built from earlier
+# answers. So tests/oracle.rs replays every entry (and the database) against Go on
+# every run with the oracle: deterministic requests must give the recorded outcome
+# again, and each random draw is checked by its inverse (the key derived again from
+# the recorded parameters, the recorded box opened to the recorded plaintext).
+# generated-simnet.db.gz was written by the oracle's make-db through udb's public API
+# (Initialize, then a second account given its own passphrase with
+# SetAccountPassphrase, an imported voting account, an imported private key and an
+# imported script); the line below holds the request (path omitted), Go's result and
+# the SHA-256 of the decompressed database. Argon2id threads are the generating
+# machine's CPU count, as dcrwallet stores them.
+# entries: 1
+# body-sha256: ee1efa64b92f438d3b0321c412e85cf5f95c954624d163a24c27f4f67c3539cd
+{"db_sha256":"9ed255d457a6a1710d28791b3f90e4b6682595f61eb7c8948746023f846f65f9","request":{"acct_pass":"6163636f756e742070617373706872617365","import_key":"1111111111111111111111111111111111111111111111111111111111111111","net":"simnet","priv_pass":"70726976617465","pub_pass":"7075626c6963","script":"515253ae","seed":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","voting_pass":"766f74696e672070617373706872617365","voting_seed":"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f","wrong_pass":"77726f6e67"},"result":{"accounts":{"0":"sprvZGuhp3CqU92JBGbbsbBSKLMEkpHTKeP5eVmqcCDUEu7cQ1FVdr7P41YjstbzzTTmK2fMKWxWbc3rL5xQcS3MXfHAkdhrNf1VEJ1LZS3ZX4h","1":"sprvZGuhp3CqU92JEJ9gpiJDgJpDUTBiEoPRhvyBDxTKmV2rPs7Z8LHcL9nM1pq7dChCLvnLJe3Q5aVmhMD4cSt3CNVpi8xzfy1cVikQvV8vgf4","2147483648":"sprvZ9xkGEZkBei2pgxhsiidWRtF7CoM7Ubgmvk3dLtvhKdcY5GWn6hnSuyHvjhBiUMc9rUaMn7RphZNTtLe8askJzCEfAWeTpi1izP3riPLk3a"},"db_version":26,"import_privkey":"1111111111111111111111111111111111111111111111111111111111111111","import_pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa","open_wrong_pub":{"kind":10,"op":"","text":"invalid passphrase","text_lib":"invalid passphrase"},"script_hash160":"cac36ce6b425b8162724b29e122515b40b824a72","unique_accounts":[1,2147483648],"unlock_account_ok":true,"unlock_account_wrong":{"kind":10,"op":"","text":"invalid passphrase","text_lib":"invalid passphrase"},"unlock_voting_ok":true,"unlock_voting_wrong":{"kind":10,"op":"","text":"invalid passphrase","text_lib":"invalid passphrase"},"unlock_wrong_priv":{"kind":10,"op":"secretkey.DeriveKey","text":"secretkey.DeriveKey: invalid passphrase","text_lib":"secretkey.DeriveKey: invalid passphrase"},"voting_account":2147483648}}

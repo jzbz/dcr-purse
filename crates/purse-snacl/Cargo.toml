@@ -1,0 +1,52 @@
+[package]
+name = "purse-snacl"
+description = "dcrwallet's key sealing: scrypt master keys and XSalsa20-Poly1305 boxes (snacl), Argon2id parameters (kdf) and the per-account XChaCha20-Poly1305 blobs"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Argon2id (version 0x13) for per-account passphrases. 0.6 is on blake2 0.11
+# and digest 0.11, the workspace's generation. Defaults off: no PHC string
+# support, no getrandom; `zeroize` wipes its memory blocks, H0 and the block
+# hashes, not the final tag (see the "Secrets" section of src/lib.rs).
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+# Not used directly: only turns on blake2's own `zeroize` feature, which
+# argon2's does not forward, so the Blake2b states argon2 drops (holding H0
+# and the final tag, the account key) are wiped.
+blake2 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+# XChaCha20-Poly1305 for the per-account blobs (the same release dcroxide
+# links); `zeroize` wipes the cipher state.
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+# Op/Kind and the conversion of this crate's errors into the wallet-wide model.
+purse-errors.workspace = true
+# The OS random source behind the default RandomSource.
+getrandom = "0.4.3"
+# NaCl secretbox (XSalsa20-Poly1305) is assembled from these two, the
+# primitives crypto_secretbox uses: no release of crypto_secretbox fits the
+# workspace's cipher 0.5 generation (see src/secretbox.rs). Both wipe their
+# state on drop.
+poly1305 = { version = "0.9.1", features = ["zeroize"] }
+salsa20 = { version = "0.11.0", features = ["zeroize"] }
+# scrypt for the master keys. No default features (no PHC strings).
+scrypt = { version = "0.12.0", default-features = false }
+# SHA-256 of the derived master key (the stored digest); `zeroize` wipes the
+# hasher state, which holds the key.
+sha2 = { version = "0.11.1", default-features = false, features = ["zeroize"] }
+# Constant-time comparison of the digest and of the secretbox tag.
+subtle = { version = "2.6.1", default-features = false }
+# Keys, derived keys and plaintexts are wiped on drop.
+zeroize = { version = "1.9.2", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The upstream fixture databases are gzipped; the pure-Rust backend.
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
+# Reads the master key parameters and sealed keys out of dcrwallet databases.
+purse-boltread = { path = "../purse-boltread" }
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

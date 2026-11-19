@@ -1019,7 +1019,7 @@ fn kind_of(e: &Error) -> &'static str {
 /// txid and dump. Returns Go's dump result.
 fn compare_with_go(oracle: &mut Oracle, path: &Path, name: &str, preload: bool) -> Option<Value> {
     let go = oracle.try_call("dump", json!({"path": path, "preload_freelist": preload}));
-    let rust = Db::open(path).and_then(|db| {
+    let rust = common::open_beside_go(path).and_then(|db| {
         let s = dump(&db, &mut std::io::sink())?;
         Ok((db.meta().txid, s.sha256_hex()))
     });
@@ -1410,7 +1410,7 @@ fn synthetic_files() {
         let s = chain(depth);
         let path = dir.join(format!("chain-{depth}.db"));
         s.write(&path);
-        let db = Db::open(&path).expect("open");
+        let db = common::open_beside_go(&path).expect("open");
         let r = dump(&db, &mut std::io::sink());
         let mut c = db.root().cursor();
         let first = c.first();
@@ -1453,7 +1453,7 @@ fn synthetic_files() {
     let (s, live) = empty_leaves();
     let path = dir.join("empty-leaves.db");
     s.write(&path);
-    let db = Db::open(&path).expect("open");
+    let db = common::open_beside_go(&path).expect("open");
     let fwd: Vec<Vec<u8>> = db
         .root()
         .iter()
@@ -1524,7 +1524,7 @@ fn synthetic_files() {
         s.break_meta0 = true;
         let path = dir.join(format!("probe-{shift}.db"));
         s.write(&path);
-        let r = Db::open(&path);
+        let r = common::open_beside_go(&path);
         if opens {
             let db = r.expect("16 MiB pages open via meta 1");
             assert_eq!((db.page_size(), db.meta_page()), (ps as u32, 1));
@@ -1548,7 +1548,7 @@ fn synthetic_files() {
     s.freelist_page(3, &ids);
     let path = dir.join("freelist-escape.db");
     s.write(&path);
-    let db = Db::open(&path).expect("open");
+    let db = common::open_beside_go(&path).expect("open");
     ids.sort_unstable();
     assert_eq!(db.freelist().expect("freelist").expect("synced"), ids);
     if let Some(o) = oracle.as_mut() {

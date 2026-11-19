@@ -55,7 +55,7 @@ fn compare_dumps(oracle: &mut Oracle, path: &Path, what: &str) -> Db {
         "dump",
         json!({"path": path, "out": go_out, "preload_freelist": true}),
     );
-    let db = Db::open(path).unwrap_or_else(|e| panic!("{what}: open: {e}"));
+    let db = common::open_beside_go(path).unwrap_or_else(|e| panic!("{what}: open: {e}"));
     let mut f = std::fs::File::create(&rs_out).expect("create dump");
     let s = dump(&db, &mut f).unwrap_or_else(|e| panic!("{what}: dump: {e}"));
     drop(f);

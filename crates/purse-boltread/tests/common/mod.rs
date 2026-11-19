@@ -378,6 +378,17 @@ impl Synth {
     }
 }
 
+/// Opens `path` for a test that has the Go oracle open the same file while
+/// the reader holds it.
+///
+/// On Unix that is the default open: the shared lock lets Go's read-only
+/// opens in.  On Windows the default open denies write sharing, and bbolt
+/// asks for write access even to read, so Go could not open the file at
+/// all; there the lock is left off.  The lock itself has tests of its own.
+pub fn open_beside_go(path: &Path) -> purse_boltread::Result<Db> {
+    Db::open_with(path, &OpenOptions::new().lock(cfg!(unix)))
+}
+
 /// How long one case may run.  A case takes milliseconds; the margin is for
 /// a slow, loaded CI runner in a debug build.
 const CASE_DEADLINE: Duration = Duration::from_secs(30);

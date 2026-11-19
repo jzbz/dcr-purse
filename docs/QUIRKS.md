@@ -206,6 +206,8 @@ Spec: [02](specs/02-address-manager.md). Source: dcrd/hdkeychain/v3@v3.1.3/exten
 
 NewKeyFromString treats a key as private iff the key-data byte is 0x00 and accepts either version prefix. createWatchOnly and ImportXpubAccount never check IsPrivate, so a private key string would be stored encrypted under the PUBLIC crypto key. Whether upper layers reject this is unverified.
 
+Confirmation (2026-11-19, ADR-0017): run in a scratch copy of dcrwallet at the pin, not kept in the repository. `wallet.CreateWatchOnly` given an extended private key (`sprv…`) succeeds; the opened wallet reports watching-only and `AccountXpub(0)` returns the private key. `ImportXpubAccount` does reject private keys (wallet/wallet.go:3895-3896), but neither `--createwatchingonly` (walletsetup.go:356) nor gRPC `CreateWatchingOnlyWallet` (internal/loader/loader.go:163) checks. An upstream-report candidate (ADR-0017, S5).
+
 ## QK-0034 — Argon2 thread count wraps to 0 at 256+ CPUs and Go panics on bad stored params
 
 Spec: [02](specs/02-address-manager.md). Source: kdf/kdf.go:30-39; x/crypto@v0.57.0/argon2/argon2.go:106-111
@@ -970,6 +972,8 @@ Spec: [06](specs/06-wallet-core-part1.md). Source: wallet/wallet.go:1842-1849; w
 
 manager.Lock returns kind Locked before clearing keys when already locked and Wallet.Lock discards the error, so an account unlocked with UnlockAccount while the wallet is locked survives walletlock; when the wallet is unlocked the same Lock() drops every account key including individually-unlocked ones.
 
+Confirmation (2026-11-19, ADR-0017): run on a test wallet in a scratch copy of dcrwallet at the pin, not kept in the repository: an account with its own passphrase, unlocked with `UnlockAccount` while the wallet is locked, is still unlocked after `Lock`. An upstream-report candidate (ADR-0017, S13).
+
 ## QK-0161 — Unlock acts on a stale wasLocked flag
 
 Spec: [06](specs/06-wallet-core-part1.md). Source: wallet/wallet.go:1715-1718, :1740-1743
@@ -1216,6 +1220,8 @@ Spec: [08](specs/08-wallet-core-part3.md). Source: wallet/wallet.go:4816-4823; d
 
 When additionalKeysByAddress is non-empty and lacks a needed address the error is formatted with %v of the whole map[string]*dcrutil.WIF; *WIF implements String(), so the message contains every supplied WIF private key ('no key for address (needed: X, have map[addr:WIF ...])') and is returned in signrawtransaction errors[].error.
 
+Confirmation (2026-11-19, ADR-0017): run in a scratch copy of dcrwallet at the pin, not kept in the repository. `SignTransaction` with a previous script paying one address and a supplied key map holding only another address's WIF returns a signature error whose text contains that WIF. An upstream-report candidate (ADR-0017, S6).
+
 ## QK-0202 — SignTransaction validation asymmetries
 
 Spec: [08](specs/08-wallet-core-part3.md). Source: wallet/wallet.go:4809, 4824, 4832, 4877-4906
@@ -1371,6 +1377,8 @@ dcrd's signature hash path errors only for an unparsable script or SigHashSingle
 Spec: [09](specs/09-chain-sync-rescan-discovery.md). Source: wallet/difficulty.go:675-709, wallet/difficulty.go:428-432, wallet/difficulty.go:482-494
 
 ancestorHeaderAtHeight returns (nil, nil) when the requested height exceeds the target's height; isAncestorOf then calls BlockHash() on the nil header and panics (dcrd's equivalent returns false). Triggered when a header reaches the cached-candidate-anchor step (version >= min blake3 version, height >= first possible activation height, blake3 hash <= its own claimed target, which is not range-checked) while its parent is below the cached anchor height, e.g. a header forking off the main chain below the anchor. Reachability from an untrusted SPV peer is unverified. The Rust port must return 'not an ancestor'.
+
+Confirmation (2026-11-19, ADR-0017): the panic was run in a scratch copy of dcrwallet at the pin, not kept in the repository. `checkDifficultyPositional` with mainnet parameters, a cached candidate anchor at height 794367, a parent at 700000 and a version-10 header at 700001 whose `Bits` are `0x207fffff` (its blake3 hash met that target after three nonces) panics with a nil pointer dereference. Reachability, read from the source: during the start-up header sync (`initialSyncHeaders`, spv/sync.go:1616, :1680), `getheaders` goes only to a peer that advertised a height above the wallet's main-chain tip (spv/backend.go:39-46); its reply's first parent must be one of the locators (p2p/peering.go:1125-1144), which reach below the anchor, and the reply must be a full batch of 2,000 headers or end at the advertised height (p2p/peering.go:1112-1121), so for a wallet past the anchor a full batch whose first header alone is crafted. The anchor must already be cached in that run, which an earlier batch with a valid post-activation header does. The panic then happens on the SPV syncer's initial-sync goroutine (spv/backend.go:353), where nothing recovers (dcrwallet.go:180 covers only the main goroutine), so the process exits. Announcements do not reach it in practice: they are refused before the initial sync ends (p2p/peering.go:1100-1106; spv/sync.go:1066), and afterwards `handleBlockAnnouncements` rejects a first header more than 256 blocks below the tip before the parent lookup (spv/sync.go:1398-1405); a synced wallet would need an anchor cached near the tip, about one real block's blake3 work. The path through a peer was not run. This answers spec 09 Q-7. An upstream-report candidate (ADR-0017, S1).
 
 ## QK-0228 — Positional-only PoW difficulty; PoW hash not recomputed
 
@@ -3362,6 +3370,8 @@ Spec: [20](specs/20-grpc-other-services.md). Source: internal/rpc/rpcserver/serv
 
 The handler unlocks with a timeout channel, then ticketbuyer.Run unlocks again with a nil timeout, cancelling the first timeout. The deferred lockWallet only feeds a drained channel, so the wallet stays unlocked without a time limit after the RPC ends.
 
+Confirmation (2026-11-19, ADR-0017): run on a test wallet in a scratch copy of dcrwallet at the pin, not kept in the repository. `Unlock` with a timeout channel, `Unlock` with a nil timeout, a pause, then a send on the channel leaves the wallet unlocked; the first unlock and the send alone lock it. Without the pause the result depends on which ready case of the timer goroutine's `select` Go picks (wallet/wallet.go:1823-1829); in the handler the ticket buyer runs between the two. An upstream-report candidate (ADR-0017, S4).
+
 ## QK-0559 — CloseWallet stops nothing but the database
 
 Spec: [20](specs/20-grpc-other-services.md). Source: internal/loader/loader.go:375-393
@@ -4441,3 +4451,21 @@ Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txmined.go:857-878,
 Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txmined.go (`stakeInvalidate`); wallet/udb/txunmined.go:26-29
 
 Such a transaction keeps its mined record, so `InsertMemPoolTx` refuses it as already mined and the wallet cannot track it in the mempool again. Read from the source at the pin; not run. Disposition: open; Phase 3, as QK-0734.
+
+## QK-0737 — One client that stops reading a notification stream stalls the wallet
+
+Spec: [08](specs/08-wallet-core-part3.md), [19](specs/19-grpc-wallet-service.md). Source: wallet/notifications.go:40-51, 258-260, 351-355, 584-586, 624-626, 730-750; wallet/chainntfns.go:110, 659-672, 312-313; internal/rpc/rpcserver/server.go:2388-2509; grpc v1.83.2 internal/transport/defaults.go:46, flowcontrol.go:54-67
+
+Every notification is sent on an unbuffered channel while the notification server's mutex is held, and the gRPC handler forwards it with `Send`, which blocks once grpc-go's per-stream write quota and the client's receive window are full: about 200 KB of messages, measured with a grpc-go client that never reads (ADR-0015). From then on the wallet's next send to that client blocks with the mutex held, so every other notification of any kind, every registration and deregistration, and every unmined-transaction notification waits; the last runs inside a write transaction with `lockedOutpointMu` held, so all writes, sends and coin selection wait too, and a stalled tip-change or block notification holds the syncer in `ChainSwitch` (in SPV mode with `sidechainMu` held). A confirmation client that stops reading blocks every tip change. The stall lasts until the client reads, cancels or disconnects; a peer that is alive but does not read is never cut. The transport buffering was measured; the wallet-level stall is read from the source and was not run against dcrwallet. Disposition: pending ADR-0015 (proposed: a byte-bounded queue per client within a budget for all notification streams, a full queue or a full budget ending the stream of the client furthest behind).
+
+## QK-0738 — The JSON-RPC websocket accepts any Origin
+
+Spec: [16](specs/16-jsonrpc-transport-types-help.md). Source: internal/rpc/jsonrpc/server.go:116-118, 146-171; rpcserver.go:350-373
+
+The upgrader's `CheckOrigin` returns true, so a web page in a browser on the same host can open the wallet's websocket; browsers apply no same-origin rule to websockets. With TLS and HTTP Basic authentication the page cannot complete a handshake against the self-signed certificate or authenticate without the password, though with `--noservertls` it can try passwords through the `authenticate` method. With `--noservertls` and `--jsonrpcauthtype=clientcert` the server authenticates nobody (QK-0436), and such a page can call every method. Spec 16 records the missing origin check (§4.11). Read from the source at the pin; not run. An upstream-report candidate (ADR-0017, S2).
+
+## QK-0739 — Websocket messages have no size limit, before authentication too
+
+Spec: [16](specs/16-jsonrpc-transport-types-help.md). Source: internal/rpc/jsonrpc/server.go:146-171, 338-350, 510-514, 529-537; gorilla/websocket@v1.5.1/conn.go:279, 941, 1118-1126
+
+A client that sends no `Authorization` header is upgraded and may authenticate in-band later; its messages are read with gorilla's `ReadMessage`, which reads a whole message into memory, and the server never calls `SetReadLimit`, while HTTP POST bodies are capped at 4 MiB. The read deadline is cleared on upgrade and nothing bounds how long a connection may stay unauthenticated, so idle connections also hold the websocket slots (QK-0448). Anyone who can reach a JSON-RPC listener can exhaust the process's memory with one large frame. Read from the source at the pin; not run. An upstream-report candidate (ADR-0017, S8).

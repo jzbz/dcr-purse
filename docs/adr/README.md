@@ -5,6 +5,12 @@ question, the options, one proposed outcome and what follows from it. A
 record is **Proposed** until the owner decides; **Accepted** names who decided
 and when. Dated records are extended with addenda, not rewritten.
 
+A record's citations of dcrwallet source (`path:line`) refer to the parity
+pin in force on the record's date, and an addendum's to the pin in force on
+the addendum's date. Every record and addendum to date was written at
+dcrwallet `54b85b33`, the only pin there has been; ten records name no
+commit and rely on this paragraph.
+
 The decisions D1 to D15 are listed in the
 [project brief](../dcr-purse-project-brief.md), section 9.
 
@@ -24,10 +30,12 @@ The decisions D1 to D15 are listed in the
 | [0012](0012-standing-quirk-policy.md) | D10 | Standing quirk policy | Accepted (project owner, 2026-11-18), with QK-0279 fixed instead of reproduced |
 | [0013](0013-no-import-seed-restore-only.md) | D1 (part), D4 | No database import: migration by seed restore only | Accepted (project owner, 2026-11-18); of its open points, the one list of what dropping the import leaves open, 1 to 5 and 7 are decided (D14's reframing among them) and 6, 8 and 9 are Proposed |
 | [0014](0014-performance.md) | — | Performance as a goal | Goal and its precedence over blending in accepted (project owner, 2026-11-19); open points 1 to 12 all decided as recommended; its numbers are starting values, fixed from measurements |
+| [0015](0015-notification-delivery.md) | D11 | Notification delivery to gRPC stream subscribers (JSON-RPC clients receive none) | Proposed: generation as Go's, a byte-bounded queue per client within a budget for all streams, overflow ending the stream of the client furthest behind; the sync streams keep Go's back-pressure; an addendum to ADR-0004 if accepted |
+| [0016](0016-upstream-tracking.md) | D12 | Upstream tracking: when and how the dcrwallet pin and the pins that follow it move | Proposed: master at upstream milestones and on the owner's word until v2.2.0, then every release tag of the newest line; one signed change per move, from a review list a `tools/pinmove` command produces, with shifted citations remapped mechanically |
+| [0017](0017-upstream-defects.md) | D13 | Upstream defects worth reporting | Proposed: 18 security-relevant candidates (five confirmed by running Go at the pin) reported privately through the Decred bug bounty by the owner after a run on current master (which amends ADR-0012 Open point 6, for the owner to accept), the rest as public issues once confirmed; nothing reported by the record |
+| [0018](0018-backup-and-recovery.md) | D15 | Backup and recovery of the store | Proposed: a snapshot of the running store copied into a new, compacted store file (`backupwallet`), a separate tool to verify and restore, no added encryption; an addendum to ADR-0003 if accepted |
 
-Not yet drafted: D11 (notification delivery), D12 (upstream tracking), D13
-(upstream defects worth reporting), D14 (the way back to dcrwallet; its
-premise, a one-way import, is gone, and its reframing as moving non-seed
-state by hand was decided in ADR-0013 Open point 4), D15 (backup and
-recovery of the store). D4 (importable databases) fell away with ADR-0013,
+Not yet drafted: D14 (the way back to dcrwallet; its premise, a one-way
+import, is gone, and its reframing as moving non-seed state by hand was
+decided in ADR-0013 Open point 4). D4 (importable databases) fell away with ADR-0013,
 which supersedes ADR-0007.

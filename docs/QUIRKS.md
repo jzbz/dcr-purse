@@ -4392,7 +4392,7 @@ Go's `errors.Is` and `errors.As` call `Unwrap`, `Is` and `As` on every node what
 
 Spec: [22](specs/22-aux-packages-tools.md), [20](specs/20-grpc-other-services.md). Source: pgpwordlist/pgpwordlist.go:47-55; internal/rpc/rpcserver/server.go:3199-3204; internal/rpc/rpcserver/rpcserver.go:443-445
 
-`DecodeMnemonics` quotes the caller's word in its unknown-word and wrong-position errors; the latter always quotes a valid seed word with its position. gRPC `DecodeSeed` wraps that text and the unary interceptor logs every failed call at error level, so seed words are written to the log at the default level. Disposition: `purse-seed` keeps the text, which the client that sent the words sees. Whether the daemon's log line redacts it is undecided; under the standing rule on leaked secrets it should.
+`DecodeMnemonics` quotes the caller's word in its unknown-word and wrong-position errors; the latter always quotes a valid seed word with its position. gRPC `DecodeSeed` wraps that text and the unary interceptor logs every failed call at error level, so seed words are written to the log at the default level. Disposition (project owner, 2026-11-19): the reply is reproduced and the log is not. `purse-seed` keeps the text, so the client that sent the words gets dcrwallet's exact error. The daemon's log line for a failed `DecodeSeed` call must not carry it: the quoted word is redacted there, under the standing rule on leaked secrets. The redaction belongs to the gRPC server's logging, which does not exist yet; it needs a test when it does.
 
 ## QK-0730 — bbolt panics or reads outside the page on a malformed file
 

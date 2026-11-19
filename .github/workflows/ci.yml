@@ -10,10 +10,11 @@ env:
   CARGO_TERM_COLOR: always
   # Differential tests must run in CI: a missing oracle is a failure, not a skip.
   PURSE_REQUIRE_ORACLE: "1"
-  # The Go release every oracle binary is built with. Provisional: it is
-  # dcroxide's reference Go, and dcr-purse has not yet fixed its own (spec 23
-  # leaves the choice open).
-  GO_VERSION: "1.27.3"
+  # The reference Go: the release every oracle binary is built with.  Go
+  # itself authors some of what the oracle pins, so this moves by a
+  # deliberate bump, together with REFERENCE_GO in purse-testutil, which
+  # refuses an oracle built with any other release.
+  GO_VERSION: "1.27.4"
 
 jobs:
   lint:

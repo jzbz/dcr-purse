@@ -38,11 +38,11 @@ modifying it and without needing the private passphrase.
 | `purse-errors` | dcrwallet `errors`: kinds, the Op/Kind/Err model, the rendering that reaches RPC clients | implemented, differential against Go |
 | `purse-seed` | `pgpwordlist`, `walletseed`: PGP word list mnemonics, hex and mnemonic seed input, seed generation | implemented, differential against Go |
 | `purse-hdkeychain` | dcrd `hdkeychain` v3.1.3: extended keys with Decred's stored-stripped hardened derivation | implemented, differential against Go |
-| `purse-boltread` | the read path of bbolt v1.3.12: a read-only, `mmap`-free reader for the importer, hardened against corrupt files | implemented, differential against Go; Windows untested |
+| `purse-boltread` | the read path of bbolt v1.3.12: a read-only, `mmap`-free reader for the importer, hardened against corrupt files | implemented, differential against Go |
 | `purse-testutil` | — | the oracle harness and test helpers |
 
-Decred primitives (base58, BLAKE-256, chain parameters and, later, wire,
-txscript, stake, gcs and the rest) come from
+Decred primitives (BLAKE-256, RIPEMD-160, secp256k1 through `dcroxide-dcrec`,
+chain parameters and, later, wire, txscript, stake, gcs and the rest) come from
 [dcroxide](https://github.com/jzbz/dcroxide) at one pinned revision.
 
 ## How correctness is established
@@ -68,8 +68,9 @@ that is present and does not build is always a failure.
 
 ## Building and testing
 
-The toolchain is pinned in `rust-toolchain.toml`. The oracle needs Go 1.26 or
-later.
+The toolchain is pinned in `rust-toolchain.toml`. The oracle builds with Go
+1.26 or later; where it is required, it must be built with the reference Go,
+1.27.4.
 
 ```sh
 cargo test --workspace
@@ -80,7 +81,7 @@ Environment variables the tests read:
 
 | Variable | Effect |
 |---|---|
-| `PURSE_REQUIRE_ORACLE` | a missing Go toolchain fails differential tests instead of skipping them |
+| `PURSE_REQUIRE_ORACLE` | a missing Go toolchain fails differential tests instead of skipping them, and so does an oracle built with any Go release but the reference one |
 | `PURSE_ORACLE_DIR` | use prebuilt `purse-oracle-<name>` binaries from this directory instead of building them |
 | `PURSE_TEST_SEED` | seed for generated test inputs (decimal or `0x` hex); every run prints the one it used |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |

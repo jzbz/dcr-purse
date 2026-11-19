@@ -4,16 +4,16 @@ Maps every dcrwallet package, and every linked dependency the port has to supply
 
 Status values: **not started**, **in progress**, **ported** (implemented, upstream tests ported), **pinned** (differential coverage against the Go oracle in CI), **n/a** (deliberately not ported, with the reason).
 
-The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, dcrd's `hdkeychain`, and the read path of bbolt. Everything else is not started. "Ported" rows below have their upstream tests ported and a differential against the Go oracle with frozen Go-generated vectors; none is "pinned" yet, because the CI workflow has not run.
+The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, dcrd's `hdkeychain`, and the read path of bbolt. Everything else is not started. The rows marked "pinned" below have their upstream tests ported and a differential against the Go oracle that CI runs on Linux (x86-64 and arm64), macOS and Windows, with frozen Go-generated vectors beside it.
 
 ## dcrwallet packages
 
 | dcrwallet package | Go lines (non-test) | dcr-purse crate | Spec | Upstream tests | Status |
 |---|---|---|---|---|---|
-| `errors` | ~360 | `purse-errors` | [22](specs/22-aux-packages-tools.md) | yes (small) | ported |
-| `pgpwordlist`, `walletseed` | ~680 | `purse-seed` | [22](specs/22-aux-packages-tools.md), [20](specs/20-grpc-other-services.md) | yes | ported; its error type is local and not yet bridged to `purse-errors` |
+| `errors` | ~360 | `purse-errors` | [22](specs/22-aux-packages-tools.md) | yes (small) | pinned |
+| `pgpwordlist`, `walletseed` | ~680 | `purse-seed` | [22](specs/22-aux-packages-tools.md), [20](specs/20-grpc-other-services.md) | yes | pinned; its error type is local and not yet bridged to `purse-errors` |
 | `kdf`, `wallet/internal/snacl` | ~250 | `purse-snacl` | [02](specs/02-address-manager.md) | snacl only | not started |
-| `wallet/walletdb`, `wallet/internal/bdb`, `wallet/drivers/bdb` | ~450 | `purse-boltread` (read-only, for import); interface replaced by `purse-store` | [01](specs/01-walletdb-bbolt.md) | yes | `purse-boltread` ported (no upstream tests apply to a reader; differential against bbolt itself); Windows code never compiled or run; write path n/a (own format); `purse-store` not started |
+| `wallet/walletdb`, `wallet/internal/bdb`, `wallet/drivers/bdb` | ~450 | `purse-boltread` (read-only, for import); interface replaced by `purse-store` | [01](specs/01-walletdb-bbolt.md) | yes | `purse-boltread` pinned (no upstream tests apply to a reader; differential against bbolt itself); write path n/a (own format); `purse-store` not started |
 | `wallet/udb` — address manager | ~5,300 | `purse-udb` (logic), `purse-import` (decoders) | [02](specs/02-address-manager.md) | partial | not started |
 | `wallet/udb` — transaction store formats | ~3,100 | `purse-import` (decoders) | [03](specs/03-txstore-formats.md) | none on raw bytes | not started |
 | `wallet/udb` — transaction store logic | ~4,400 | `purse-udb` | [04](specs/04-txstore-behavior.md) | thin | not started |
@@ -51,7 +51,7 @@ The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, d
 
 | Dependency (version dcrwallet pins) | Supplied by | Spec | Status |
 |---|---|---|---|
-| dcrd `hdkeychain` v3.1.3 | new `purse-hdkeychain`; on `k256` directly until `dcroxide-dcrec` has the entry points of spec 25 §12.3, then over `dcroxide-dcrec` | [02](specs/02-address-manager.md), [25](specs/25-reuse-dcr-rs-and-conventions.md) | ported |
+| dcrd `hdkeychain` v3.1.3 | new `purse-hdkeychain`, over `dcroxide-dcrec` | [02](specs/02-address-manager.md), [25](specs/25-reuse-dcr-rs-and-conventions.md) | pinned |
 | dcrd `dcrutil` v4.0.3 (`Amount`, WIF, `txsort`) | new `purse-dcrutil` | [24](specs/24-reuse-dcroxide.md) | not started |
 | dcrd `mixing/mixclient` v0.7.5 | new `purse-mixclient` | [12](specs/12-mixclient-protocol.md) | not started |
 | dcrd `mixing` key agreement | addition to `dcroxide-mixing` | [12](specs/12-mixclient-protocol.md) | not started |
@@ -59,7 +59,7 @@ The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, d
 | `decred.org/cspp/v2` `solverrpc` and the `csppsolver` program | `purse-mixsolver` (decision D8) | [12](specs/12-mixclient-protocol.md) | not started |
 | `vspd/client` v4.0.2, `vspd/types` v3.0.0 | `purse-vsp` | [11](specs/11-staking-vsp.md) | not started |
 | `jrick/wsrpc` v2.3.8 + websocket client | `purse-wsrpc` | [15](specs/15-dcrd-rpc-sync.md) | not started |
-| `go.etcd.io/bbolt` v1.3.12 | `purse-boltread`, read path only | [01](specs/01-walletdb-bbolt.md) | ported |
+| `go.etcd.io/bbolt` v1.3.12 | `purse-boltread`, read path only | [01](specs/01-walletdb-bbolt.md) | pinned |
 | `jessevdk/go-flags` v1.5.0 | dcroxide's layer, taught v1.5.0 | [21](specs/21-config-cli-lifecycle.md) | not started |
 | `decred/slog` v1.2.0, `jrick/logrotate` v1.0.0 | extracted from `dcroxide-node` | [21](specs/21-config-cli-lifecycle.md) | not started |
 | `google.golang.org/grpc` v1.83.2 (server), `protobuf` v1.36.11 | decision D5 | [19](specs/19-grpc-wallet-service.md), [25](specs/25-reuse-dcr-rs-and-conventions.md) | not started |
@@ -74,7 +74,7 @@ Recorded as they are decided. So far, by decision of the project owner on 2026-1
 Divergences in the crates implemented so far. Each has a test, and none changes a value dcrwallet produces on input it accepts:
 
 - **`purse-errors`.** Where Go's `errors.Is` panics inside `match` on a nil level ([QK-0628](QUIRKS.md)), the level does not match and the walk goes on, so `is` can be true where Go gives no answer. A typed-nil `*Error`, a kind outside the 21, and an `E()` call with no arguments cannot be written. A foreign (non-wallet) error is an opaque leaf: matching does not follow its `source()`, where Go follows a foreign `Unwrap` ([QK-0728](QUIRKS.md)). Stacks are Rust backtraces, not Go's `debug.Stack` bytes.
-- **`purse-seed`.** Inputs are `&str`, so text that is not valid UTF-8 cannot reach the decoders. A failing random source is an error; Go's cannot fail. The seed words dcrwallet echoes in decode errors are echoed here too, because clients see that text; whether the daemon's log redacts them is open ([QK-0729](QUIRKS.md)).
+- **`purse-seed`.** Inputs are `&str`, so text that is not valid UTF-8 cannot reach the decoders. A failing random source is an error; Go's cannot fail. The seed words dcrwallet echoes in decode errors are echoed here too, because clients see that text. The daemon's log will not carry them, where dcrwallet's does: decided 2026-11-19, to be implemented with the gRPC server ([QK-0729](QUIRKS.md)).
 - **`purse-hdkeychain`.** Keys own their bytes: `neuter` and `zero` do not alias as Go's do ([QK-0713](QUIRKS.md)), and `serialized_priv_key` lends a read-only slice instead of the key's own storage ([QK-0714](QUIRKS.md)); every dcrwallet call site that zeroes a key was traced and none depends on the aliasing. `priv_key_bytes` on the empty private form, which only a zero child sum produces, is an error where Go's `PrivKeyFromBytes` would give the zero scalar.
 - **`purse-boltread`.** One non-blocking shared lock instead of bbolt's blocking wait, and on Windows a share-mode open instead of bbolt's byte-range lock. Page sizes below 1024 or not a power of two are refused; bbolt reads them, dcrwallet never writes them. When both meta pages are invalid the fallback page size is 4096, not the host's, which changes only which error is reported. On files bbolt did not write: a tree deeper than 64 levels, a page reached twice in a walk, keys out of order under a cursor, and a logical page over a configurable 256 MiB are errors; wherever Go panics or reads outside a page, an error is returned ([QK-0730](QUIRKS.md)).
 

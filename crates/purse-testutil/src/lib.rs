@@ -28,6 +28,13 @@ use serde_json::Value;
 /// The dcrwallet commit every parity claim names (master, 2.2.0-pre).
 pub const DCRWALLET_PARITY_COMMIT: &str = "54b85b336077587eaf20112dc695355ce06fc76e";
 
+/// The reference Go: the release every oracle binary is built with where
+/// the oracle is required. Go itself authors some of what the oracle pins
+/// (standard-library error texts, `encoding/json` output), so another
+/// release could change an answer with no change here. It moves by a
+/// deliberate bump, together with `GO_VERSION` in the CI workflow.
+pub const REFERENCE_GO: &str = "go1.27.4";
+
 /// Lower-case hex of `b`.
 pub fn hex(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len().saturating_mul(2));
@@ -307,8 +314,28 @@ pub fn oracle_bin_or_skip(name: &str) -> Option<PathBuf> {
 
 /// Spawns the oracle binary `name`, or returns `None` as
 /// [`oracle_bin_or_skip`] does.
+///
+/// Under `PURSE_REQUIRE_ORACLE` the oracle must also have been built with
+/// [`REFERENCE_GO`]; anything else is a panic.
 pub fn oracle_or_skip(name: &str) -> Option<Oracle> {
-    oracle_bin_or_skip(name).map(|bin| Oracle::spawn_at(&bin))
+    let mut oracle = Oracle::spawn_at(&oracle_bin_or_skip(name)?);
+    if env::var_os("PURSE_REQUIRE_ORACLE").is_some() {
+        let built_with = oracle.go_version();
+        assert!(
+            is_reference_go(&built_with),
+            "PURSE_REQUIRE_ORACLE is set but oracle {name} was built with {built_with:?}, \
+             not the reference {REFERENCE_GO}"
+        );
+    }
+    Some(oracle)
+}
+
+/// Whether `version`, as Go's `runtime.Version` gives it, is the reference
+/// release. A distribution's build may append its experiments or its own
+/// tag after the release (`go1.27.4-X:nodwarf5`, `go1.27.4 +build`); the
+/// release itself must match exactly.
+pub fn is_reference_go(version: &str) -> bool {
+    version.split(['-', ' ', '+']).next() == Some(REFERENCE_GO)
 }
 
 /// A running oracle process.
@@ -383,6 +410,15 @@ impl Oracle {
             .unwrap_or(Value::Null))
     }
 
+    /// The Go release the oracle was built with, as `runtime.Version`
+    /// reports it.
+    pub fn go_version(&mut self) -> String {
+        self.call("build.info", Value::Null)["go"]
+            .as_str()
+            .expect("build.info reports the Go release")
+            .to_owned()
+    }
+
     /// As [`Oracle::try_call`], panicking on a Go error.
     pub fn call(&mut self, cmd: &str, args: Value) -> Value {
         self.try_call(cmd, args)
@@ -407,6 +443,26 @@ mod tests {
         let mut rng = SplitMix64(7);
         let bytes = rng.bytes(33);
         assert_eq!(unhex(&hex(&bytes)), bytes);
+    }
+
+    #[test]
+    fn reference_go_is_matched_by_release_only() {
+        assert!(is_reference_go(REFERENCE_GO));
+        assert!(is_reference_go(&format!("{REFERENCE_GO}-X:nodwarf5")));
+        assert!(is_reference_go(&format!("{REFERENCE_GO} +build")));
+        assert!(!is_reference_go(&format!("{REFERENCE_GO}1")));
+        assert!(!is_reference_go("go1.27.3"));
+        assert!(!is_reference_go("devel go1.28-abcdef"));
+    }
+
+    #[test]
+    fn ci_installs_the_reference_go() {
+        let ci = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml"),
+        )
+        .expect("ci.yml");
+        let want = format!("GO_VERSION: \"{}\"", REFERENCE_GO.trim_start_matches("go"));
+        assert!(ci.contains(&want), "ci.yml does not set {want}");
     }
 
     #[test]

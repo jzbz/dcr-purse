@@ -1429,10 +1429,10 @@ target operating systems) apply unchanged.
 3. Otherwise the test prints a skip notice and returns, unless `PURSE_REQUIRE_ORACLE`
    is set, in which case it panics. CI sets it, so differential coverage cannot
    silently disappear (`dcroxide:crates/dcroxide-testutil/src/lib.rs:231-283`).
-4. (Not implemented yet: the reference Go is undecided, section 13 item 1.) Under
-   `PURSE_REQUIRE_ORACLE` the oracle's reported Go release must equal the
-   project's reference Go (`dcroxide:crates/dcroxide-testutil/src/lib.rs:207-221`).
-   The reference Go is a decision (section 13): dcrwallet's repository names a Go
+4. Under `PURSE_REQUIRE_ORACLE` the oracle's reported Go release (its
+   `build.info` command) must equal the project's reference Go, go1.27.4,
+   decided 2026-11-19 (section 13 item 1) (`dcroxide:crates/dcroxide-testutil/src/lib.rs:207-221`).
+   dcrwallet's repository names a Go
    release only in its CI matrix (1.26 and 1.27) and in `rpc/Dockerfile`, which is the
    protobuf regeneration image (golang 1.24.10), not a release recipe.
 
@@ -2709,11 +2709,13 @@ upstream supplies so little:
 
 ## 13. Open questions
 
-1. **Reference Go release.** dcrwallet has no release build recipe in its repository.
-   Options: follow dcroxide's reference (go1.27.3 at this writing,
-   `dcroxide:crates/dcroxide-testutil/src/lib.rs:207`), or the Go that built the
-   published dcrwallet binary of the target release. Decision needed before the first
-   vector that contains Go-standard-library text is frozen.
+1. **Reference Go release.** Decided (project owner, 2026-11-19): go1.27.4, the
+   latest release at the time, pinned and moved by a deliberate bump, not tracked.
+   It is `REFERENCE_GO` in `purse-testutil` and `GO_VERSION` in the CI workflow, and
+   the vectors frozen so far were generated with it. dcrwallet has no release build
+   recipe in its repository; the options had been dcroxide's reference (go1.27.3,
+   `dcroxide:crates/dcroxide-testutil/src/lib.rs:207`) or the Go that built the
+   published dcrwallet binary of the target release.
 2. **Seeded-stream parity.** Does the port commit to consuming random bytes in Go's
    order and sizes on storage and transaction-construction paths (enabling byte-exact
    comparison under the det build), or are those paths compared only through masks,

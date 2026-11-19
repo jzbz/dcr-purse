@@ -9,6 +9,9 @@
 // {"result": <any JSON>} on success or {"error": "<text>"} on failure; a
 // handler may return an *Error to add a "kind" member. A request that panics
 // ends the process, so that a Go panic is seen as one by the Rust side.
+//
+// Every binary also answers "build.info" with {"go": "<runtime.Version()>"},
+// so the Rust side can hold the oracle to the project's reference Go release.
 package linejson
 
 import (
@@ -16,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 )
 
 // Handler serves one command. args is the request's raw "args" member, or
@@ -43,6 +47,9 @@ type response struct {
 	Failed bool `json:"failed,omitempty"`
 }
 
+// buildInfo is the command every binary answers itself.
+const buildInfo = "build.info"
+
 // maxLine bounds one request line.
 const maxLine = 256 << 20
 
@@ -62,6 +69,8 @@ func Serve(handlers map[string]Handler) {
 		var resp response
 		if err := json.Unmarshal(line, &req); err != nil {
 			resp = response{Error: "bad request: " + err.Error(), Failed: true}
+		} else if req.Cmd == buildInfo {
+			resp = response{Result: map[string]string{"go": runtime.Version()}}
 		} else if h, ok := handlers[req.Cmd]; !ok {
 			resp = response{Error: fmt.Sprintf("unknown command %q", req.Cmd), Failed: true}
 		} else {

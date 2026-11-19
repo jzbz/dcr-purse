@@ -212,9 +212,30 @@ func recovered(f func() error) (err error) {
 			err = &runnerFault{fmt.Sprintf("panic in the runner at %s: %v\n%s", site, p, debug.Stack())}
 			return
 		}
-		err = &panicError{fmt.Sprint(p)}
+		err = &panicError{canonPanic(fmt.Sprint(p))}
 	}()
 	return f()
+}
+
+// boundsPanics are the runtime's bounds-check panics. The indices the
+// runtime prints after them depend on the architecture the binary was
+// compiled for: slicing a nil block header in extractBlockHeaderHeight
+// (wallet/udb/txdb.go) reports "[128:0]" on amd64 and "[0:0]" on arm64,
+// with Go 1.27.4 on both.
+var boundsPanics = []string{
+	"runtime error: slice bounds out of range",
+	"runtime error: index out of range",
+}
+
+// canonPanic drops the indices from a bounds-check panic's text, so that a
+// result is the same on every architecture. Any other text is unchanged.
+func canonPanic(text string) string {
+	for _, prefix := range boundsPanics {
+		if strings.HasPrefix(text, prefix) {
+			return prefix
+		}
+	}
+	return text
 }
 
 // internalPrefix is the import path prefix of the runner's copies.

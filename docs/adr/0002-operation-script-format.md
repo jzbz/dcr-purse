@@ -386,7 +386,9 @@ JSON object per top-level operation:
 - **Panics.** A panic is attributed by its stack: walking out from the
   panicking frame past runtime and dependency frames, the first frame in
   the copied packages or in a `decred.org/dcrwallet/v5/` package makes it
-  dcrwallet's (`Panic`, with the panic value's text), and the first frame
+  dcrwallet's (`Panic`, with the panic value's text; a bounds-check panic's
+  text is cut after "out of range", because the indices the Go runtime
+  prints differ between amd64 and arm64), and the first frame
   in the runner's own code makes it a runner fault (the run fails).
   `walletdb.Update` and `View` roll back on a panic before the runner
   recovers it (`wallet/walletdb/interface.go:203-252`), so the run continues

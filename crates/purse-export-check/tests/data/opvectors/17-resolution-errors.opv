@@ -24,6 +24,6 @@ result {"i":13,"ok":0,"op":"mgr.last_account"}
 result {"err":{"kind":"NotExist","text":"tx.build v1 output 0: GetBlockHeader: item does not exist: block header"},"i":14,"op":"tx.build"}
 result {"err":{"kind":"NotExist","text":"store.redeem_ticket_commitments block: GetBlockHeader: item does not exist: block header"},"i":15,"op":"store.redeem_ticket_commitments"}
 result {"i":16,"ok":{"hash":"6e27b0564c6ac65aa929c9b7922729be9b65f81fd94a5eebaad819078a73997c","tx":"0100000001e56ed30d89c193fb60ff06c111fdfc68bfcdd624f39f7ac3c3a059ececeeb7e50000000000ffffffff01f0ca052a0100000000001976a914b3a207f5e06567993e968233f401157e8eb09e3a88ac00000000000000000100f2052a0100000000000000ffffffff00","type":"regular"},"op":"tx.build"}
-result {"err":{"kind":"Panic","text":"runtime error: slice bounds out of range [128:0]"},"i":17,"op":"update","ops":[{"i":0,"ok":null,"op":"store.insert_mined_tx"},{"err":{"kind":"Panic","text":"runtime error: slice bounds out of range [128:0]"},"i":1,"op":"store.add_credit"}]}
+result {"err":{"kind":"Panic","text":"runtime error: slice bounds out of range"},"i":17,"op":"update","ops":[{"i":0,"ok":null,"op":"store.insert_mined_tx"},{"err":{"kind":"Panic","text":"runtime error: slice bounds out of range"},"i":1,"op":"store.add_credit"}]}
 result {"err":{"kind":"NotExist","text":"item does not exist"},"i":18,"op":"store.tx_details"}
 export 18294647a6ffbf5b114f092fde34b5927f8fc70b8338dbef263ac565d2fbbc48 ac2f3ca0f7e434c676d49d7717ef5fb4464303f53b79f722195b003e2a053f23

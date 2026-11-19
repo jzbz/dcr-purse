@@ -49,6 +49,11 @@ allow = ["pure"]
 exact = true
 reason = "only `pure` keeps blake3's C and assembly out of a build"
 
+# The only duplicate permitted.
+[[bans.skip]]
+crate = "syn:2"
+reason = "the ecosystem is mid-migration to syn 3: serde_derive is on 3, while curve25519-dalek-derive, which dcroxide-dcrec's curve25519-dalek brings in, still pins 2 -- both majors are present until it moves, and neither side is this workspace's to choose"
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

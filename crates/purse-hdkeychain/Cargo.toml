@@ -11,10 +11,13 @@ repository.workspace = true
 [dependencies]
 # BLAKE-256 (checksum, fingerprint) and RIPEMD-160 (fingerprint).
 dcroxide-crypto.workspace = true
-# Pure-Rust secp256k1: scalar addition mod n, point addition, base point
-# multiplication, compressed encoding and decompression.  Same major line
-# and features as dcroxide-dcrec, so the graph holds one k256.
-k256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
+# secp256k1 with dcrd's exact rules: the scalar range check, the private
+# child's sum and a private key's public key in constant time (dcrec
+# builds them on k256, so the graph holds one k256 and this crate names it
+# nowhere); the public child's sum Il*G + parent in variable time, as dcrd
+# computes it; and ParsePubKey with dcrd's error texts.  no_std + alloc,
+# no features.  Its error type stays private: PubKeyError is this crate's.
+dcroxide-dcrec.workspace = true
 # HMAC-SHA512 for master and child derivation; `zeroize` wipes the hash
 # states the chain code and private key pass through, as in dcroxide-dcrec.
 hmac = { version = "0.13", default-features = false, features = ["zeroize"] }

@@ -621,10 +621,8 @@ pub fn read_digest_file(text: &str) -> Vec<DigestEntry> {
 // ---------------------------------------------------------------------------
 
 mod filter {
+    use dcroxide_dcrec::secp256k1;
     use hmac::{Hmac, KeyInit, Mac};
-    use k256::Scalar;
-    use k256::elliptic_curve::PrimeField;
-    use k256::elliptic_curve::ops::Reduce;
     use sha2::Sha512;
 
     fn hmac512(key: &[u8], data: &[u8]) -> [u8; 64] {
@@ -638,7 +636,7 @@ mod filter {
         let lr = hmac512(b"Bitcoin seed", seed);
         let (k, c) = lr.split_at(32);
         let k: [u8; 32] = k.try_into().ok()?;
-        Option::<Scalar>::from(Scalar::from_repr(k.into()))?;
+        secp256k1::check_scalar(&k).ok()?;
         Some((k, c.try_into().ok()?))
     }
 
@@ -651,11 +649,7 @@ mod filter {
         let ilr = hmac512(cc, &data);
         let (il, ir) = ilr.split_at(32);
         let il: [u8; 32] = il.try_into().ok()?;
-        let il = Option::<Scalar>::from(Scalar::from_repr(il.into()))?;
-        let mut parent = [0u8; 32];
-        parent[32 - stored.len()..].copy_from_slice(stored);
-        let parent = <Scalar as Reduce<k256::FieldBytes>>::reduce(&parent.into());
-        let sum: [u8; 32] = (il + parent).to_bytes().into();
+        let sum = *secp256k1::add_private_tweak(&il, stored).ok()?.serialize();
         Some((sum, ir.try_into().ok()?))
     }
 }

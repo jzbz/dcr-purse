@@ -111,12 +111,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "curve25519-dalek"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "curve25519-dalek-derive",
+ "fiat-crypto",
+ "rustc_version",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "curve25519-dalek-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dcroxide-crypto"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=4a7b3fcbb0269cb8722dc1135962d403b39cc300#4a7b3fcbb0269cb8722dc1135962d403b39cc300"
+source = "git+https://github.com/jzbz/dcroxide?rev=5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1#5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1"
 dependencies = [
  "ripemd",
 ]
+
+[[package]]
+name = "dcroxide-dcrec"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1#5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1"
+dependencies = [
+ "curve25519-dalek",
+ "dcroxide-crypto",
+ "dcroxide-secp256k1-vartime",
+ "hmac",
+ "k256",
+ "sha2",
+ "zeroize",
+]
+
+[[package]]
+name = "dcroxide-secp256k1-vartime"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1#5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1"
 
 [[package]]
 name = "der"
@@ -168,6 +213,12 @@ dependencies = [
  "rand_core",
  "subtle",
 ]
+
+[[package]]
+name = "fiat-crypto"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "find-msvc-tools"
@@ -290,6 +341,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro2"
+version = "1.0.107"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
 name = "purse-boltread"
 version = "0.1.0"
 dependencies = [
@@ -311,8 +371,8 @@ name = "purse-hdkeychain"
 version = "0.1.0"
 dependencies = [
  "dcroxide-crypto",
+ "dcroxide-dcrec",
  "hmac",
- "k256",
  "sha2",
  "zeroize",
 ]
@@ -324,6 +384,15 @@ dependencies = [
  "getrandom",
  "sha2",
  "zeroize",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+dependencies = [
+ "proc-macro2",
 ]
 
 [[package]]
@@ -348,6 +417,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "sec1"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -360,6 +438,12 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "sha2"
@@ -385,10 +469,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "syn"
+version = "2.0.119"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "wnaf"

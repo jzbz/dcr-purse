@@ -16,9 +16,10 @@ repository = "https://github.com/jzbz/dcr-purse"
 # Decred primitives come from dcroxide at one pinned revision (brief, D3).
 # Every dcroxide crate names the same `rev`; move them together.
 [workspace.dependencies]
-dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
-dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
-dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "4a7b3fcbb0269cb8722dc1135962d403b39cc300" }
+dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
+dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "5c6742f76aa3aed70e5b31e1ab3ced2cbc34a0c1" }
 
 purse-testutil = { path = "crates/purse-testutil" }
 

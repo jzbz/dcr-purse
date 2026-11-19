@@ -4,7 +4,7 @@ Behaviours of dcrwallet at the parity pin (`54b85b33`) that a faithful port has 
 
 **Status of every entry: candidate.** Each was found by reading the source, not by running it. Before code depends on one, an oracle run confirms it; then the entry gets a disposition and a pinning test.
 
-Dispositions follow the standing policy in the [project brief](dcr-purse-project-brief.md) (§3 and decision D10): reproduce when an external observer could depend on it; return an error where Go panics; pick a deterministic order where Go's is random; fix what would lose funds or leak secrets, and record the divergence in [PARITY.md](PARITY.md). Since dcr-purse keeps its own database format, entries that concern only the bytes dcrwallet writes into `wallet.db` matter to the importer (it must read what Go wrote, quirks included) and not to dcr-purse's own store.
+Dispositions follow the standing policy in the [project brief](dcr-purse-project-brief.md) (§3 and decision D10): reproduce when an external observer could depend on it; return an error where Go panics; pick a deterministic order where Go's is random; fix what would lose funds or leak secrets, and record the divergence in [PARITY.md](PARITY.md). dcr-purse keeps its own database format (project owner, 2026-11-14) and reads no `wallet.db`: migration from dcrwallet is by seed restore only, with no import (2026-11-18, ADR-0013). Entries that concern only the bytes dcrwallet writes into `wallet.db` therefore bind neither dcr-purse's store nor any surface of the wallet. They still describe what Go persists, which the logical export must cover and the tests read: the Go oracle reads those databases with dcrwallet's own code, and Rust tests with `purse-boltread`, a test utility only, not shipped in the wallet, which the owner may later remove (ADR-0013 Open point 2); QK-0730 to QK-0732 concern it.
 
 Entry format: number, title, the spec that documents it in full, a description, and the source citation.
 
@@ -523,6 +523,8 @@ balanceFullScan checks it.err only inside the loop body, but next() returns fals
 Spec: [04](specs/04-txstore-behavior.md). Source: wallet/udb/txmined.go:990-991, 1223-1224, 1395-1398, 2232-2233
 
 InsertMinedTx and GetMainChainBlockHashes index the block record at the header's height without a nil check. Headers of detached blocks are never deleted, so a stale header above the tip panics instead of returning 'not in main chain'. AddCredit, MainChainTip, Rollback(height-1 missing) have similar unchecked reads.
+
+Oracle confirmation (`tools/oracle/cmd/oprunner`; corpus scripts `06-chain` and `17-resolution-errors`). With the main chain tip at height t, `Store.Rollback(dbtx, h)` for h ≥ t+2 removes nothing, finds no block record at h-1 (`existsBlockRecord`, wallet/udb/txmined.go:2232) and slices the nil value in `extractRawBlockRecordHash` (wallet/udb/txdb.go:337-339): `runtime error: slice bounds out of range [:32] with capacity 0`. h = t+1 succeeds, returns no transactions and leaves the tip unchanged; h = 0 returns Invalid "cannot rollback the genesis block" (txmined.go:1882-1884). `walletdb.Update` rolls the transaction back on the panic, so the database is unchanged. dcrwallet's own callers pass a side chain's fork height at or below the tip (wallet/chainntfns.go:160) or a checkpoint height that has a main-chain hash (wallet/checkpoints.go:53-62), so only a direct udb caller reaches it. `Store.AddCredit` of a regular transaction with a `BlockMeta` whose header is not stored panics the same way (txmined.go:1394-1396; `extractBlockHeaderHeight` of a nil header, :570): `runtime error: slice bounds out of range [128:0]`. `Store.TicketDetails` of a non-ticket does not panic: it returns nil details and no error (wallet/udb/txquery.go:206-215).
 
 ## QK-0087 — Coinbase detection includes treasurybase and treasury spends
 
@@ -1538,6 +1540,8 @@ Spec: [10](specs/10-tx-construction.md). Source: wallet/addresses.go:521-552; wa
 
 Self-contained nextAddress opens a write transaction then locks addressBuffersMu; DiscoverActiveAddresses locks addressBuffersMu then opens a write transaction (with a comment claiming that is the usual order). Concurrent allocation during discovery can deadlock.
 
+Disposition (project owner, 2026-11-19; ADR-0008 Open point 2): not reproduced. dcr-purse takes the database write transaction before the address-buffer lock at every site, the order dcrwallet documents and uses everywhere but one; `DiscoverActiveAddresses` opens its transaction before the lock. The inversion is a possible deadlock in the Go, and no result an outside observer sees depends on it. To be listed under PARITY.md's deliberate divergences when the address-buffer code is built (Phase 4).
+
 ## QK-0256 — SyncLastReturnedAddress does not advance the in-memory cursor on a branch with no used address
 
 Spec: [10](specs/10-tx-construction.md). Source: wallet/addresses.go:872-874
@@ -1681,6 +1685,8 @@ After a ticket is published, errors from NewVSPTicket and VSPClient.Process are 
 Spec: [11](specs/11-staking-vsp.md). Source: wallet/createtx.go:1304-1314,1633
 
 unlockCredits is set false after the first VSP ticket is published; if a later ticket fails to publish or ctx is cancelled during trickle, fee credits reserved for remaining tickets stay in the in-memory locked set until restart or explicit unlock.
+
+Disposition (project owner, 2026-11-18; ADR-0012 Rule 7): fixed, not reproduced. When a later ticket of a VSP purchase fails to publish or the purchase is cancelled, dcr-purse releases the fee credits reserved for the tickets that were not published, instead of leaving them locked until a restart. No external observer depends on the leak. To be implemented and tested with the purchase flow (Phase 9) and listed under PARITY.md's deliberate divergences then.
 
 ## QK-0280 — Treasury key policy keys sent as raw bytes in payfee
 
@@ -4390,24 +4396,30 @@ Go's `errors.Is` and `errors.As` call `Unwrap`, `Is` and `As` on every node what
 
 ## QK-0729 — Seed words reach the wallet log through decode errors
 
-Spec: [22](specs/22-aux-packages-tools.md), [20](specs/20-grpc-other-services.md). Source: pgpwordlist/pgpwordlist.go:47-55; internal/rpc/rpcserver/server.go:3199-3204; internal/rpc/rpcserver/rpcserver.go:443-445
+Spec: [22](specs/22-aux-packages-tools.md), [20](specs/20-grpc-other-services.md). Source: pgpwordlist/pgpwordlist.go:47-55; internal/rpc/rpcserver/server.go:3199-3204; rpcserver.go:443-445
 
-`DecodeMnemonics` quotes the caller's word in its unknown-word and wrong-position errors; the latter always quotes a valid seed word with its position. gRPC `DecodeSeed` wraps that text and the unary interceptor logs every failed call at error level, so seed words are written to the log at the default level. Disposition (project owner, 2026-11-19): the reply is reproduced and the log is not. `purse-seed` keeps the text, so the client that sent the words gets dcrwallet's exact error. The daemon's log line for a failed `DecodeSeed` call must not carry it: the quoted word is redacted there, under the standing rule on leaked secrets. The redaction belongs to the gRPC server's logging, which does not exist yet; it needs a test when it does.
+`DecodeMnemonics` quotes the caller's word in its unknown-word and wrong-position errors; the latter always quotes a valid seed word with its position. gRPC `DecodeSeed` wraps that text and the unary interceptor logs every failed call at error level, so seed words are written to the log at the default level. Disposition (project owner, 2026-11-18): the reply is reproduced and the log is not. `purse-seed` keeps the text, so the client that sent the words gets dcrwallet's exact error. The daemon's log line for a failed `DecodeSeed` call must not carry it: the quoted word is redacted there, under the standing rule on leaked secrets. The redaction belongs to the gRPC server's logging, which does not exist yet; it needs a test when it does.
 
 ## QK-0730 — bbolt panics or reads outside the page on a malformed file
 
 Spec: [01](specs/01-walletdb-bbolt.md). Source: bbolt@v1.3.12/page.go:56-64; cursor.go:304; bucket.go:727-749; freelist.go:284
 
-On a damaged file bbolt panics (page id or type mismatch, a meta or freelist page inside a tree, a branch with no elements, an empty bucket value, an inline page without the leaf bit, a root bucket at page 0, a freelist count that overflows), reads adjacent mapped memory (element counts, offsets, keys or values outside the page), faults (pages beyond the end of the file) or recurses without bound (cycles). Disposition: `purse-boltread` returns an error in each case, with tests. It also refuses what bbolt accepts on such files: trees deeper than 64 levels, a page reached twice in a walk, keys out of order under a cursor.
+On a damaged file bbolt panics (page id or type mismatch, a meta or freelist page inside a tree, a branch with no elements, an empty bucket value, an inline page without the leaf bit, a root bucket at page 0, a freelist count that overflows), reads adjacent mapped memory (element counts, offsets, keys or values outside the page), faults (pages beyond the end of the file) or recurses without bound (cycles). Disposition: `purse-boltread` returns an error in each case, with tests. It also refuses what bbolt accepts on such files: trees deeper than 64 levels, a page reached twice in a walk, keys out of order under a cursor. Scope since 2026-11-18 (ADR-0013): `purse-boltread` is a test utility and dcr-purse reads no `wallet.db`, so this disposition governs what tests read, not a surface of the wallet.
 
 ## QK-0731 — Prev landing on an empty leaf ends the walk
 
 Spec: [01](specs/01-walletdb-bbolt.md). Source: bbolt@v1.3.12/cursor.go:248-277
 
-`Cursor.Prev` returns nil when it steps onto an empty leaf even though earlier entries exist; `Next` skips empty leaves. bbolt never writes an empty non-root leaf, so this shows only on crafted files. Disposition: reproduced, compared op for op with Go.
+`Cursor.Prev` returns nil when it steps onto an empty leaf even though earlier entries exist; `Next` skips empty leaves. bbolt never writes an empty non-root leaf, so this shows only on crafted files. Disposition: reproduced, compared op for op with Go. Scope since 2026-11-18 (ADR-0013): in `purse-boltread`, a test utility; dcr-purse reads no `wallet.db`.
 
 ## QK-0732 — Meta page 1's own page-size field is never used
 
 Spec: [01](specs/01-walletdb-bbolt.md). Source: bbolt@v1.3.12/db.go:322-407
 
-The page size comes from meta 0 or, failing that, from probing for a valid meta 1 at each candidate size; the size recorded inside meta 1 is not compared with where it was found. Disposition: reproduced. Rejecting an inconsistent meta 1, as spec 01 §4.3 suggests, would differ from Go.
+The page size comes from meta 0 or, failing that, from probing for a valid meta 1 at each candidate size; the size recorded inside meta 1 is not compared with where it was found. Disposition: reproduced. Rejecting an inconsistent meta 1, as spec 01 §4.3 suggests, would differ from Go. Scope since 2026-11-18 (ADR-0013): in `purse-boltread`, a test utility; dcr-purse reads no `wallet.db`.
+
+## QK-0733 — The address manager's memory keeps what a rolled-back transaction changed
+
+Spec: [02](specs/02-address-manager.md). Source: wallet/udb/addressmanager.go (`ChangePassphrase`, `SetAccountPassphrase`, `ConvertToWatchingOnly`); found by the oracle (`tools/oracle/cmd/oprunner`, corpus script `15-rollback-bookkeeping`)
+
+The manager updates its in-memory state inside the database transaction and does not restore it when the transaction rolls back. After a rolled-back private passphrase change, `Unlock` rejects the old passphrase and accepts the new one although the store still holds keys sealed under the old; `AccountHasPassphrase` and `WatchingOnly` likewise keep the values the rolled-back transaction set. dcrwallet reaches this only when one of its own write transactions fails after the manager call. Disposition: open (ADR-0002, for the project owner); proposed: not reproduced, memory stays consistent with the store (ADR-0012 Rule 2).

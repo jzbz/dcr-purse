@@ -4,16 +4,28 @@ Twenty-five specifications of dcrwallet at the parity pin, master commit `54b85b
 
 Every spec has the same thirteen sections: role, public surface inventory, data formats, algorithms, constants, concurrency, errors, compatibility-critical behaviours, quirks, upstream tests, Rust porting notes, open questions. Citations are `path:line` relative to the dcrwallet repository root, or `module@version/path:line` for a dependency.
 
-## How to read them after the storage decision
+## How to read them after the storage decisions
 
-The specs were written before the project owner decided, on 2026-11-14, that dcr-purse keeps its own database format on `redb` and **imports** a dcrwallet `wallet.db` at schema version 26 instead of opening it in place. They describe dcrwallet, so they remain correct, but four of them change role:
+The specs were written before two decisions of the project owner on storage:
 
-- **01** (bbolt and walletdb): the file-format sections specify the read-only importer's reader. The write path (commit, spill, rebalance, freelist allocation, file growth) and the cursor-under-mutation semantics are reference material only.
-- **02** and **03** (address manager and transaction store formats): the bucket, key and value layouts specify what the importer decodes. dcr-purse's own schema is not bound by them. The key-encryption blob formats in 02 are kept, so that imported keys carry over without decryption.
-- **04** (transaction store behaviour): the logic is still the contract wherever it is visible through an RPC result. Byte-level row quirks are not.
-- **05** (schema versions and upgrades): the upgrade steps are not ported; version 26 is the only importable version. The auxiliary-bucket formats still specify what the importer reads.
+- **2026-11-14:** dcr-purse keeps its own database format (engine `redb`, major 5 since 2026-11-18, ADR-0003) and never opens or writes a dcrwallet `wallet.db` in place. That decision also made a one-way import of a `wallet.db` at schema version 26 the migration path, with specs 01, 02, 03 and 05 as the importer's specification.
+- **2026-11-18 (ADR-0013):** the import is dropped. dcr-purse reads no `wallet.db`; a wallet is created new or restored from its seed, and migration from dcrwallet is by seed restore only. The own format stands.
 
-Porting notes and decision lists inside those specs that assume a write-compatible bbolt engine or byte-equal databases are superseded by the brief.
+The specs describe dcrwallet, so they remain correct. Specs 01, 02, 03 and 05 are no longer an importer's specification: they are the description of what dcrwallet persists, and they are read for three purposes. (1) The store's logic: `purse-udb` must keep the state those rows hold and the behaviour they produce, and `purse-store` reproduces the key orders that reach a client (brief §6 Phase 2; spec 04 §5.1). (2) The logical export (ADR-0001, proposed): it compares a Go wallet with a dcr-purse wallet whose databases share no format, so it must cover everything dcrwallet persists that a query can reach. (3) The test fixtures: dcrwallet's upstream databases and Go-generated wallets, which the Go oracle reads with dcrwallet's own code and which Rust tests read with `purse-boltread`, a test utility only, not shipped in the wallet (the owner may later remove it, ADR-0013 Open point 2). In detail:
+
+- **01** (bbolt and walletdb): the file-format sections describe what `purse-boltread` reads in tests. The read-side key order and cursor positioning are what `purse-store` reproduces wherever order reaches a client. The write path (commit, spill, rebalance, freelist allocation, file growth) and the cursor-under-mutation semantics are reference material only.
+- **02** and **03** (address manager and transaction store formats): the bucket, key and value layouts describe what dcrwallet stores, which `purse-udb`'s logic and the logical export must cover. dcr-purse's own schema is not bound by them, and nothing decodes them for a user. The key-encryption blob formats in 02 (§4.4, §4.5) are kept by `purse-snacl`, because they are tested against Go and nothing is gained by changing them; the earlier reason, that imported keys would carry over without decryption, no longer applies.
+- **04** (transaction store behaviour): unchanged. The logic is the contract wherever it is visible through an RPC result; byte-level row quirks are not.
+- **05** (schema versions and upgrades): no upgrade step is ported and no dcrwallet database version is tracked, since nothing is imported. The upstream fixture databases at older versions remain test inputs. The auxiliary-bucket formats describe the VSP and treasury-policy records dcrwallet keeps (§4.3, §4.4), which `purse-udb`'s logic and the logical export cover, and the legacy stake bucket, which is dead data (§4.5).
+
+Seed restore, which every plan required, is now the only migration path; it follows dcrwallet's own account and address discovery and rescan (spec 09 §4.13, §4.16) under the gap-limit options of spec 21 (§4.1.1). Porting notes and decision lists inside specs 01, 02, 03 and 05 that assume a write-compatible bbolt engine, byte-equal databases or an importer are superseded by the brief and by ADR-0013.
+
+Other passages written for opening, upgrading or importing a dcrwallet `wallet.db` are superseded too, and are kept as written:
+
+- **Spec 21 §9 item 1** (`wallet.db` found at dcrwallet's location "without any new option") and **§13 item 11** (binary and directory naming): superseded by ADR-0005, under which dcr-purse runs under its own name, data directory, `dcr-purse.conf` and `dcr-purse.log`.
+- **Spec 23 §5.7 steps 6 and 7** (each side opens the other's database file): superseded since 2026-11-14, when the databases stopped sharing a format; the differential compares per-step results and logical exports (ADR-0001).
+- **Spec 23 §5.8.2 step 4 and the port's half of §5.8.3** (the port started on, or scripted against, a copy of the Go-written fixture): superseded by ADR-0013, which leaves no way for the port to read that fixture. The proposed replacement, the same operation script replayed into dcr-purse's own store under the same injected time and randomness, with logical exports compared before replay, is ADR-0013 Open point 6 (Proposed) and brief §6 Phase 7.
+- **Spec 23 §9 items 16 to 19** (upgrading fixture databases to version 26, a Go-written `wallet.db` opening in place, Go opening a port-written database, upgrading from every released version): superseded by the decisions of 2026-11-14 and ADR-0013; dcr-purse's own schema has its own migrations (brief §6 Phase 2).
 
 ## Verification status
 

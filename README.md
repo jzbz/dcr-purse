@@ -6,15 +6,13 @@ including SPV, StakeShuffle mixing and staking.
 
 Parity target: **dcrwallet v2.2**, which upstream has not yet released: until
 it is tagged, the pin follows dcrwallet master, now **`54b85b33`** (version
-2.2.0-pre) — JSON-RPC API 11.0.0, gRPC API 10.0.0, database version 26.
+2.2.0-pre) — JSON-RPC API 11.0.0, gRPC API 10.0.0.
 dcrwallet's behaviour at the pinned commit is the specification. The plan is
 in [dcr-purse-project-brief.md](docs/dcr-purse-project-brief.md), the 25
 specifications it rests on are in [docs/specs](docs/specs/README.md),
 [PARITY.md](docs/PARITY.md) maps every dcrwallet package to its crate and
 status, and [QUIRKS.md](docs/QUIRKS.md) lists the upstream behaviours that are
 reproduced or deliberately not.
-
-"dcr-purse" is a working name.
 
 **Status: early. This is not a wallet yet, and nothing here should hold
 funds.** The first libraries exist; there is no daemon, no store, no sync and
@@ -25,11 +23,26 @@ no RPC server.
 Everything outside the process matches dcrwallet: the network (a dcrd
 JSON-RPC client, an SPV peer at protocol 11, a VSP client, a mixing peer),
 both RPC APIs with their exact results and error text, the command line and
-`dcrwallet.conf`. The same seed gives the same keys and addresses.
+the configuration options. The same seed gives the same keys and addresses
+and, once the wallet has synced, the same balances and history. dcr-purse
+runs under its own name, with its own data directory (`~/.dcr-purse` on Unix),
+configuration file (`dcr-purse.conf`) and log (`dcr-purse.log`)
+([ADR-0005](docs/adr/0005-name-data-directory-and-import-front-end.md)).
 
-The database is the exception. dcr-purse keeps its own format and **imports**
-an existing dcrwallet `wallet.db` (schema version 26), one way, without
-modifying it and without needing the private passphrase.
+The database is the exception. dcr-purse keeps its own format (project
+owner, 2026-11-14) and neither opens nor imports dcrwallet's `wallet.db`
+(2026-11-18, ADR-0013). A wallet is created new or restored from its seed;
+a restore runs account and address discovery and a rescan, as dcrwallet's
+does, which takes time. Everything not derived from the seed is not
+recovered, and must be re-entered by hand if wanted: imported private keys,
+scripts and extended public keys; voting accounts; account names (accounts
+are rediscovered by number); per-account passphrases; mixed-account
+configuration; agenda, tspend and treasury-key voting preferences; VSP
+ticket records and fee-payment state; unmined and unpublished transactions;
+outpoint locks. A user who no longer has the seed cannot move to dcr-purse,
+and coins beyond the discovery gap limit are found only once it is raised.
+Under Decrediton, the wallet is created or restored through Decrediton's
+own flow. ADR-0013 records the decision and these costs.
 
 ## What exists
 
@@ -38,8 +51,11 @@ modifying it and without needing the private passphrase.
 | `purse-errors` | dcrwallet `errors`: kinds, the Op/Kind/Err model, the rendering that reaches RPC clients | implemented, differential against Go |
 | `purse-seed` | `pgpwordlist`, `walletseed`: PGP word list mnemonics, hex and mnemonic seed input, seed generation | implemented, differential against Go |
 | `purse-hdkeychain` | dcrd `hdkeychain` v3.1.3: extended keys with Decred's stored-stripped hardened derivation | implemented, differential against Go |
-| `purse-boltread` | the read path of bbolt v1.3.12: a read-only, `mmap`-free reader for the importer, hardened against corrupt files | implemented, differential against Go |
-| `purse-testutil` | — | the oracle harness and test helpers |
+| `purse-boltread` | the read path of bbolt v1.3.12: a read-only, `mmap`-free reader of the format of dcrwallet's `wallet.db`, hardened against corrupt files. A test utility only, not shipped in the wallet and no longer the foundation of an importer: tests use it to read databases that dcrwallet wrote. The owner may later remove it (ADR-0013 Open point 2) | implemented, differential against Go |
+| `purse-snacl` | dcrwallet `snacl` and `kdf`: scrypt and secretbox key sealing, Argon2id and XChaCha20-Poly1305 for account passphrases | implemented, differential against Go |
+| `purse-dcrutil` | dcrd `dcrutil` v4.0.3: `Amount` with Go's float conversion, WIF, transaction sorting | implemented, differential against Go |
+| `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
+| `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
 
 Decred primitives (BLAKE-256, RIPEMD-160, secp256k1 through `dcroxide-dcrec`,
 chain parameters and, later, wire, txscript, stake, gcs and the rest) come from
@@ -61,6 +77,12 @@ is pinned by a hand-written expectation.
   records how it was produced.
 - **Ported upstream tests**, where upstream has any.
 - **Fuzzing.** `fuzz/` holds cargo-fuzz targets for the parsers.
+- **Wallet state, from the store on.** dcr-purse's database and dcrwallet's
+  share no format, so wallet state is compared through a logical export that
+  both sides write (ADR-0001, proposed), after both have reached the
+  same state by running the same operation script (ADR-0002,
+  proposed) or by restoring the same seed against the same chain. No
+  comparison imports a Go-written database.
 
 Without Go, differential tests skip with a notice. With
 `PURSE_REQUIRE_ORACLE=1`, as in CI, a missing oracle is a failure; an oracle
@@ -86,6 +108,7 @@ Environment variables the tests read:
 | `PURSE_TEST_SEED` | seed for generated test inputs (decimal or `0x` hex); every run prints the one it used |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |
 | `PURSE_ERRORS_PROGRAMS` | number of random programs in the `purse-errors` differential |
+| `PURSE_REQUIRE_FLINT` | the `purse-mixsolver` comparison against the FLINT-backed reference solver fails instead of skipping when that oracle is missing; it needs FLINT installed and the oracle built with `-tags flint` into `PURSE_ORACLE_DIR` |
 
 Fuzz targets build on nightly with
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz):
@@ -100,10 +123,14 @@ RUSTUP_TOOLCHAIN=nightly cargo fuzz run --fuzz-dir fuzz seed_decode
 - No hand-rolled cryptography for standard algorithms; pure Rust only.
 - Seeds, private keys and passphrases are wiped on drop and never formatted.
 - Where dcrwallet's behaviour is a defect an outside observer could depend
-  on, it is reproduced and recorded. Three classes are not: where Go panics
-  on malformed data an error is returned, where Go's order is random a
-  deterministic one is chosen, and anything that would lose funds or leak
-  secrets is fixed.
+  on, it is reproduced and recorded in [QUIRKS.md](docs/QUIRKS.md). The
+  standing exceptions are those of
+  [ADR-0012](docs/adr/0012-standing-quirk-policy.md): where Go panics on
+  external input an error is returned; where Go's order is random, replies
+  are sorted, while orders other parties see on the wire stay shuffled;
+  anything that would lose funds or leak secrets is fixed; and where Go's
+  answer depends on the CPU, one answer is given on every platform. Each
+  divergence is listed in [PARITY.md](docs/PARITY.md).
 
 ## License
 

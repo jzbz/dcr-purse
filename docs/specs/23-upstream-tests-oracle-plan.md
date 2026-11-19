@@ -1431,7 +1431,7 @@ target operating systems) apply unchanged.
    silently disappear (`dcroxide:crates/dcroxide-testutil/src/lib.rs:231-283`).
 4. Under `PURSE_REQUIRE_ORACLE` the oracle's reported Go release (its
    `build.info` command) must equal the project's reference Go, go1.27.4,
-   decided 2026-11-19 (section 13 item 1) (`dcroxide:crates/dcroxide-testutil/src/lib.rs:207-221`).
+   decided 2026-11-18 (section 13 item 1) (`dcroxide:crates/dcroxide-testutil/src/lib.rs:207-221`).
    dcrwallet's repository names a Go
    release only in its CI matrix (1.26 and 1.27) and in `rpc/Dockerfile`, which is the
    protobuf regeneration image (golang 1.24.10), not a release recipe.
@@ -2709,7 +2709,7 @@ upstream supplies so little:
 
 ## 13. Open questions
 
-1. **Reference Go release.** Decided (project owner, 2026-11-19): go1.27.4, the
+1. **Reference Go release.** Decided (project owner, 2026-11-18): go1.27.4, the
    latest release at the time, pinned and moved by a deliberate bump, not tracked.
    It is `REFERENCE_GO` in `purse-testutil` and `GO_VERSION` in the CI workflow, and
    the vectors frozen so far were generated with it. dcrwallet has no release build

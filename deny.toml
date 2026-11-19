@@ -57,7 +57,7 @@ reason = "the ecosystem is mid-migration to syn 3: serde_derive is on 3, while c
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# dcroxide's crates are consumed from its repository at one pinned revision,
+# and it is the only git source (ADR-0006).
+allow-git = ["https://github.com/jzbz/dcroxide"]
 
-# dcroxide's crates are consumed from its repository at one pinned revision.
-[sources.allow-org]
-github = ["jzbz"]

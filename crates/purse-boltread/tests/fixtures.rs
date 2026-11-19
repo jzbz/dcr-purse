@@ -300,7 +300,7 @@ impl Source for FailingSource {
     }
 }
 
-/// Each class of error an importer distinguishes.
+/// Each class of error a caller distinguishes.
 #[test]
 fn error_classes() {
     let dir = common::scratch("error-classes");

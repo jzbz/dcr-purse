@@ -17,7 +17,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// [`Error::FileTooSmall`]). [`Error::Corrupt`] covers every structural
 /// defect that bbolt does not check for and would answer with a panic, a
 /// fault or a read of unrelated bytes. [`Error::class`] sorts every variant
-/// into the handful of cases an importer has to tell apart.
+/// into the handful of cases a caller has to tell apart.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -96,7 +96,7 @@ pub enum Change {
     MetaPage(u64),
 }
 
-/// The cases an importer tells apart, from [`Error::class`].
+/// The cases a caller tells apart, from [`Error::class`].
 ///
 /// | Class | Variants | Meaning |
 /// | --- | --- | --- |

@@ -1,6 +1,8 @@
 [package]
 name = "purse-boltread"
 description = "Read-only reader for bbolt v1.3.12 database files, the format of dcrwallet's wallet.db"
+# A test utility since ADR-0013: the wallet reads no dcrwallet database.
+publish = false
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

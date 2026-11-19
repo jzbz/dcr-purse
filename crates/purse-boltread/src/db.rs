@@ -355,7 +355,7 @@ impl Db {
     /// at open: re-reads the size and the raw bytes of both meta pages and
     /// fails with [`Error::Changed`] if anything differs. Every bbolt commit
     /// rewrites a meta page, so this detects a commit made since the open
-    /// (by a writer that ignored or bypassed the lock); an importer calls it
+    /// (by a writer that ignored or bypassed the lock); a caller runs it
     /// after reading everything it needs.
     pub fn verify_unchanged(&self) -> Result<()> {
         let now = self.src.size()?;

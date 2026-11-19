@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-//! bbolt reader fuzz target: a `wallet.db` handed to the importer may be
+//! bbolt reader fuzz target: a database file handed to the reader may be
 //! corrupt or hostile.
 //!
 //! Whatever the bytes, opening, walking, dumping and seeking must return

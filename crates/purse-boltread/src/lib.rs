@@ -3,7 +3,11 @@
 // the LICENSE file.
 
 //! A read-only reader for bbolt v1.3.12 database files, the format of
-//! dcrwallet's `wallet.db`, for importing a dcrwallet database.
+//! dcrwallet's `wallet.db`.
+//!
+//! It is a test utility: dcr-purse's tests read Go-written fixture databases
+//! with it. The wallet itself reads no dcrwallet database, so this crate is
+//! not part of it and is not published.
 //!
 //! The reader never writes and never memory-maps: pages are read with
 //! positional reads from a [`Source`] (a file, or bytes in memory) into a
@@ -25,7 +29,7 @@
 //! client), and nothing at all when opened with
 //! [`OpenOptions::lock(false)`](OpenOptions::lock). Call
 //! [`Db::verify_unchanged`] after reading to detect such a write.
-//! [`Error::class`] tells the failures an importer must distinguish apart:
+//! [`Error::class`] tells the failures a caller must distinguish apart:
 //! not a bbolt file, corrupt, locked, cannot open, cannot lock.
 //!
 //! ```no_run

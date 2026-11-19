@@ -55,6 +55,7 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-snacl` | dcrwallet `snacl` and `kdf`: scrypt and secretbox key sealing, Argon2id and XChaCha20-Poly1305 for account passphrases | implemented, differential against Go |
 | `purse-dcrutil` | dcrd `dcrutil` v4.0.3: `Amount` with Go's float conversion, WIF, transaction sorting | implemented, differential against Go |
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
+| `sntrup4591761` | `companyzero/sntrup4591761`: the Streamlined NTRU Prime 4591^761 KEM of the mixing key exchange, byte-compatible down to the randomness it draws | implemented, differential against Go; 13 to 44 times faster than Go, constant time |
 | `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
 | `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
 | `purse-bench` | — | the benchmark harness of [ADR-0014](docs/adr/0014-performance.md): dcr-purse's workloads against their Go counterparts (`tools/oracle/cmd/bench`) on the same inputs, alternating in one session; not shipped. Results: [bench-ledger.md](docs/bench-ledger.md) |
@@ -109,6 +110,10 @@ Environment variables the tests read:
 | `PURSE_TEST_SEED` | run seed for generated test inputs (decimal or `0x` hex); unset, every test uses the same fixed inputs on every run; each test mixes it with its own label, so tests with different labels start from different states; every run prints the value to set to reproduce it |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |
 | `PURSE_ERRORS_PROGRAMS` | number of random programs in the `purse-errors` differential |
+| `PURSE_SNTRUP_CASES` | multiplies the random instances of the `sntrup4591761` differential and property tests |
+| `PURSE_SNTRUP_HEAVY` | runs the `sntrup4591761` differential and property tests at their optimised-build sizes in a debug build |
+| `PURSE_SNTRUP_BENCH_REPS` | repetitions per round of the ignored `sntrup4591761` timing comparison against Go (`speed_against_go`, default 41) |
+| `PURSE_SNTRUP_DUDECT_SAMPLES` | samples per class of the ignored `sntrup4591761` timing-independence check (`secret_independence`, default 20000) |
 | `PURSE_REQUIRE_FLINT` | the `purse-mixsolver` comparison against the FLINT-backed reference solver fails instead of skipping when that oracle is missing; it needs FLINT installed and the oracle built with `-tags flint` into `PURSE_ORACLE_DIR` |
 
 Fuzz targets build on nightly with

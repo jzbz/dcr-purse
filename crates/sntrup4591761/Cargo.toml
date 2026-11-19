@@ -1,0 +1,30 @@
+[package]
+name = "sntrup4591761"
+description = "Streamlined NTRU Prime 4591^761, byte-compatible with github.com/companyzero/sntrup4591761 as dcrd's mixing key agreement links it, randomness consumption included"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# SHA-512 of the encoded r: the ciphertext's confirmation and the shared
+# key, as Go's crypto/sha512.  The workspace's release; `zeroize` wipes the
+# hasher state, which holds the encoded r.
+sha2 = { version = "0.11.1", default-features = false, features = ["zeroize"] }
+# Constant-time comparisons in decapsulation (Go's crypto/subtle) and the
+# `Choice` it returns.
+subtle = { version = "2.6.1", default-features = false }
+# Private keys, shared keys and every secret intermediate are wiped on drop.
+zeroize = { version = "1.9.2", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The upstream Sage vectors are gzipped; the pure-Rust backend, as
+# purse-snacl's tests use it.
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
+# The oracle harness (tools/oracle/cmd/sntrup) and SplitMix64.
+purse-testutil.workspace = true
+
+[lints]
+workspace = true

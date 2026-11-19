@@ -892,6 +892,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "sntrup4591761"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "purse-testutil",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

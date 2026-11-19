@@ -1,0 +1,28 @@
+This crate is a port of github.com/companyzero/sntrup4591761
+(v0.0.0-20220309191932-9e0f3af2f07a), whose source files carry the
+following notice, reproduced as its license requires. The file
+tests/data/sage128.gz is copied from that module unchanged.
+
+ISC License
+
+Copyright (c) 2017 Company 0 LLC.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+The reciprocals in src/r3.rs and src/rq.rs follow the constant-time
+divstep inversion (r3_recip, Rq_recip3) of the NTRU Prime round-2
+reference implementation by Daniel J. Bernstein, Chitchanok
+Chuengsatiansup, Tanja Lange and Christine van Vredendaal, which its
+authors placed in the public domain. No code is copied from it; the
+algorithm is re-expressed (bitsliced in R3, with Montgomery products in
+Rq).

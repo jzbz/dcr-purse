@@ -239,6 +239,14 @@ FLINT returned the right values in that session was not recorded. A
 side; its times are not reported here (the load rose during it, and the
 Rust 512-root runs ranged from 216 to 829 ms). Raw: `mix-1/`.
 
+**Note, 2026-11-19: Argon2id's lanes now run in parallel.** purse-snacl
+turns on the `argon2` crate's `parallel` feature, the cause named under
+"Outside the criteria" above; with it, `kdf.argon2id_t4` measured 1.18
+and 1.15 times Go's time on a rayon pool made for each derivation, and
+1.13 and 1.14 on rayon's global pool, in four sessions on machine d1
+(the entry "Argon2id with parallel lanes" below), against 2.37 in this
+entry. The 1-lane workload is unchanged (0.96 to 0.97).
+
 ### The CI gate on an unpinned, loaded machine (2026-11-19)
 
 The CI gate (`purse-bench drive --gate crates/purse-bench/gate-baseline.tsv`,
@@ -257,6 +265,74 @@ workload whose ratio depends on the processor (an AVX2 or BMI2 code path
 on one side only) can sit nearer the limit there.
 
 Raw: `gate-1/`, `gate-2/`, `gate-3/` (`run-*.txt`, `table.md`).
+
+### Argon2id with parallel lanes (2026-11-19)
+
+**Session.** Machine d1, shared but lightly loaded at the time:
+one-minute load average 0.79 at the start of the first session and 1.64
+at the end of the last. dcr-purse `b44f267` plus the uncommitted change
+that turns on the `argon2` crate's `parallel` feature in purse-snacl
+(argon2 0.6.0 on rayon 1.12.0 and rayon-core 1.13.0) and runs each
+derivation on a rayon pool of its own ("pool per derivation" below);
+for comparison, the same tree with `crates/purse-snacl/src/kdf.rs` as at
+`b44f267`, under which the feature fills the lanes on rayon's global
+pool ("global pool"). dcroxide `f4b3d2e8`; Go side at dcrwallet
+`54b85b33`, built with Go 1.27.4 (`go1.27.4-X:nodwarf5`) without build
+tags, linking x/crypto v0.57.0, one binary for every session; Rust
+1.100.0, the workspace's release profile. Four sessions back to back,
+21:03:14 to 21:03:56 UTC, alternating pool per derivation, global pool,
+pool per derivation, global pool, each:
+
+```text
+cargo build --release -p purse-bench
+target/release/purse-bench drive --runs 5 --reps 5 --ms 200 \
+    --cpus 12-15 --only kdf. --go-bin <prebuilt Go side> --out <session directory>
+```
+
+Five processes per side, alternating, five timed derivations per
+process; every measured process pinned with `taskset -c 12-15`, as in the
+first entry, so GOMAXPROCS was 4, and a Rust derivation ran on 4 threads:
+the calling thread and 3 it started, on a pool per derivation, or 4
+threads of the global pool. Each timed derivation on a pool of its own
+includes starting and joining those 3 threads. Both derived keys were
+equal in all ten processes of each session.
+
+| workload | Rust variant | session | Go median (range) | Rust median (range) | Rust/Go |
+|---|---|---|---|---|---|
+| kdf.argon2id_t1 | pool per derivation | 1 | 108.57 ms (107.79–109.50 ms) | 105.36 ms (102.62–108.16 ms) | 0.97 |
+| kdf.argon2id_t4 | pool per derivation | 1 | 38.68 ms (38.52–43.81 ms) | 45.69 ms (44.20–47.33 ms) | 1.18 |
+| kdf.argon2id_t1 | global pool | 1 | 109.07 ms (108.49–110.19 ms) | 104.17 ms (103.22–105.46 ms) | 0.96 |
+| kdf.argon2id_t4 | global pool | 1 | 39.55 ms (38.83–40.66 ms) | 44.71 ms (44.08–46.28 ms) | 1.13 |
+| kdf.argon2id_t1 | pool per derivation | 2 | 106.92 ms (106.15–107.32 ms) | 103.11 ms (102.19–105.13 ms) | 0.96 |
+| kdf.argon2id_t4 | pool per derivation | 2 | 38.30 ms (38.06–42.83 ms) | 43.99 ms (43.67–45.40 ms) | 1.15 |
+| kdf.argon2id_t1 | global pool | 2 | 106.80 ms (106.11–107.36 ms) | 102.75 ms (102.28–103.09 ms) | 0.96 |
+| kdf.argon2id_t4 | global pool | 2 | 38.57 ms (38.31–39.22 ms) | 44.00 ms (43.71–44.54 ms) | 1.14 |
+
+The 4-lane derivation went from 2.37 times Go's time (first entry) to
+1.15 to 1.18 on a pool per derivation and 1.13 to 1.14 on the global
+pool. In Rust's own medians the pool per derivation was 0.98 ms slower
+than the global pool in the first pair of sessions and 0.01 ms faster
+in the second; the ranges overlap in both. Two sessions of the global
+pool alone, earlier the same day on the same machine under load
+(one-minute load average 11.6 at the start, 9.2 at the end; 20:18:27 to
+20:19:03 UTC), measured 1.14 and 1.11 (raw: `kdf-c4/`, `kdf-c4-b/`);
+they are not comparable with the sessions above. The remaining gap to Go
+was not profiled. One candidate, not measured: purse-snacl writes the
+256 MiB of working memory twice outside the lane fill, zeroing it on
+allocation (on the calling thread) and wiping it after (on whichever of
+the pool's threads ran the derivation), while Go's runtime zeroes a
+reused allocation once, on one goroutine, and a fresh one not at all.
+
+**What this entry does not show.** More than 4 lanes or 4 threads
+(dcrwallet stores as many lanes as the creating machine has CPUs, and a
+pool per derivation starts one thread fewer than it has threads), a
+derivation whose threads are refused (the calling thread then fills
+every lane alone), a dedicated machine, other processors. `kdf.*` is
+not in the CI gate's baseline (`crates/purse-bench/gate-baseline.tsv`),
+which is unchanged.
+
+Raw: `kdf-c4-scoped/`, `kdf-c4-global/`, `kdf-c4-scoped-b/` and
+`kdf-c4-global-b/` (`run-1-rust.txt` to `run-5-go.txt`, `table.md`).
 
 ## purse-store
 

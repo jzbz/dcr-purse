@@ -247,6 +247,52 @@ stand, with these permitted departures, made for speed. Each is a
 Nothing else in items 2 and 3 is relaxed: lock order, transaction
 boundaries and the points at which notifications are generated stay Go's.
 
+### Addendum (Argon2id's lanes)
+
+Decided (project owner, 2026-11-19): a pool per derivation, chosen over
+rayon's global pool, below. purse-snacl turns on the `argon2`
+crate's `parallel` feature, which hands the lanes of each Argon2id slice
+to rayon, as Go starts a goroutine per lane; without it a 4-lane
+derivation took 2.37 times Go's time (`docs/bench-ledger.md`). Item 1
+names `std::thread`, `std::sync` and `crossbeam-channel`; this admits
+rayon (1.12.0, rayon-core 1.13.0) for that one CPU fan-out, in
+purse-snacl's `kdf` module only:
+
+- **A pool per derivation** (item 3, CPU fan-outs). Each derivation
+  builds a rayon pool of one thread per lane, at most
+  `available_parallelism`. The calling thread is one of its threads and
+  works with the rest, as `thread::scope`'s caller would; the others are
+  scoped `std::thread` threads, joined before the derivation returns.
+  The cap is per derivation: `n` concurrent derivations run up to `n`
+  times as many threads and can oversubscribe the CPUs, which Go's
+  goroutines, sharing `GOMAXPROCS` threads, do not; item 3's thread
+  estimate does not count them. Rayon's global pool is never started: it
+  panics when the operating system refuses it a thread (rayon-core
+  1.13.0 `src/registry.rs:162-172`), which the release profile turns
+  into an abort, and keeps one thread per CPU for the life of the
+  process.
+- **Refused threads** (item 4). `std::thread::Builder` returns a refusal
+  as an error; the threads already started finish, and the calling thread
+  fills every lane alone, item 3's "caller drains the rest": the same
+  key, slower. Go needs no thread of its own per goroutine and ends the
+  process when it is refused one, so the refusal path is a `PARITY.md`
+  divergence, recorded there. Item 4's spawn helper does not exist yet;
+  when it lands, the lane threads are started through it.
+- **Nothing else.** Outside tests, which build pools to check this one,
+  no other code builds a rayon pool or runs a parallel iterator; another
+  use would need its own addendum.
+
+The alternative the owner declined is the `parallel` feature as rayon
+uses it by default, on the global pool: no threads started per derivation, at the price of
+the abort above when the first derivation's pool is refused a thread,
+and of one idle thread per CPU for the life of the process, each of
+which may keep on its stack the compression function's temporaries from
+the last segment it filled. Measured against Go in the same sessions,
+the two were within a few percent of each other at 4 lanes
+(`docs/bench-ledger.md`, "Argon2id with parallel lanes"). Not decided,
+and the owner's: whether concurrent derivations share a process-wide
+budget of lane threads; none is kept now.
+
 ## Consequences
 
 - **Work created.** The context crate, before Phase 3's API settles. Item 3's

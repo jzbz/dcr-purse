@@ -11,9 +11,15 @@ repository.workspace = true
 [dependencies]
 # Argon2id (version 0x13) for per-account passphrases. 0.6 is on blake2 0.11
 # and digest 0.11, the workspace's generation. Defaults off: no PHC string
-# support, no getrandom; `zeroize` wipes its memory blocks, H0 and the block
-# hashes, not the final tag (see the "Secrets" section of src/lib.rs).
-argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+# support, no getrandom; `zeroize` wipes H0 and the block hashes, not the
+# final tag, and src/kdf.rs wipes the memory blocks it lends the crate (see
+# the "Secrets" section of src/lib.rs). `parallel` hands the lanes of each
+# slice to rayon, as Go runs a goroutine per lane, with the same output;
+# src/kdf.rs runs every derivation on a pool of its own (see `rayon`
+# below). Without it 4 lanes took 2.37 times Go's time
+# (docs/bench-ledger.md). It brings in rayon, rayon-core, crossbeam-deque,
+# crossbeam-epoch, crossbeam-utils and either.
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "parallel", "zeroize"] }
 # Not used directly: only turns on blake2's own `zeroize` feature, which
 # argon2's does not forward, so the Blake2b states argon2 drops (holding H0
 # and the final tag, the account key) are wiped.
@@ -21,6 +27,15 @@ blake2 = { version = "0.11.0", default-features = false, features = ["zeroize"] 
 # XChaCha20-Poly1305 for the per-account blobs (the same release dcroxide
 # links); `zeroize` wipes the cipher state.
 chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+# The rayon argon2's `parallel` feature brings in, named here only to build
+# a pool per derivation (src/kdf.rs): min(lanes, CPUs) threads, the calling
+# thread one of them, the others scoped std threads joined before the
+# derivation returns. Without a pool of its own a derivation would start
+# rayon's global pool, which panics if the operating system refuses it a
+# thread and keeps its threads for the life of the process (ADR-0008,
+# addendum on Argon2id's lanes). It adds no package to those `parallel`
+# brings in.
+rayon = "1.12.0"
 # Op/Kind and the conversion of this crate's errors into the wallet-wide model.
 purse-errors.workspace = true
 # The OS random source behind the default RandomSource.

@@ -813,6 +813,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "purse-udb"
+version = "0.1.0"
+dependencies = [
+ "dcroxide-chaincfg",
+ "dcroxide-dcrec",
+ "dcroxide-dcrjson",
+ "dcroxide-txscript",
+ "dcroxide-wire",
+ "hmac",
+ "purse-dcrutil",
+ "purse-errors",
+ "purse-export-check",
+ "purse-hdkeychain",
+ "purse-snacl",
+ "purse-store",
+ "purse-testutil",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"

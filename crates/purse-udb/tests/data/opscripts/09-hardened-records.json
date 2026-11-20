@@ -1,0 +1,23 @@
+{
+  "format": "purse-opscript 1",
+  "name": "a recorded address at a hardened child, the counters at their limits, and a sync to MaxAddressesPerAccount",
+  "setup": {"network": "simnet", "seed": "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567", "pubpass": "public", "privpass": "private", "rand": "0909090909090909090909090909090909090909090909090909090909090909", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 1, "branch": 1},
+    {"op": "mgr.record_derived_address", "account": 0, "branch": 0, "child": 2147483651, "pubkey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"},
+    {"op": "mgr.for_each_account_address", "account": 0},
+    {"op": "mgr.for_each_active_address"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.for_each_account_address", "account": 0},
+    {"op": "mgr.mark_used_child_index", "account": 0, "branch": 0, "child": 2147483651},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.mark_returned_child_index", "account": 0, "branch": 1, "child": 4294967295},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.mark_returned_child_index", "account": 0, "branch": 1, "child": 3},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.record_derived_address", "account": 0, "branch": 0, "child": 2147483647},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2147483647, "branch": 0},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2147483648, "branch": 0},
+    {"op": "mgr.for_each_account_address", "account": 0}
+  ]
+}

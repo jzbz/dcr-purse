@@ -33,6 +33,7 @@ purse-seed = { path = "../crates/purse-seed" }
 purse-store = { path = "../crates/purse-store" }
 purse-txauthor = { path = "../crates/purse-txauthor" }
 purse-txrules = { path = "../crates/purse-txrules" }
+purse-udb = { path = "../crates/purse-udb" }
 sntrup4591761 = { path = "../crates/sntrup4591761" }
 
 [[bin]]
@@ -87,6 +88,20 @@ bench = false
 [[bin]]
 name = "txauthor"
 path = "fuzz_targets/txauthor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "udb_account_keys"
+path = "fuzz_targets/udb_account_keys.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "udb_imported_data"
+path = "fuzz_targets/udb_imported_data.rs"
 test = false
 doc = false
 bench = false

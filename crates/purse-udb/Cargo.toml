@@ -1,0 +1,67 @@
+[package]
+name = "purse-udb"
+description = "dcrwallet's wallet/udb behaviour over dcr-purse's own store: the address manager (creation from a seed, opening, locking, accounts, addresses, imported keys and scripts) and the Rust producer of the logical export"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The networks' coin types, extended-key version bytes and names
+# (dcrwallet's `*chaincfg.Params`).
+dcroxide-chaincfg.workspace = true
+# `CurrencyNet::SIM_NET`: udb picks the scrypt cost by network
+# (`scryptOptionsForNet`).
+dcroxide-wire.workspace = true
+# Addresses: dcrd's `stdaddr` (the managed addresses' P2PKH and P2SH
+# addresses, `normalizeAddress`, `addressID`) and `dcrutil.Hash160`.
+# `std`, as the workspace's other crates build it: without it the crate
+# does not compile at the pinned revision (its float `log2` needs std).
+dcroxide-txscript = { workspace = true, features = ["std"] }
+# dcrd's `secp256k1.PrivKeyFromBytes` for `Manager.PrivateKey`: the stored
+# (possibly stripped) or imported key bytes reduced modulo the group order.
+dcroxide-dcrec.workspace = true
+# Go's `strconv.Quote` (`%q`), which the account name texts of
+# `LookupAccount`, `NewAccount` and `RenameAccount` use.
+dcroxide-dcrjson.workspace = true
+# The WIF private key `Manager.ImportPrivateKey` takes (dcrutil's `WIF`).
+purse-dcrutil.workspace = true
+# The passphrase hasher: a keyed PRF over the private passphrase, kept in
+# memory only to recognise the passphrase of an unlocked wallet (spec 02
+# section 12 hazard 3: any keyed PRF with a per-process key serves; dcrwallet
+# uses keyed BLAKE2b-256). The releases purse-hdkeychain already links;
+# `zeroize` wipes the HMAC and SHA-256 states, which hold the passphrase.
+# sha2 also computes the logical export's digests.
+hmac = { version = "0.13.0", default-features = false, features = ["zeroize"] }
+sha2 = { version = "0.11.1", default-features = false, features = ["zeroize"] }
+# Op/Kind and the byte-exact rendering of every error the manager returns
+# (ADR-0011).
+purse-errors.workspace = true
+# Extended keys with Decred's leading-zero stripping; `chaincfg` gives
+# NetworkParams for dcroxide's chain parameters.
+purse-hdkeychain = { path = "../purse-hdkeychain", features = ["chaincfg"] }
+# scrypt master keys, secretbox crypto keys, Argon2id parameters: the
+# sealing formats of dcrwallet (brief Phase 3).
+purse-snacl = { path = "../purse-snacl" }
+# The wallet store (ADR-0003): the `wallet`, `accounts` and
+# `account_names` tables hold the address manager's rows.
+purse-store = { path = "../purse-store" }
+# Constant-time comparison of passphrase hashes (Go's
+# `subtle.ConstantTimeCompare`). The release purse-snacl links.
+subtle = { version = "2.6.1", default-features = false }
+# The hasher key and decrypted key strings are wiped on drop.
+zeroize = { version = "1.9.2", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The logical export's strict parser: the Rust export is checked against
+# the format and compared with Go's section by section.
+purse-export-check = { path = "../purse-export-check" }
+# The oracle harness and the seeded PRNG of the property tests.
+purse-testutil.workspace = true
+# The operation-script runner of the tests reads and writes ADR-0002's JSON.
+serde_json.workspace = true
+
+[lints]
+workspace = true

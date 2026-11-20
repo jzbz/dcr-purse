@@ -1,0 +1,16 @@
+{
+  "format": "purse-opscript 1",
+  "name": "testnet3, upstream's seed and passphrases, the full scrypt cost",
+  "setup": {"network": "testnet3", "seed": "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567", "pubpass": "_DJr{fL4H0O}*-0\n:V1izc)(6BomK", "privpass": "81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj", "rand": "0404040404040404040404040404040404040404040404040404040404040404", "clock": 1794990000},
+  "ops": [
+    {"op": "udb.coin_types"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.lock"},
+    {"op": "mgr.unlock", "pass": "81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj"},
+    {"op": "mgr.unlock", "pass": "81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj"},
+    {"op": "mgr.account_extended_priv_key", "account": 0},
+    {"op": "mgr.unlock", "pass": "invalidpassphrase"},
+    {"op": "mgr.is_locked"}
+  ]
+}

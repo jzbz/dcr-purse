@@ -1,0 +1,24 @@
+{
+  "format": "purse-opscript 1",
+  "name": "coin type: upgrades refused after a returned address and after a new account",
+  "setup": {"network": "simnet", "seed": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", "pubpass": "public", "privpass": "private", "rand": "1212121212121212121212121212121212121212121212121212121212121212", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.mark_returned_child_index", "account": 0, "branch": 1, "child": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.mark_returned_child_index", "account": 0, "branch": 0, "child": 4294967295},
+    {"op": "mgr.mark_returned_child_index", "account": 0, "branch": 1, "child": 4294967295},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.new_account", "name": "one"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.coin_type_priv_key"},
+    {"op": "mgr.account_extended_priv_key", "account": 1},
+    {"op": "mgr.import_xpub_account", "name": "xpub", "xpub": {"seed": "000102030405060708090a0b0c0d0e0f", "path": ["44'", "1'", "0'"]}},
+    {"op": "mgr.last_account"},
+    {"op": "mgr.last_imported_account"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"}
+  ]
+}

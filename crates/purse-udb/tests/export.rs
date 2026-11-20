@@ -1,0 +1,260 @@
+// Copyright (c) 2026 The dcr-purse developers
+// Use of this source code is governed by an ISC license that can be found in
+// the LICENSE file.
+
+//! The Rust producer of the logical export against the format
+//! (`purse-export-check`, ADR-0001): its registry is the parser's, what it
+//! writes parses strictly, with and without the passphrases, and it
+//! refuses a store holding rows this slice does not export.
+
+mod support;
+
+use purse_errors::Kind;
+use purse_export_check::{REGISTRY as CHECK_REGISTRY, parse};
+use purse_snacl::{Limits, OsRandom};
+use purse_store::{Hash32, Store, Tickets};
+use purse_udb::Manager;
+use purse_udb::addrmgr::ChainParams;
+use purse_udb::export::{COVERED, ExportOptions, REGISTRY, export};
+use support::scratch;
+
+#[test]
+fn registry_is_the_parsers() {
+    assert_eq!(REGISTRY.len(), CHECK_REGISTRY.len());
+    for (a, b) in REGISTRY.iter().zip(CHECK_REGISTRY) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.version, b.version, "[{}]", a.name);
+        assert_eq!(a.types, b.types, "[{}]", a.name);
+    }
+    for name in COVERED {
+        assert!(REGISTRY.iter().any(|s| s.name == name), "{name}");
+    }
+}
+
+fn wallet() -> (Store, ChainParams) {
+    let chain = ChainParams::by_name("simnet").expect("simnet");
+    let dir = scratch("export");
+    let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+    store
+        .update(|tx| {
+            Manager::create(
+                tx,
+                &chain,
+                &[7; 32],
+                b"public",
+                b"private",
+                &mut OsRandom,
+                &Limits::DEFAULT,
+            )
+            .expect("create");
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("commit");
+    (store, chain)
+}
+
+#[test]
+fn exports_parse_with_and_without_passphrases() {
+    let (store, chain) = wallet();
+    let tx = store.read().expect("read");
+    for (pub_pass, priv_pass, decrypt, privcheck) in [
+        (None, None, "none", "0"),
+        (Some(&b"public"[..]), None, "public", "0"),
+        (Some(&b"public"[..]), Some(&b"private"[..]), "public", "1"),
+    ] {
+        let opts = ExportOptions {
+            pub_pass,
+            priv_pass,
+            exporter: "crates/purse-udb/tests/export.rs",
+            limits: Limits::DEFAULT,
+        };
+        let text = export(&tx, &chain, &opts).expect("export");
+        let ex = parse(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+        assert_eq!(ex.meta("decrypt"), Some(decrypt));
+        assert_eq!(ex.meta("privcheck"), Some(privcheck));
+        assert_eq!(ex.meta("origin"), Some("purse-udb/1"));
+        if privcheck == "1" {
+            ex.check_sealed_secrets().expect("every verdict yes");
+        }
+        // Without the public passphrase no plaintext field is filled.
+        let accounts = ex.section("accounts").expect("accounts");
+        let xpub = accounts
+            .records
+            .iter()
+            .find_map(|r| accounts.value(r, "xpub"));
+        assert_eq!(xpub == Some("-"), decrypt == "none");
+    }
+    // A wrong private passphrase is a "no" verdict, not an error.
+    let opts = ExportOptions {
+        pub_pass: Some(b"public"),
+        priv_pass: Some(b"not it"),
+        exporter: "crates/purse-udb/tests/export.rs",
+        limits: Limits::DEFAULT,
+    };
+    let ex = parse(&export(&tx, &chain, &opts).expect("export")).expect("parse");
+    let pc = ex.section("privcheck").expect("privcheck");
+    assert_eq!(
+        pc.records.iter().find_map(|r| pc.value(r, "ok")),
+        Some("no")
+    );
+    assert!(ex.check_sealed_secrets().is_err());
+    // A wrong public passphrase fails the export.
+    let opts = ExportOptions {
+        pub_pass: Some(b"not it"),
+        ..opts
+    };
+    let err = export(&tx, &chain, &opts).expect_err("wrong public passphrase");
+    assert!(err.is_kind(Kind::Passphrase));
+}
+
+/// `ExportOptions`' `Debug` names which passphrases are given and never
+/// prints their bytes.
+#[test]
+fn export_options_debug_hides_the_passphrases() {
+    let opts = ExportOptions {
+        pub_pass: Some(b"public-secret"),
+        priv_pass: Some(b"hunter2"),
+        exporter: "x",
+        limits: Limits::DEFAULT,
+    };
+    let s = format!("{opts:?}");
+    assert!(s.contains("pub_pass: <given>"), "{s}");
+    assert!(s.contains("priv_pass: <given>"), "{s}");
+    assert!(s.contains("exporter: \"x\""), "{s}");
+    for secret in [&b"public-secret"[..], b"hunter2"] {
+        assert!(!s.contains(std::str::from_utf8(secret).expect("ascii")));
+        let bytes = format!("{secret:?}");
+        assert!(!s.contains(bytes.trim_matches(['[', ']'])), "{s}");
+    }
+    let none = ExportOptions {
+        pub_pass: None,
+        priv_pass: None,
+        ..opts
+    };
+    let s = format!("{none:?}");
+    assert!(
+        s.contains("pub_pass: <none>") && s.contains("priv_pass: <none>"),
+        "{s}"
+    );
+}
+
+#[test]
+fn a_store_with_rows_not_exported_is_refused() {
+    let (store, chain) = wallet();
+    store
+        .update(|tx| tx.put::<Tickets>(&Hash32([1; 32]), &purse_store::Empty))
+        .expect("commit");
+    let tx = store.read().expect("read");
+    let opts = ExportOptions {
+        pub_pass: Some(b"public"),
+        priv_pass: None,
+        exporter: "crates/purse-udb/tests/export.rs",
+        limits: Limits::DEFAULT,
+    };
+    let err = export(&tx, &chain, &opts).expect_err("refused");
+    assert_eq!(
+        err.to_string(),
+        "invalid operation: logical export: table tickets is not exported by this version of purse-udb"
+    );
+}
+
+/// The chain tables of schema version 1, main-chain rows keyed by height
+/// and detached rows keyed by hash, belong to the transaction store, which
+/// this slice does not export: a store holding a row in any one of them is
+/// refused, naming that table. The detached header and filter recorded by
+/// the typed chain operation are refused the same way.
+#[test]
+fn a_store_with_chain_rows_is_refused() {
+    use purse_store::{
+        BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, HeaderBytes,
+        Headers, HeadersDetached, Height,
+    };
+    let filter = CFilterRow {
+        key: [3; 16],
+        filter: vec![4; 8],
+    };
+    let header = HeaderBytes([5; 180]);
+    let block = BlockRow {
+        hash: Hash32([6; 32]),
+        time: 0,
+        vote_bits: 0,
+        invalid: false,
+        wallet_txs: 0,
+    };
+    let opts = ExportOptions {
+        pub_pass: None,
+        priv_pass: None,
+        exporter: "crates/purse-udb/tests/export.rs",
+        limits: Limits::DEFAULT,
+    };
+    type Put = fn(
+        &mut purse_store::WriteTx,
+        &HeaderBytes,
+        &CFilterRow,
+        &BlockRow,
+    ) -> purse_store::Result<()>;
+    let cases: [(&str, Put); 7] = [
+        ("headers", |tx, h, _, _| tx.put::<Headers>(&Height(0), h)),
+        ("blocks", |tx, _, _, b| tx.put::<Blocks>(&Height(0), b)),
+        ("block_by_hash", |tx, _, _, _| {
+            tx.put::<BlockByHash>(&Hash32([6; 32]), &Height(0))
+        }),
+        ("cfilters", |tx, _, f, _| tx.put::<CFilters>(&Height(0), f)),
+        ("headers_detached", |tx, h, _, _| {
+            tx.put::<HeadersDetached>(&Hash32([7; 32]), h)
+        }),
+        ("cfilters_detached", |tx, _, f, _| {
+            tx.put::<CFiltersDetached>(&Hash32([7; 32]), f)
+        }),
+        // The typed operation writes headers_detached and
+        // cfilters_detached; the first is named.
+        ("headers_detached", |tx, h, f, _| {
+            tx.insert_detached(&Hash32([8; 32]), h, Some(f))
+        }),
+    ];
+    for (table, put) in cases {
+        let (store, chain) = wallet();
+        store
+            .update(|tx| put(tx, &header, &filter, &block))
+            .expect("commit");
+        let tx = store.read().expect("read");
+        let err = export(&tx, &chain, &opts).expect_err(table);
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "invalid operation: logical export: table {table} is not exported by this version of purse-udb"
+            )
+        );
+    }
+}
+
+#[test]
+fn a_store_with_address_path_entries_is_refused() {
+    // addr_by_path is not written by the address manager; a store holding
+    // an entry has state the export cannot show.
+    let (store, chain) = wallet();
+    store
+        .update(|tx| {
+            tx.put::<purse_store::AddrByPath>(
+                &purse_store::AddrPathKey {
+                    account: 0,
+                    branch: 0,
+                    index: 0,
+                },
+                &purse_store::Hash160([2; 20]),
+            )
+        })
+        .expect("commit");
+    let tx = store.read().expect("read");
+    let opts = ExportOptions {
+        pub_pass: None,
+        priv_pass: None,
+        exporter: "crates/purse-udb/tests/export.rs",
+        limits: Limits::DEFAULT,
+    };
+    let err = export(&tx, &chain, &opts).expect_err("refused");
+    assert_eq!(
+        err.to_string(),
+        "invalid operation: logical export: table addr_by_path is not exported by this version of purse-udb"
+    );
+}

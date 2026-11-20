@@ -1,0 +1,28 @@
+{
+  "format": "purse-opscript 1",
+  "name": "addresses of an imported xpub account and a new account",
+  "setup": {"network": "simnet", "seed": "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567", "pubpass": "public", "privpass": "private", "rand": "0808080808080808080808080808080808080808080808080808080808080808", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.import_xpub_account", "name": "watched", "xpub": {"seed": "000102030405060708090a0b0c0d0e0f", "path": ["44'", "1'", "0'"]}},
+    {"op": "mgr.sync_account_to_addr_index", "account": 2147483648, "index": 2, "branch": 1},
+    {"op": "mgr.for_each_account_address", "account": 2147483648},
+    {"op": "mgr.address", "addr": {"acct": 2147483648, "branch": 1, "index": 1}},
+    {"op": "mgr.have_private_key", "addr": {"acct": 2147483648, "branch": 1, "index": 1}},
+    {"op": "mgr.private_key", "addr": {"acct": 2147483648, "branch": 1, "index": 1}},
+    {"op": "mgr.mark_used", "addr": {"acct": 2147483648, "branch": 1, "index": 2}},
+    {"op": "mgr.account_properties", "account": 2147483648},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.address", "addr": {"acct": 2147483648, "branch": 1, "index": 0}},
+    {"op": "mgr.private_key", "addr": {"acct": 2147483648, "branch": 1, "index": 1}},
+    {"op": "mgr.new_account", "name": "second"},
+    {"op": "mgr.sync_account_to_addr_index", "account": 1, "index": 3, "branch": 0},
+    {"op": "mgr.private_key", "addr": {"acct": 1, "branch": 0, "index": 3}},
+    {"op": "mgr.rename_account", "account": 1, "name": "zweite"},
+    {"op": "mgr.lock"},
+    {"op": "mgr.private_key", "addr": {"acct": 1, "branch": 0, "index": 3}},
+    {"op": "mgr.for_each_active_address"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.for_each_account_address", "account": 1}
+  ]
+}

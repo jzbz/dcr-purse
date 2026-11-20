@@ -1,0 +1,22 @@
+{
+  "format": "purse-opscript 1",
+  "name": "regnet: both coin types are 1, so addresses recorded before the upgrade keep their keys and a second upgrade passes the coin type check",
+  "setup": {"network": "regnet", "seed": "1337133713371337133713371337133713371337133713371337133713371337", "pubpass": "public", "privpass": "private", "rand": "1313131313131313131313131313131313131313131313131313131313131313", "clock": 1794990000},
+  "ops": [
+    {"op": "udb.coin_types"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2, "branch": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.account_properties", "account": 0},
+    {"op": "mgr.address", "addr": {"acct": 0, "branch": 0, "index": 1}},
+    {"op": "mgr.for_each_account_address", "account": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.coin_type_priv_key"},
+    {"op": "mgr.account_extended_priv_key", "account": 0},
+    {"op": "mgr.address", "addr": {"acct": 0, "branch": 1, "index": 5}}
+  ]
+}

@@ -49,13 +49,14 @@
 //! a sort of the 761 words. The Go code sorts with
 //! `subtle.ConstantTimeLessOrEq` applied outside its documented domain, so
 //! what it computes depends on the Go release and the width of `int`
-//! (spec 12 §5.10.2, open question Q40): built with Go 1.26 or later on a
-//! 64-bit target, which is what the parity pin produces (dcrwallet's
-//! `go.mod` requires `go 1.26.0`), it is an ascending sort of the words as
-//! unsigned integers. **This crate implements that unsigned sort only.** A
-//! Go 1.26+ build for a 32-bit target sorts as signed integers, and Go
-//! 1.25 or earlier uses a comparison that is not an order at all; keys and
-//! ciphertexts drawn from the same bytes differ from those builds'.
+//! (spec 12 §5.10.2, Q40): built with Go 1.26 or later on a 64-bit target,
+//! which is what the parity pin produces (dcrwallet's `go.mod` requires
+//! `go 1.26.0`), it is an ascending sort of the words as unsigned
+//! integers. **This crate implements that unsigned sort only**, as the
+//! project owner decided Q40 on 2026-11-19. A Go 1.26+ build for a 32-bit
+//! target sorts as signed integers, and Go 1.25 or earlier uses a
+//! comparison that is not an order at all; keys and ciphertexts drawn from
+//! the same bytes differ from those builds'.
 //!
 //! # Malformed input
 //!
@@ -159,6 +160,19 @@
 //! also compares), by the cargo-fuzz target
 //! `sntrup_decapsulate`, and, for the optimised arithmetic, against the
 //! test model on arbitrary inputs, inputs with no inverse included.
+//!
+//! Not replayed, an open item: the known-answer file of the round-1 NIST
+//! submission package. No copy of it is in this repository, in the Go
+//! module the oracle builds from (which ships the Sage file alone), or in
+//! any other local checkout or module cache, and it was not downloaded.
+//! The Sage replay is the cross-check against an implementation other
+//! than Go's meanwhile: it fixes key derivation from given f and g,
+//! encapsulation from a given r, and decapsulation, but not the mapping
+//! from random bytes to f and r, where the sort lives. Expected but not
+//! verified: the file's decapsulations would match; its key generations
+//! and encapsulations draw f and r through the C reference's own sort,
+//! which, if it orders the words as signed integers as a 32-bit Go build
+//! does, would not match the unsigned sort here.
 
 #![cfg_attr(not(test), no_std)]
 

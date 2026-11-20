@@ -10,3 +10,7 @@
 - `sntrup_vectors.txt` — written by the Go oracle `tools/oracle/cmd/sntrup`;
   its header says how it was produced and how to regenerate it.
   `tests/frozen.rs` replays it without Go, `tests/oracle.rs` against Go.
+
+Not here: the known-answer file of the round-1 NIST submission package. No
+local copy was found and none was downloaded; the crate documentation's
+Status section says what the Sage file covers in its place.

@@ -22,7 +22,7 @@
 //! | `SecretsSource` | [`SecretsSource`] |
 //! | `AddAllInputScripts`, `(*AuthoredTx).AddAllInputScripts` | [`add_all_input_scripts`], [`AuthoredTx::add_all_input_scripts`] |
 //! | `generatedTxVersion` | [`GENERATED_TX_VERSION`] |
-//! | the global `rand.Int32N` | [`RandomSource`], [`GlobalRandom`] |
+//! | the global `rand.Int32N` | `dcroxide_crypto::rand::int32n`, [`Prng::int32n`](dcroxide_crypto::rand::Prng::int32n) |
 //!
 //! # Integer semantics
 //!
@@ -34,13 +34,15 @@
 //! # Randomness
 //!
 //! Go draws the change position from dcrd's process-wide `crypto/rand`
-//! generator. The `_with` forms take any [`RandomSource`]; the plain forms
-//! use [`GlobalRandom`], `dcroxide-crypto`'s port of that generator. The
-//! bounded draw is Go's `Int32N` exactly, one 64-bit draw per attempt, so
-//! the same stream gives Go's positions (docs/specs/23 §5.6.2); the oracle
-//! differential checks this against a copy of dcrwallet's `author.go`,
-//! verbatim but for its import of the generator, drawing from the seeded
-//! stream that `Prng::from_seed` also produces.
+//! generator. The plain forms draw from `dcroxide-crypto`'s port of that
+//! generator, holding its lock for the whole bounded draw as Go holds it;
+//! the `_with` forms draw from a caller's
+//! [`Prng`](dcroxide_crypto::rand::Prng). The bounded draw is dcroxide's
+//! port of Go's `Int32N`, one 64-bit draw per attempt, so the same stream
+//! gives Go's positions (docs/specs/23 §5.6.2); the oracle differential
+//! checks this against a copy of dcrwallet's `author.go`, verbatim but for
+//! its import of the generator, drawing from the seeded stream that
+//! `Prng::from_seed` also produces.
 //!
 //! # Divergences
 //!
@@ -105,9 +107,7 @@ pub use author::{
     AuthoredTx, ChangeSource, GENERATED_TX_VERSION, InputDetail, InputSource,
     new_unsigned_transaction,
 };
-pub use random::{
-    GlobalRandom, RandomSource, randomize_output_position, randomize_output_position_with,
-};
+pub use random::{randomize_output_position, randomize_output_position_with};
 pub use sign::{
     INVALID_PUBKEY_SCRIPT, NESTED_SCRIPT_HASH_MERGE, SecretsSource, add_all_input_scripts,
 };

@@ -331,15 +331,11 @@ fn client_key_types() {
                 r["reply"]["version_string"], "10.0.0",
                 "{key} {who}: reference"
             );
-            if key == "P-521" {
-                // Go signs every P-521 certificate, CA-issued or self-signed,
-                // with ECDSA-SHA512, which the provider does not verify yet
-                // (ADR-0015 T4); the failure text depends on the version and
-                // on timing, so only the code is pinned.
-                assert_eq!(common::status(&c).0, 14, "{key} {who}: tonic");
-            } else {
-                assert_eq!(c["reply"]["version_string"], "10.0.0", "{key} {who}: tonic");
-            }
+            // Go signs every P-521 certificate, CA-issued or self-signed,
+            // with ECDSA-SHA512, which the provider verifies since dcroxide
+            // 6272357 (its ADR-0015 T4); until then P-521 clients were
+            // refused with code 14.
+            assert_eq!(c["reply"]["version_string"], "10.0.0", "{key} {who}: tonic");
         }
     }
 }

@@ -1,16 +1,19 @@
 # The CI gate's baseline (ADR-0014, section 4, "Regressions"): for each
 # workload, Rust's time over Go's in the bench ledger's first entry
-# (docs/bench-ledger.md, 2026-11-19). `purse-bench drive --gate` fails when
-# a session's ratio is more than twice its baseline. Lower a value when a
-# ledger entry records a lasting gain; never raise one to make a red gate
-# green without a ledger entry that explains why.
+# (docs/bench-ledger.md, 2026-11-19), except the three secret paths
+# (hd.master, hd.hardened_child, hd.priv_child), lowered on 2026-11-20 to
+# the pooled ratios of the entry "The secret paths at dcroxide `2074168`"
+# (k256's basepoint table, a lasting gain). `purse-bench drive --gate`
+# fails when a session's ratio is more than twice its baseline. Lower a
+# value when a ledger entry records a lasting gain; never raise one to make
+# a red gate green without a ledger entry that explains why.
 #
 # Left out: the memory-bound derivations (snacl.derive, kdf.*), whose ratio
 # depends on the runner's memory system and core count, and mix.*, whose
 # Go side needs FLINT, which CI's runner does not have.
-hd.master	1.594
-hd.hardened_child	1.578
-hd.priv_child	1.569
+hd.master	0.861
+hd.hardened_child	0.837
+hd.priv_child	0.853
 hd.pub_child	0.554
 hd.address	0.561
 hd.script	0.551

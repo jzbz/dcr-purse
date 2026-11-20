@@ -259,13 +259,13 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.119",
 ]
 
 [[package]]
 name = "dcroxide-base58"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-crypto",
 ]
@@ -273,7 +273,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-chaincfg"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-chainhash",
  "dcroxide-crypto",
@@ -285,7 +285,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-chainhash"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-crypto",
 ]
@@ -293,7 +293,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-crypto"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "chacha20",
  "getrandom",
@@ -303,13 +303,14 @@ dependencies = [
 [[package]]
 name = "dcroxide-dcrec"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "curve25519-dalek",
  "dcroxide-crypto",
  "dcroxide-secp256k1-vartime",
  "hmac",
  "k256",
+ "primeorder",
  "sha2",
  "zeroize",
 ]
@@ -317,7 +318,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-dcrjson"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-chainhash",
 ]
@@ -325,12 +326,12 @@ dependencies = [
 [[package]]
 name = "dcroxide-secp256k1-vartime"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 
 [[package]]
 name = "dcroxide-standalone"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-chainhash",
  "dcroxide-wire",
@@ -340,7 +341,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-txscript"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "dcroxide-base58",
  "dcroxide-chaincfg",
@@ -355,12 +356,12 @@ dependencies = [
 [[package]]
 name = "dcroxide-uint256"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 
 [[package]]
 name = "dcroxide-wire"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
 dependencies = [
  "blake3",
  "dcroxide-chainhash",
@@ -408,6 +409,7 @@ dependencies = [
  "ff",
  "group",
  "hybrid-array",
+ "pkcs8",
  "rand_core",
  "sec1",
  "subtle",
@@ -554,6 +556,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "once_cell"
+version = "1.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
 name = "password-hash"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -580,6 +588,16 @@ checksum = "44dc769b75f93afdddd8c7fa12d685292ddeff1e66f7f0f3a234cf1818afe892"
 dependencies = [
  "base64ct",
  "ctutils",
+]
+
+[[package]]
+name = "pkcs8"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "451913da69c775a56034ea8d9003d27ee8948e12443eae7c038ba100a4f21cb7"
+dependencies = [
+ "der",
+ "spki",
 ]
 
 [[package]]
@@ -614,7 +632,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c9f42978c78a00e3d68f69fc03e57a234debae69da4020a4fb588fcdcd07b06"
 dependencies = [
  "elliptic-curve",
+ "once_cell",
  "primefield",
+ "serdect",
  "wnaf",
 ]
 
@@ -887,6 +907,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
+name = "serde"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.229"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "serdect"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66cf8fedced2fcf12406bcb34223dffb92eaf34908ede12fed414c82b7f00b3e"
+dependencies = [
+ "base16ct",
+ "serde",
+]
+
+[[package]]
 name = "sha1"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -924,6 +983,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spki"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef958a98b9d5da290cfc78946e9f3e61e1e62a18db0d92cac0b83cc161491a9"
+dependencies = [
+ "base64ct",
+ "der",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -934,6 +1003,17 @@ name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -277,7 +277,7 @@ fn go_vs_rust() {
                 assert_eq!(addr, &a);
                 Ok((k.clone(), SignatureType::EcdsaSecp256k1, true))
             };
-            let mut sdb = |_: &Address| Err(dcroxide_txscript::sign::SignError(String::new()));
+            let mut sdb = |_: &Address| Err(dcroxide_txscript::sign::SignError::new(""));
             let s = dcroxide_txscript::sign::sign_tx_output(
                 &mainnet,
                 &tx,

@@ -859,3 +859,16 @@ message of dcr-purse's own until Decrediton's handling is read (ADR-0015
 Open point 2). The sync streams `RpcSync` and `SpvSync` send through the
 bridge with Go's back-pressure, as before. Nothing else in this record
 changes.
+
+## Addendum, 2026-11-20 — P-521 client certificates accepted
+
+The dcroxide pin moved to `2074168` on 2026-11-20 (`docs/SKEW.md`,
+2026-11-20 section). Its range holds dcroxide `6272357`, which verifies
+P-521 and SHA-512 ECDSA client certificates as Go does (dcroxide ADR-0015
+T4). Both spikes' `client_key_types` now expect a P-521 client certificate,
+CA-signed and self-signed in `clients.pem`, to be accepted over TLS 1.3
+and 1.2, and pass with `PURSE_REQUIRE_ORACLE=1` on an x86_64 Linux
+desktop. The P-521 entries of the two client-certificate rows above, and
+T4 in the list of items before Decrediton acceptance, describe the earlier
+revision. Nothing else in this record was re-examined for the move; the
+spikes' other tests pass unchanged.

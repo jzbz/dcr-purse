@@ -9,6 +9,8 @@
   value, fixed from measurements; items 13 to 22 are not yet established.
   The owner's decisions on the Phase 1 speed row and the first
   measurements' findings (2026-11-19) are the addendum at the end.
+  *Phase 1's speed row was measured again on 2026-11-20 at the dcroxide
+  pin `2074168`: the addendum of that date.*
 - **Date:** 2026-11-19
 
 ## Context
@@ -186,7 +188,7 @@ the user's own node (S14) the ratio is unknown.
 | R8 | Discovery's blocks kept for the rescan | M: 5,418 blocks | SHAPE | DO |
 | R9 | Discovery resumable; counters commit at the end (spec 09 §4.16.1) | on interruption | LOCAL | DO |
 | R10 | Block request duplicated to a second peer | tail only | SHAPE | REJECT (Open point 10) |
-| O1 | Secret generator multiplication via k256 tables (dcroxide-dcrec `secp256k1.rs:375`, `ecdsa.rs:538`, `schnorr.rs:223`) | M: 36.8 → 19.2 µs; E: signing 1.02–1.11x Go's time | LOCAL | per Open point 8 |
+| O1 | Secret generator multiplication via k256 tables (dcroxide-dcrec `secp256k1.rs:375`, `ecdsa.rs:538`, `schnorr.rs:223`) | M: 36.8 → 19.2 µs; E: signing 1.02–1.11x Go's time | LOCAL | per Open point 8; *done in dcroxide `5ace7a2`, in the pin since 2026-11-20: Phase 1's secret paths 0.84–0.86 of Go's time (addendum of 2026-11-20)* |
 | O3 | Public derivation: cached parent, batch inversion | E: ~15% | LOCAL | when profiled |
 | O4 | scrypt in parallel with store open and seeding | M: 0.74 of 2.7 s | LOCAL | DO |
 | O5 | Cheaper scrypt for new wallets | — | — | REJECT (Open point 11) |
@@ -244,6 +246,13 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   | 6, 8 | RPC-mode sync and rescan; open to RPC ready | — |
   | 7, 12 | p50/p99 per method, 1 and 8 clients (bounds on ADR-0008 Open point 4's measurement); secret paths ≤1.15× | — |
   | 10 | peak memory; zero bans, disconnects, dropped replies | sync from genesis at 20–150 ms (Open point 1) |
+
+  *2026-11-20: Phase 1's row measured again at the dcroxide pin
+  `2074168`; the secret paths meet it, base58 decoding is still at parity
+  (addendum of 2026-11-20). Signing two inputs through `purse-txauthor`
+  measured 0.86 of Go's time at the same pin, indicatively (best rounds,
+  not this item's method; bench ledger, "Signing at dcroxide `2074168`"),
+  against the 1.72× in Phase 4's row.*
 
   Phase 5 runs both sides on a mainnet-scale scripted backend; served from
   memory it gates local work, and the wire gains are gated at Phase 10.
@@ -347,7 +356,12 @@ Most valuable first.
 8. *O1 in dcroxide:* **Decided as recommended (project owner, 2026-11-19).** reverses dcroxide-dcrec's documented choice
    (`Cargo.toml:19-27`), adding `precomputed-tables` plus `std` (pulls
    `getrandom`) or `critical-section`. Recommended: propose under
-   ADR-0009, variant per dcroxide's dependency review.
+   ADR-0009, variant per dcroxide's dependency review. *Done
+   (2026-11-20): dcroxide `5ace7a2` adds the default feature
+   `precomputed-tables` with `primeorder/std`, taking neither `k256/std`
+   (it would enable `getrandom`) nor `critical-section`, and the pin moved
+   to `2074168`; Phase 1's secret paths measured 0.84 to 0.86 times Go's
+   time (addendum of 2026-11-20).*
 9. *S9 unsplit:* **Decided as recommended (project owner, 2026-11-19).** 16 parties see first transaction announcements
    (`spv/backend.go:469-474`, `spv/sync.go:716-728`) and part of the match
    set, for no established gain. Recommended: no.
@@ -382,12 +396,16 @@ it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
    precomputed tables (O1; Open point 8), and the row is then measured
    again. The secret paths measured 1.57 to 1.59 times Go's time against
    at most 1.15, about 90% of a hardened derivation being k256's
-   multiplication of the generator without those tables.
+   multiplication of the generator without those tables. *Measured
+   again on 2026-11-20 (addendum of that date): the secret paths meet the
+   row at 0.84 to 0.86; the clause stays open on base58 decoding (item 2).*
 2. **base58 decoding** measured at parity with Go (0.98 to 1.02 over ten
    sessions on a shared desktop). It is settled by a measurement on a
    dedicated machine first; only if that misses does it call for a
    dcroxide change (about half of Rust's time is dcroxide-crypto's
-   portable BLAKE-256).
+   portable BLAKE-256). *2026-11-20: 1.01 over three more sessions
+   (0.99 to 1.02 by session); still to be settled on a dedicated machine
+   (addendum of 2026-11-20).*
 3. **secretbox at about 3 times Go's time** (2.9 to 4.0; the `poly1305`
    crate's AVX2 backend calls its intrinsics out of line) is accepted for
    now. It was recommended that the RustCrypto project be told later;
@@ -407,3 +425,47 @@ it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
 
 dudect-style checks and a micro benchmark for dcroxide's secp256k1 are a
 follow-up in dcroxide (ADR-0006, addendum of 2026-11-19).
+
+## Addendum, 2026-11-20 — Phase 1's speed row at dcroxide `2074168`
+
+The dcroxide pin moved from `f4b3d2e` to `2074168` on 2026-11-20
+(`docs/SKEW.md`, 2026-11-20 section; ADR-0009, addendum of that date).
+The range includes dcroxide `5ace7a2`, which multiplies a secret scalar by
+the generator through k256's basepoint table (O1, Open point 8), so
+Phase 1's row was measured again, as item 1 of the addendum of 2026-11-19
+requires: the bench ledger's entry "The secret paths at dcroxide
+`2074168`" (2026-11-20), three sessions of the first entry's command on
+the same shared desktop, 15 processes per side, measured processes pinned
+to four cores, one-minute load average between 2.8 and 22.9.
+
+| clause | criterion | first entry (2026-11-19) | 2026-11-20 | verdict |
+|---|---|---|---|---|
+| master key | ≤ 1.15 | 1.59 | 0.86 | met |
+| hardened child | ≤ 1.15 | 1.58 | 0.84 | met |
+| private child | ≤ 1.15 | 1.57 | 0.85 | met |
+| public derivation | ≤ 1.00 | 0.55 | 0.54 | met |
+| address | ≤ 1.00 | 0.56 | 0.56 | met |
+| script | ≤ 1.00 | 0.55 | 0.55 | met |
+| HMAC-SHA512 | ≤ 1.00 | 0.86 | 0.83 | met |
+| hash160 | ≤ 1.00 | 0.84 | 0.81 | met |
+| base58check encode | ≤ 1.00 | 0.95 | 0.94 | met |
+| base58check decode | ≤ 1.00 | 0.98 (1.00 over ten sessions) | 1.01 (1.02, 1.01, 0.99 by session) | undecided, at parity |
+| 20,000 addresses | ≥ 1.5x faster | 1.80x | 1.80x | met |
+
+Figures are Rust's time over Go's (below 1, Rust is faster), the pooled
+medians of the entry. **The secret paths now meet the row**, as this
+record's measurement of O1 predicted. **The speed clause is not closed:**
+base58check decode, the one workload short of it, measured 1.01 against
+at most 1.00, missed in two of the three sessions by the driver's verdict;
+no base58 or BLAKE-256 code changed on either side since the first entry.
+Under item 2 of the addendum of 2026-11-19 it is settled by a measurement
+on a dedicated machine first, which is also to confirm the rest of the row
+(item 4, "Exit criteria"); no such machine has measured it yet.
+
+The CI gate's baselines for the three secret paths
+(`crates/purse-bench/gate-baseline.tsv`) are lowered to the entry's
+ratios (0.861, 0.837 and 0.853), so the gate now fails above about 1.7
+times Go's time on them instead of about 3.2; one local run of the gate's
+command passed with them. Not run on GitHub's runners.
+
+This addendum records a measurement; it decides nothing.

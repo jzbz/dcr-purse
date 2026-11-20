@@ -247,6 +247,15 @@ and 1.15 times Go's time on a rayon pool made for each derivation, and
 (the entry "Argon2id with parallel lanes" below), against 2.37 in this
 entry. The 1-lane workload is unchanged (0.96 to 0.97).
 
+**Note, 2026-11-20: the secret paths meet the criterion at dcroxide
+`2074168`.** The re-measurement ADR-0014's addendum of 2026-11-19 (item 1)
+asked for once the pin includes dcroxide `5ace7a2` (k256's basepoint table
+for the generator, ADR-0014 O1) is the entry "The secret paths at dcroxide
+`2074168`" below: master 0.86, hardened child 0.84 and private child 0.85
+times Go's time, against 1.59, 1.58 and 1.57 in this entry. base58
+decoding measured 1.01 there and stays undecided, so the speed clause is
+not closed (ADR-0014, addendum of 2026-11-20).
+
 ### The CI gate on an unpinned, loaded machine (2026-11-19)
 
 The CI gate (`purse-bench drive --gate crates/purse-bench/gate-baseline.tsv`,
@@ -333,6 +342,113 @@ which is unchanged.
 
 Raw: `kdf-c4-scoped/`, `kdf-c4-global/`, `kdf-c4-scoped-b/` and
 `kdf-c4-global-b/` (`run-1-rust.txt` to `run-5-go.txt`, `table.md`).
+
+### The secret paths at dcroxide `2074168` (2026-11-20)
+
+**Session.** Machine d1, shared and loaded (see below). dcr-purse
+`acd4bae` plus the uncommitted changes that move the dcroxide pin to
+`2074168` (`docs/SKEW.md`, 2026-11-20 section) and add this entry;
+dcroxide `2074168d`, whose `dcroxide-dcrec` multiplies a secret scalar by
+the generator through k256's basepoint table (dcroxide `5ace7a2`, its
+default feature `precomputed-tables`, which every dcr-purse crate leaves
+on; k256 0.14.0, primeorder 0.14.0). Go side at dcrwallet `54b85b33`,
+built with Go 1.27.4 (`go1.27.4-X:nodwarf5`) and the build tag `flint`,
+linking hdkeychain v3.1.3, dcrec/secp256k1 v4.4.1, txscript v4.1.2,
+base58 v1.0.6, x/crypto v0.57.0 and cspp v2.4.0, one binary for all three
+sessions; Rust 1.100.0, the workspace's release profile. Since the first
+entry, the code of the `hd.*` and `crypto.*` workloads changed on neither
+side except through the dcroxide pin (`5c6742f7` there); `purse-snacl`'s
+Argon2id gained its parallel lanes (the entry above), and the Go solver arm
+its root check, which runs outside the timed repetitions. Three sessions
+back to back, each the first entry's command, the second and third with
+the first session's Go side:
+
+```text
+cargo build --release -p purse-bench
+target/release/purse-bench drive --runs 5 --reps 5 --ms 200 \
+    --cpus 12-15 --go-tags flint --out <session directory>
+target/release/purse-bench drive --runs 5 --reps 5 --ms 200 \
+    --cpus 12-15 --go-bin <the first session's Go side> --out <session directory>
+```
+
+Five processes per side and session, alternating, 5 repetitions of about
+200 ms per calibrated workload; every measured process pinned with
+`taskset -c 12-15` as in the first entry (their SMT siblings not
+reserved), so GOMAXPROCS was 4 and Rust saw 4 threads. 2026-11-20,
+09:31:36 to 09:45:22 UTC. One-minute load average, from the driver's
+records at the start and end of every process: 22.9 at the start of the
+first session falling to 3.8 at its end; 2.8 to 10.7 in the second; 6.7 to
+16.1 in the third (other jobs on the machine). Four processes stand out on
+the secret paths: Rust's fourth process of the second session and Go's
+first, fourth and fifth of the third (`hd.hardened_child` 31.0 µs for that
+Rust process, 51.7, 28.5 and 30.2 µs for those Go processes); they are the
+high ends of the ranges below and lower the third session's ratios. All
+21 cross-checked outputs were equal in all thirty processes.
+
+The table pools the three sessions: per side, the median of the fifteen
+processes' medians and their range; the column "by session" gives each
+session's own ratio, in session order.
+
+| workload | Go median (range), 15 processes | Rust median (range), 15 processes | Rust/Go | by session | Phase 1 criterion | verdict |
+|---|---|---|---|---|---|---|
+| hd.master | 23.05 µs (22.75–47.71 µs) | 19.84 µs (19.55–29.90 µs) | 0.86 | 0.86, 0.85, 0.79 | secret path ≤ 1.15 | met |
+| hd.hardened_child | 24.16 µs (23.41–51.72 µs) | 20.24 µs (19.75–30.96 µs) | 0.84 | 0.85, 0.83, 0.75 | secret path ≤ 1.15 | met |
+| hd.priv_child | 23.88 µs (23.46–49.20 µs) | 20.37 µs (19.73–31.68 µs) | 0.85 | 0.86, 0.87, 0.79 | secret path ≤ 1.15 | met |
+| hd.pub_child | 38.48 µs (37.46–83.30 µs) | 20.94 µs (20.59–38.02 µs) | 0.54 | 0.56, 0.54, 0.50 | public derivation ≤ 1.00 | met |
+| hd.address | 39.24 µs (38.43–46.65 µs) | 21.85 µs (21.67–38.98 µs) | 0.56 | 0.56, 0.55, 0.54 | address ≤ 1.00 | met |
+| hd.script | 38.62 µs (37.82–42.31 µs) | 21.09 µs (20.78–36.53 µs) | 0.55 | 0.55, 0.54, 0.55 | script ≤ 1.00 | met |
+| hd.addr20k | 790.30 ms (774.32–868.33 ms) | 438.20 ms (432.48–731.71 ms) | 0.55 | 0.56, 0.56, 0.55 | 20,000 addresses ≥ 1.5x faster | met (1.80x) |
+| hd.xpub_string | 4.81 µs (4.74–5.51 µs) | 4.56 µs (4.51–5.82 µs) | 0.95 | 0.94, 1.00, 0.93 | — | — |
+| hd.parse_xpub | 7.88 µs (7.71–9.01 µs) | 3.97 µs (3.92–5.01 µs) | 0.50 | 0.50, 0.53, 0.49 | — | — |
+| crypto.hmac_sha512 | 844 ns (801 ns–1.19 µs) | 702 ns (685 ns–1.42 µs) | 0.83 | 0.83, 0.88, 0.81 | HMAC ≤ 1.00 | met |
+| crypto.hash160 | 344 ns (330–405 ns) | 278 ns (274–447 ns) | 0.81 | 0.81, 0.83, 0.79 | hash160 ≤ 1.00 | met |
+| crypto.base58check_encode | 722 ns (699–820 ns) | 678 ns (668–755 ns) | 0.94 | 0.96, 0.95, 0.91 | base58 ≤ 1.00 | met |
+| crypto.base58check_decode | 365 ns (358–432 ns) | 369 ns (360–390 ns) | 1.01 | 1.02, 1.01, 0.99 | base58 ≤ 1.00 | **undecided** (at parity) |
+| snacl.derive | 23.84 ms (23.12–25.60 ms) | 15.52 ms (14.46–16.65 ms) | 0.65 | 0.65, 0.66, 0.61 | — | — |
+| snacl.seal_32 | 282 ns (277–314 ns) | 875 ns (868–922 ns) | 3.10 | 3.08, 3.13, 3.02 | — | — |
+| snacl.open_32 | 214 ns (208–244 ns) | 849 ns (836 ns–1.02 µs) | 3.97 | 3.99, 4.03, 3.95 | — | — |
+| snacl.seal_111 | 460 ns (454–524 ns) | 1.35 µs (1.32–1.59 µs) | 2.95 | 2.97, 2.86, 2.83 | — | — |
+| snacl.open_111 | 395 ns (386–440 ns) | 1.32 µs (1.28–1.96 µs) | 3.34 | 3.33, 3.31, 3.35 | — | — |
+| kdf.argon2id_t1 | 112.69 ms (110.18–117.05 ms) | 108.36 ms (105.12–367.47 ms) | 0.96 | 0.98, 0.97, 0.93 | — | — |
+| kdf.argon2id_t4 | 41.83 ms (39.37–47.28 ms) | 51.19 ms (45.79–143.85 ms) | 1.22 | 1.22, 1.24, 1.17 | — | — |
+| dcrutil.amount_string | 70 ns (69–89 ns) | 152 ns (145–258 ns) | 2.16 | 2.20, 2.07, 2.17 | — | — |
+| mix.roots_20 | 5.62 ms (5.42–6.10 ms) | 685.63 µs (671.10 µs–1.03 ms) | 0.12 | 0.12, 0.12, 0.13 | — | — |
+| mix.roots_64 | 29.16 ms (28.48–31.90 ms) | 4.88 ms (4.78–7.37 ms) | 0.17 | 0.17, 0.17, 0.17 | — | — |
+| mix.roots_512 | 459.75 ms (449.06–705.43 ms) | 223.00 ms (217.97–322.14 ms) | 0.49 | 0.48, 0.47, 0.49 | — | — |
+
+**Phase 1's row.** **The secret paths meet it**: master 0.86, hardened
+child 0.84 and private child 0.85 times Go's time, against at most 1.15
+(1.59, 1.58 and 1.57 in the first entry); Rust's time fell from about
+36 µs to about 20 µs per derivation, while Go's medians were 22.5 to
+22.9 µs then and 23.1 to 24.2 µs now, as ADR-0014's measurement of O1
+predicted (near 0.85). The other met
+clauses are met again, within a few hundredths of the first entry:
+public derivation 0.54, address 0.56, script 0.55, HMAC 0.83, hash160
+0.81, base58 encode 0.94, and 20,000 addresses 1.80 times faster.
+**base58 decode is still at parity, not met**: 1.01 pooled, 1.02, 1.01
+and 0.99 by session, so the driver's verdict was "missed" in two of the
+three sessions, as in the first entry's dated note (no base58 or
+BLAKE-256 code changed on either side). The row is therefore not met as a
+whole: the one workload short of it is `crypto.base58check_decode`, 1.01
+against at most 1.00. ADR-0014's addendum of 2026-11-19 (item 2) settles
+it by a measurement on a dedicated machine.
+
+Outside the criteria, nothing moved beyond the noise of a shared machine
+except `kdf.argon2id_t4`, at 1.22 here against 1.13 to 1.18 in the
+Argon2id entry above, which was measured at a load average near 1; its
+Rust range (to 143.85 ms) shows the load, and it was not investigated
+further. secretbox stays at 2.95 to 3.97 times Go's time and `Amount`'s
+string form at 2.16, both accepted for now (ADR-0014, addendum of
+2026-11-19, items 3 and 4).
+
+**What this entry does not show.** A dedicated machine's figures (the
+verdicts above are from a shared, loaded desktop and are to be confirmed
+on one, ADR-0014 section 4); a profile of the new secret paths (not
+taken); other processors and ARM; more than 4 threads.
+
+Raw: `s1/`, `s2/`, `s3/` (`run-1-rust.txt` to `run-5-go.txt` with the
+driver's start and end notes and load averages, `table.md`), and the
+pooling script's output `pooled.txt`.
 
 ## purse-store
 
@@ -552,3 +668,42 @@ took 21.73 ns.
 processes, a pinned or idle machine, other processors.
 
 Raw: `bench-txrules.log`, `bench-txauthor.log`.
+
+### Signing at dcroxide `2074168` (2026-11-20)
+
+**Session.** Machine d1, shared (one-minute load average 8.9 at the start,
+8.0 at the end). dcr-purse `acd4bae` plus the uncommitted changes that
+move the dcroxide pin to `2074168` (which includes dcroxide `5ace7a2`:
+ECDSA's nonce point and the public key are now multiplied through k256's
+basepoint table) and add this entry; Go side at dcrwallet `54b85b33`, the
+oracle `tools/oracle/cmd/txauthor` built with Go 1.27.4
+(`go1.27.4-X:nodwarf5`) without tags; Rust 1.100.0, the release profile.
+The first entry's purse-txauthor command, its test binary run three times
+back to back under `taskset -c 12-15` (the Go oracle it starts inherits
+the pinning), 09:46:33 to 09:46:51 UTC, default budget of 300 ms per entry
+point and side. The section's caveat holds: each run reports each side's
+best round, so the table gives the median and range of three best-round
+figures, one process per side per run, not alternating; indicative only.
+
+| entry point | Go ns, median (range) | Rust ns, median (range) | Go/Rust |
+|---|---:|---:|---:|
+| NewUnsignedTransaction (2 P2PKH out, 5 UTXOs, change) | 437.39 (418.78–478.07) | 234.02 (231.35–235.31) | 1.87 |
+| RandomizeOutputPosition (3 outputs) | 56.97 (56.49–57.54) | 23.29 (23.26–23.46) | 2.45 |
+| AddAllInputScripts (2 P2PKH inputs) | 100,027.58 (98,335.28–102,056.56) | 86,269.22 (86,215.78–86,790.31) | 1.16 |
+
+Signing two inputs went from 0.63 (first entry, unpinned) to 1.16 by
+Go/Rust, that is, Rust's time 0.86 of Go's. dcroxide's `sign_tx_output`
+called directly took 86,263.98 ns (86,120.31–88,015.93) for the two
+inputs, of which 18,637.25 ns per input deriving the public key and
+23,639.68 ns per ECDSA signature (34,554.03 and 39,343.85 ns in the first
+entry). `randomize_output_position_with` on an owned `Prng` (now
+`dcroxide_crypto::rand::Prng`, the crate's own random source being gone)
+took 21.58 ns (21.53–21.65). No Phase exit holds these figures yet
+(ADR-0014's Phase 4 row bounds signing at 1.15 times Go's time, end to
+end through `createtx`).
+
+**What this entry does not show.** Medians over alternating processes, an
+idle machine, other processors, signing end to end.
+
+Raw: `txauthor-1.log` to `txauthor-3.log` (with start and end load
+averages).

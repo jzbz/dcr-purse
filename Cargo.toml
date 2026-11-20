@@ -16,15 +16,15 @@ repository = "https://github.com/jzbz/dcr-purse"
 # Decred primitives come from dcroxide at one pinned revision (brief, D3).
 # Every dcroxide crate names the same `rev`; move them together.
 [workspace.dependencies]
-dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-standalone = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-standalone = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
 
 purse-dcrutil = { path = "crates/purse-dcrutil" }
 purse-errors = { path = "crates/purse-errors" }

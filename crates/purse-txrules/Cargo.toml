@@ -17,11 +17,11 @@ dcroxide-chaincfg.workspace = true
 # formula starts from (dcrd blockchain/standalone v2.3.0, values unchanged
 # at dcroxide's pin; docs/SKEW.md).
 dcroxide-standalone.workspace = true
-# is_unspendable, is_null_data_script_v0 and ScriptType for the dust rule
-# and the stake sub-type mapping.  `std` is required: at the pinned rev the
-# crate does not build without it (stdaddr.rs calls f64::log2, which
-# core lacks); it also turns on the signature cache, unused here.
-dcroxide-txscript = { workspace = true, features = ["std"] }
+# is_unspendable, is_null_data_script and ScriptType for the dust rule
+# and the stake sub-type mapping.  Without `std`, which turns on only the
+# signature cache, unused here; the crate builds without it since dcroxide
+# 69dfe8d.
+dcroxide-txscript.workspace = true
 # TxOut and MsgTx with dcrd's SerializeSize, and VarIntSerializeSize.
 dcroxide-wire.workspace = true
 # The VSP fee's arbitrary-precision quotient when the operands leave the

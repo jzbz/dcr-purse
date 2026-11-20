@@ -433,30 +433,40 @@ fn go_dust_panic(case: &Value, atx: &AuthoredTx, source: &ScriptedSource) -> Opt
 // randomize.
 // ---------------------------------------------------------------------
 
-/// A [`Prng`] that counts the bytes drawn.
-pub struct Counted(pub Prng, pub u64);
-
-impl RandomSource for Counted {
-    fn uint64(&mut self) -> u64 {
-        self.1 += 8;
-        self.0.uint64()
+/// The bytes `rng`, keyed with `key`, has drawn: its next two 64-bit draws
+/// located in the stream a fresh generator keyed alike yields.
+///
+/// dcroxide's [`Prng`] does not say how far it has read, and the
+/// randomization draws only whole 64-bit words, so the generator stands at
+/// a multiple of eight bytes, and 128 bits of its stream place it. The
+/// probe moves `rng` on; callers replay the calls on a fresh generator for
+/// each measurement.
+pub fn bytes_drawn(key: [u8; 32], rng: &mut Prng) -> u64 {
+    let probe = [rng.uint64(), rng.uint64()];
+    let mut fresh = Prng::from_seed(key);
+    let mut window = [fresh.uint64(), fresh.uint64()];
+    for words in 0..1u64 << 16 {
+        if window == probe {
+            return words * 8;
+        }
+        window = [window[1], fresh.uint64()];
     }
+    panic!("the generator is more than 512 KiB into its stream");
 }
 
-pub fn randomize_answer(case: &Value) -> Value {
-    let key: [u8; 32] = unhex(case["key"].as_str().expect("key"))
-        .try_into()
-        .expect("32-byte key");
-    let n = case["n"].as_u64().expect("n") as usize;
-    let mut rng = Counted(Prng::from_seed(key), 0);
+/// Makes the calls of a randomize case on outputs valued `0..n`, drawing
+/// from a generator keyed with `key`; the answer to the last call (its
+/// position or Go's panic), the outputs and the generator after it.
+fn randomize_calls(key: [u8; 32], n: usize, calls: &[Value]) -> (Value, Vec<TxOut>, Prng) {
+    let mut rng = Prng::from_seed(key);
     let mut outs: Vec<TxOut> = (0..n)
         .map(|i| TxOut {
             value: i as i64,
             ..TxOut::default()
         })
         .collect();
-    let mut results = Vec::new();
-    for call in case["calls"].as_array().expect("calls") {
+    let mut last = Value::Null;
+    for call in calls {
         let index = int(&call[0]);
         let change = call[1].as_bool().expect("change");
         let len = outs.len();
@@ -483,7 +493,7 @@ pub fn randomize_answer(case: &Value) -> Value {
         } else {
             randomize_output_position_with(&mut outs, index, &mut rng)
         };
-        let mut r = match got {
+        last = match got {
             Ok(i) => json!({ "index": i }),
             Err(e) => {
                 assert!(e.is_kind(Kind::Invalid), "{e}");
@@ -494,10 +504,27 @@ pub fn randomize_answer(case: &Value) -> Value {
                 }
             }
         };
-        r["drawn"] = json!(rng.1);
-        r["order"] = json!(outs.iter().map(|o| o.value).collect::<Vec<_>>());
-        results.push(r);
     }
+    (last, outs, rng)
+}
+
+pub fn randomize_answer(case: &Value) -> Value {
+    let key: [u8; 32] = unhex(case["key"].as_str().expect("key"))
+        .try_into()
+        .expect("32-byte key");
+    let n = case["n"].as_u64().expect("n") as usize;
+    let calls = case["calls"].as_array().expect("calls");
+    // Each call's answer comes from a replay of the calls up to it, so that
+    // the generator can be probed for the bytes drawn without moving the
+    // stream the later calls draw from.
+    let results: Vec<Value> = (1..=calls.len())
+        .map(|upto| {
+            let (mut r, outs, mut rng) = randomize_calls(key, n, &calls[..upto]);
+            r["drawn"] = json!(bytes_drawn(key, &mut rng));
+            r["order"] = json!(outs.iter().map(|o| o.value).collect::<Vec<_>>());
+            r
+        })
+        .collect();
     json!({ "results": results })
 }
 

@@ -8,7 +8,7 @@
 //! `wallet/txrules/rules.go`, spec 10 §4.2 and §4.3).
 
 use dcroxide_txscript::is_unspendable;
-use dcroxide_txscript::stdscript::{ScriptType, is_null_data_script_v0};
+use dcroxide_txscript::stdscript::{ScriptType, is_null_data_script};
 use dcroxide_wire::{MsgTx, TxOut};
 use purse_dcrutil::{Amount, MAX_AMOUNT};
 use purse_errors::{Error, Kind, e, errorf};
@@ -73,13 +73,6 @@ pub fn is_dust_amount(amount: Amount, script_size: i64, relay_fee_per_kb: Amount
     )]
     let quotient = amount.0.wrapping_mul(1000).wrapping_div(divisor);
     quotient < relay_fee_per_kb.0
-}
-
-/// `stdscript.IsNullDataScript(version, script)`: only version 0 scripts
-/// are null data. dcroxide ports the version 0 test alone.
-#[inline]
-fn is_null_data_script(version: u16, script: &[u8]) -> bool {
-    version == 0 && is_null_data_script_v0(script)
 }
 
 /// Whether `output` is dust at `relay_fee_per_kb` (Go `IsDustOutput`):

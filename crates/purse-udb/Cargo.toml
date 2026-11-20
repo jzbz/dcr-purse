@@ -17,9 +17,8 @@ dcroxide-chaincfg.workspace = true
 dcroxide-wire.workspace = true
 # Addresses: dcrd's `stdaddr` (the managed addresses' P2PKH and P2SH
 # addresses, `normalizeAddress`, `addressID`) and `dcrutil.Hash160`.
-# `std`, as the workspace's other crates build it: without it the crate
-# does not compile at the pinned revision (its float `log2` needs std).
-dcroxide-txscript = { workspace = true, features = ["std"] }
+# Without `std`, which adds only the signature cache, unused here.
+dcroxide-txscript.workspace = true
 # dcrd's `secp256k1.PrivKeyFromBytes` for `Manager.PrivateKey`: the stored
 # (possibly stripped) or imported key bytes reduced modulo the group order.
 dcroxide-dcrec.workspace = true

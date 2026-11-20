@@ -16,11 +16,11 @@ purse-hdkeychain = { path = "../purse-hdkeychain" }
 purse-mixsolver = { path = "../purse-mixsolver" }
 purse-snacl = { path = "../purse-snacl" }
 # The address and script encoding dcr-purse uses (stdaddr) and mainnet's
-# parameters, at the dcroxide pin. dcroxide-txscript does not build without
-# `std` at the pin (f64::log2 in its stake-script code).
+# parameters, at the dcroxide pin; dcroxide-txscript without `std`, which
+# adds only the signature cache.
 dcroxide-base58.workspace = true
 dcroxide-chaincfg.workspace = true
-dcroxide-txscript = { workspace = true, features = ["std"] }
+dcroxide-txscript.workspace = true
 # HMAC-SHA512 on its own, the same releases purse-hdkeychain derives with;
 # SHA-256 for the digests the two sides cross-check.
 hmac = { version = "0.13", default-features = false }

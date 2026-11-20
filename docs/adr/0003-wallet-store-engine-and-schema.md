@@ -799,7 +799,11 @@ to allow it is Open point 4.
   landed at `f4b3d2e` and the pin moved to it, so the redb majors match;
   the stake gate has not landed, so a wallet crate linking `dcroxide-stake`
   links `dcroxide-database` until it does (ADR-0006 addendum). The rig went
-  into `purse-store`'s own tests (`tests/support/powerloss.rs`).*
+  into `purse-store`'s own tests (`tests/support/powerloss.rs`).* *Since
+  2026-11-20: the gate landed at dcroxide `80423a0` and the pin moved to
+  `2074168`; a wallet crate takes `dcroxide-stake` with
+  `default-features = false` and links neither `dcroxide-database` nor redb
+  through it (ADR-0006, rule 5's note of that date).*
 - The spike's oracle command imports `blockchain/stake/v5`, `txscript/v4`
   and `gcs/v4`, which `tools/oracle/go.mod` lists as indirect; a future
   `go mod tidy` would mark them direct.
@@ -1121,7 +1125,8 @@ pointers added to it.
    `purse-txauthor`) come before its PARITY row moves to pinned.
 10. **`dcroxide-stake`'s storage gate** is scheduled to land in dcroxide,
     and the pin to reach it, before Phase 3 (ADR-0006 rule 5; the addendum
-    to ADR-0006 of 2026-11-19 on the owner's scheduling).
+    to ADR-0006 of 2026-11-19 on the owner's scheduling). *Landed at
+    dcroxide `80423a0`; the pin reached it at `2074168` on 2026-11-20.*
 
 ## Addendum, 2026-11-19 — Chain tables keyed by height, as built
 

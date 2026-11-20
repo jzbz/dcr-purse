@@ -19,10 +19,10 @@ license = "ISC"
 redb = "=5.0.0"
 # Transactions and block headers in Decred's wire format, so the generated
 # history hashes exactly as dcrwallet hashes it.
-dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
-dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
 # BLAKE-256 and RIPEMD-160 for HASH160 of derived public keys.
-dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
 # Address derivation, so the generated scripts pay to the addresses the Go
 # address manager derives from the same seed.
 purse-hdkeychain = { path = "../../crates/purse-hdkeychain" }

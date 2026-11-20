@@ -12,8 +12,8 @@ repository.workspace = true
 # The network parameters a SecretsSource reports, from which the signing
 # loop takes the address prefixes it classifies previous scripts with.
 dcroxide-chaincfg.workspace = true
-# dcrd's crypto/rand: the process-wide generator RandomizeOutputPosition
-# draws from (GlobalRandom) and the Prng a caller may inject.  The `rand`
+# dcrd's crypto/rand: Int32N on the process-wide generator
+# RandomizeOutputPosition draws from and on the Prng a caller may pass.  The `rand`
 # feature adds no crate to the graph: chacha20 0.10 and getrandom 0.4 are
 # already in it.
 dcroxide-crypto = { workspace = true, features = ["rand"] }
@@ -24,9 +24,9 @@ dcroxide-crypto = { workspace = true, features = ["rand"] }
 # their keys with it.
 dcroxide-dcrec.workspace = true
 # sign_tx_output, the KeyDb/ScriptDb traits it calls, stdaddr::Address,
-# the script classification and MAX_SCRIPT_ELEMENT_SIZE.  `std` is
-# required at the pinned rev (see purse-txrules' manifest).
-dcroxide-txscript = { workspace = true, features = ["std"] }
+# the script classification and MAX_SCRIPT_ELEMENT_SIZE.  Without `std`,
+# which adds only the signature cache (see purse-txrules' manifest).
+dcroxide-txscript.workspace = true
 # MsgTx, TxIn and TxOut.
 dcroxide-wire.workspace = true
 # Amount.

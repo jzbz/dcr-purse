@@ -29,9 +29,9 @@ brief writes "address manager at v3.0.0 semantics (D7)", §6) and Phase 11
 directly and four more indirectly (dcrwallet `go.mod:7-28`, `:50-53`),
 with no `replace` (spec 23 §5.4.2 item 1). dcr-purse consumes dcroxide as
 git dependencies at one revision since the first crates (`3237b79`); the
-revision was `5c6742f` from `b40513c` and is `f4b3d2e` since the pin
-move of 2026-11-19 (`Cargo.toml`, `[workspace.dependencies]`; addendum
-below). Its dcrd pin is master `46e9df48` (dcroxide
+revision was `5c6742f` from `b40513c`, `f4b3d2e` from the pin move of
+2026-11-19, and is `2074168` since the pin move of 2026-11-20
+(`Cargo.toml`, `[workspace.dependencies]`; addenda below). Its dcrd pin is master `46e9df48` (dcroxide
 `docs/PARITY.md:3-4`). dcroxide moves that pin at upstream milestones and
 on its owner's word, and each move brings frozen batteries due (dcroxide
 `docs/PARITY.md:5-7`; dcroxide `docs/adr/README.md`, ADR-0001 entry). An
@@ -315,3 +315,23 @@ The constraint under Consequences, that linking `dcroxide-stake` or
 `dcroxide-gcs` puts redb 4 and 5 in one graph, no longer holds: dcroxide
 now resolves redb 5. The `dcroxide-stake` storage gate has not landed, so
 linking either crate still links `dcroxide-database` (ADR-0006 rule 5).
+
+## Addendum, 2026-11-20 — pin moved to dcroxide `2074168`
+
+The pin moved from `f4b3d2e` to `2074168`, eleven dcroxide commits, five
+of which touch a crate dcr-purse builds: `5ace7a2` and `8f2b246`
+(`dcroxide-dcrec`: secret generator multiplication through k256's
+basepoint table, and test-only timing checks), `69dfe8d`
+(`dcroxide-crypto`'s integer draws, among them `Int32N`; and in
+`dcroxide-txscript` the versioned `is_null_data_script`, the opaque
+`SignError` and errors where dcrd's `SignTxOutput` panics or recurses
+without end), `6272357` (`dcroxide-tlscrypto`, linked by the gRPC spikes
+only) and `2074168` (tests). These are changes in dcroxide's own code, not
+in the dcrd revision it ports: dcroxide's dcrd pin and reference Go are
+unchanged, so no ledger row's delta moved. `docs/SKEW.md` records the move
+in its 2026-11-20 section and amends the `crypto/rand`, `stake`, `gcs`
+and `database` rows. The `dcroxide-stake` storage gate landed in the same
+range (`80423a0`): taken without default features, as `dcroxide-gcs`
+takes it, `dcroxide-stake` links neither `dcroxide-database` nor redb, so
+the last sentence of the addendum of 2026-11-19 no longer holds (ADR-0006
+rule 5).

@@ -133,3 +133,31 @@ the owner decided, as recommended:
 
 Other decisions of the same day about dcroxide's own work are dcroxide's
 to record.
+
+## Addendum, 2026-11-20 — Decisions of the project owner: the address manager before the gate, and the change-position draw
+
+On 2026-11-20 the project owner made two decisions about the schedule and
+use of dcroxide items. The text above stays as written, apart from the
+dated notes added to it.
+
+1. **The address manager slice came before the gate.** Item 1 of the
+   addendum "Items the owner scheduled" has `dcroxide-stake`'s storage
+   gate land, and the pin reach it, before Phase 3 starts, and ADR-0003's
+   addendum of 2026-11-19 (item 10) says the same. The owner accepted the
+   address manager slice of Phase 3, `purse-udb` (commit `94afd6e`), ahead
+   of the pin reaching the gate: an exception to that schedule. The slice
+   links neither `dcroxide-stake` nor `dcroxide-gcs`, so it needed neither
+   the gate nor rule 5's fallback. The pin move of the same day, to
+   dcroxide `2074168`, puts the pin on the gate (the dated notes in rule 5
+   and in the addendum on redb 5), so the part of Phase 3 that links them,
+   `purse-udb`'s transaction store, starts with the gate in the pin.
+2. **`purse-txauthor` draws through dcroxide's generator.** Now that
+   `dcroxide_crypto::rand` has dcrd's bounded draws (`Int32N` and the
+   rest, item 3 of that addendum, landed in dcroxide `69dfe8d`), the
+   crate's injectable `RandomSource` and its own `Uint32N` are replaced by
+   dcroxide's generator: process-wide for `randomize_output_position`,
+   and a caller's `Prng` for the `_with` forms that tests seed. This was
+   done in the same pin move (`docs/SKEW.md`, 2026-11-20 section;
+   `docs/PARITY.md`, `purse-txauthor`), as rule 4 deletes a wallet-side
+   copy in the first move that carries dcroxide's version. The oracle
+   differentials and the frozen vectors are unchanged.

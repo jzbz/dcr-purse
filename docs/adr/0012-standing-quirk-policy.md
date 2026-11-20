@@ -14,6 +14,10 @@
   to the owner. QK-0279 is now an instance of the rule, not an exception.
   See "Addendum, 2026-11-19 — Decision by the project owner: Rule 7" at
   the end.
+- **Settled, 2026-11-20 (project owner):** a fix under Rule 7's default
+  is not a security-relevant candidate under ADR-0017, and the first half
+  of QK-0035 is reproduced, not a Rule 7 case. See "Addendum, 2026-11-20"
+  at the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -479,6 +483,41 @@ ADR index.
   clause (c), which admits "a Rule 6 or Rule 7 divergence" and describes
   the funds case as funds "lost as W1 defines it". Such a fix is a
   candidate under "Relation to D13"; no entry has been added to ADR-0017's
-  S-list for it.
+  S-list for it. *Decided 2026-11-20 (project owner): it is not; see the
+  addendum of that date.*
 - Whether brief §3 W1 itself should cover these funds; the decision
   amends this policy only.
+
+## Addendum, 2026-11-20 — Decisions of the project owner: Rule 7 fixes and D13, and QK-0035
+
+On 2026-11-20 the project owner settled two points about Rule 7. The text
+above stays as written, apart from the dated pointers added to it.
+
+1. **A fix under Rule 7's default is not a security-relevant candidate.**
+   The first point the addendum of 2026-11-19 left to the owner ("Not
+   settled") is decided: a defect that leaves funds unavailable until a
+   restart or a manual unlock, fixed by default under Rule 7's second half,
+   does not fall under ADR-0017's clause (c). It needs no attacker and
+   affects only the wallet's own funds. So the test showing Go's behaviour
+   that the procedure's item 2 asks of each such fix stays in the
+   repository, and the rule keeping reproducers out of it (the addendum of
+   2026-11-19 on the route of upstream reports, item 2) does not reach it.
+   Such a fix is still a Rule 7 divergence, and so a candidate under the
+   first clause of "Relation to D13", passed on by the owner like the
+   other defects; no entry is added to ADR-0017's S-list (ADR-0017,
+   addendum of 2026-11-20, item 2). The second point left open, whether
+   brief §3 W1 itself should cover these funds, is not decided.
+2. **QK-0035, first half: reproduced (Rule 1), not a Rule 7 case.** An
+   `Unlock` with a wrong passphrase on an unlocked wallet locks it, as
+   dcrwallet documents (`wallet/udb/addressmanager.go:1510-1516`) and
+   tests (`wallet/locking_test.go:61-85`, `testLockOnBadPassphrase`). The
+   owner ruled it dcrwallet's intended behaviour, not a defect, so Rule
+   7's second half does not apply to it and it is reproduced, as
+   `purse-udb` already does. Its disposition was "pending owner" under
+   Rule 11; QUIRKS.md and PARITY.md now record the ruling. The entry's
+   second half (accounts with their own passphrase locked by the wallet
+   lock) is unaffected: it waits for per-account passphrases.
+
+**Places amended with this addendum:** the Status line and "Not settled"
+above, by dated pointers; `docs/QUIRKS.md` (QK-0035); `docs/PARITY.md`
+(`purse-udb`); ADR-0017 (its addendum of the same date); the ADR index.

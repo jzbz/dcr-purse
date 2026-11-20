@@ -389,6 +389,8 @@ apart from the dated pointers added to it.
 **Not settled by the owner's words, and the owner's to decide:** the
 shape of the value under the new `dcr-purse` key (proposed: the same
 fields as under `dcrwallet`), fixed when Phase 7 builds the reply.
+*Decided (project owner, 2026-11-20): the shape is decided in Phase 7,
+when the JSON-RPC server is written.*
 
 ## Appendix A — Void text, as accepted on 2026-11-18
 

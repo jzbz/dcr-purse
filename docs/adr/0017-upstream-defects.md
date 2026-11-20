@@ -9,6 +9,11 @@
   before "What was not tested". The proposed route is kept as the record.
   Nothing has been reported to any upstream project by this work; the
   record gives the substance of each report for the owner to use or not.
+- **Amended, 2026-11-20 (project owner):** the repository is public,
+  which supersedes the statements below that it is and stays private
+  (Open point 5 among them); the rest of the reporting route stands. A fix
+  made under ADR-0012 Rule 7's default is not a security-relevant
+  candidate. See "Addendum, 2026-11-20" at the end.
 - **Date:** 2026-11-19
 
 ## Context
@@ -49,7 +54,9 @@ public issue tracker.
 its `origin/master` holds `docs/QUIRKS.md`. QUIRKS.md, the specs and the
 brief describe several of the security-relevant candidates below in enough
 detail to act on (QK-0227 and spec 09 Q-7 most of all). Publishing the
-repository, or any of those files, is disclosure.
+repository, or any of those files, is disclosure. *The repository is
+public since 2026-11-20 (project owner); this paragraph records its state
+on 2026-11-19 (addendum of 2026-11-20, item 1).*
 
 **What was examined.** All 737 QUIRKS.md entries; the specs' open
 questions that name an upstream report (spec 09 §12 item 1, Q-7); the
@@ -108,7 +115,8 @@ candidate is read from the source only.
   ADR-0012 Rule 7 also fixes by default funds left unavailable until a
   restart or a manual unlock; whether such a fix falls under (c) is the
   owner's to decide, and none has been added to the S-list: ADR-0012,
-  addendum of that date)*
+  addendum of that date)* *(decided 2026-11-20 by the owner: it does not;
+  addendum of 2026-11-20, item 2)*
   (d) a participant in a mixing session can deny mixing to honest peers,
   by getting them blamed or excluded (S10, S12). The mixing protocol
   exists so that unauthenticated participants cannot do this; it is
@@ -567,6 +575,8 @@ fixed behaviour before the pin carries it.
    anything published, until each candidate is fixed in an upstream
    release or the bounty program agrees to disclosure. The passages are in
    the repository's history, so publishing the history publishes them.
+   *Superseded as to the repository on 2026-11-20: the owner made it
+   public (addendum of that date, item 1).*
 5. **Tracking.** A reported entry gets a dated "Upstream:" line in
    QUIRKS.md: the channel and date (for a private report nothing more),
    later the fixing commit and release. Changes to the list are addenda to
@@ -598,7 +608,8 @@ fixed behaviour before the pin carries it.
   network-level reproduction of S1; the "Upstream:" lines; QK-0738 and
   QK-0739, recorded with this record; addenda as reports progress.
 - **The repository's publication waits** on the security list, unless the
-  passages are kept out of what is published.
+  passages are kept out of what is published. *Superseded on 2026-11-20:
+  the owner made the repository public (addendum of that date, item 1).*
 - **Divergences to decide** for S2 to S5, S8, S9, S11, S13 to S16 under
   Rule 11, each a PARITY.md line when built (Phases 3, 5, 7, 8, 10, 11,
   12).
@@ -672,7 +683,8 @@ them.
 5. *Publishing the repository.* **Decided as recommended (project owner, 2026-11-19).** Recommended: keep it private until the
    S-list is fixed upstream or cleared for disclosure. Alternative:
    publish with the S-list passages removed from the published tree, which
-   needs care because history holds them.
+   needs care because history holds them. *Superseded on 2026-11-20: the
+   owner made the repository public (addendum of that date, item 1).*
 6. *dcr-purse dispositions for the Rule 11 cases.* **Decided as recommended (project owner, 2026-11-19).**
    Recommended: as the
    "dcr-purse" column says, each decided when its phase builds the code
@@ -703,7 +715,9 @@ them.
    a Rule 7 divergence; its place on this list and its severity are
    unchanged unless the owner rules that clause (c) covers that class
    (definition (c) above; ADR-0012 addendum, "Not settled"), and its
-   delivery by the owner is unchanged.*
+   delivery by the owner is unchanged.* *The owner ruled on 2026-11-20
+   that clause (c) does not cover that class, so its place and severity
+   stay as they are (addendum of that date, item 2).*
 
 ## Decision by the project owner (2026-11-19)
 
@@ -729,7 +743,9 @@ In their place:
   reproducers out of anything public. The reproducers of security-relevant
   candidates stay out of this repository until upstream has released a
   fix (Decision item 2 and Open point 3, as recommended; afterwards one
-  may become an oracle test).
+  may become an oracle test). *Since 2026-11-20 the repository, which
+  holds this record and the QUIRKS entries it cites, is public; the rule
+  on reproducers stands (addendum of that date, item 1).*
 - Not settled by the owner's words, and the owner's to decide: whether a
   write-up must first be reproduced on dcrwallet's current master and
   latest release (Decision item 2's precondition, which followed the
@@ -754,7 +770,8 @@ In their place:
 4. *Item 4* stands, except that no bounty program agrees to disclosure:
    the passages stay out of anything published until each candidate is
    fixed in an upstream release or cleared for disclosure as the owner
-   decides.
+   decides. *Superseded as to the repository on 2026-11-20: the owner made
+   it public, with the passages in it (addendum of that date, item 1).*
 5. *Item 5* stands: an entry gets its "Upstream:" line when the owner says
    its report was delivered, naming the channel as private delivery by the
    owner and the date, nothing more; later the fixing commit and release.
@@ -796,3 +813,54 @@ the draft. Nothing is reported by this record or by its acceptance.
   exercised against a running dcrwallet.
 - The scratch tests are not in the repository; this record describes them
   so they can be rewritten.
+
+## Addendum, 2026-11-20 — Decisions of the project owner: the repository public, and Rule 7 fixes
+
+On 2026-11-20 the project owner made two decisions that bear on this
+record. The text above stays as written, apart from the dated pointers
+added to it.
+
+1. **The repository is public.** The owner made the dcr-purse repository
+   public on 2026-11-20. No reason is recorded. This supersedes the
+   statements that the repository is private or stays private: Context,
+   "The repository is private"; Decision item 4's first clause, and the
+   owner's item 4 above as far as the repository goes; Consequences, "The
+   repository's publication waits on the security list"; and Open point 5,
+   decided on 2026-11-19 as recommended, to keep it private. The
+   repository and its history hold the passages item 4 names (the QUIRKS
+   entries of the S-list, spec 09 Q-7, brief §9 D13's examples, this
+   record), so they are published with it, as item 4 itself says.
+
+   The rest of the reporting route stands as the owner decided it on
+   2026-11-19: the owner delivers the reports to the developers personally
+   over private channels; this project files no public issue and uses no
+   bug bounty; and the reproducers of security-relevant candidates stay
+   out of this repository until upstream has released a fix (ADR-0012,
+   addendum of 2026-11-19 on the route of upstream reports, item 2).
+   Decision items 1, 5, 6 and 7 stand as the owner's items above state
+   them.
+
+   Not settled by the decision, and the owner's to decide: whether
+   write-ups and passages about security-relevant candidates written from
+   now on go into the repository, which the decision of 2026-11-19 kept
+   "out of anything public" with the reproducers; and whether item 4's
+   "cleared for disclosure" still governs anything other than the
+   reproducers.
+
+2. **Fixes under ADR-0012 Rule 7's default are not security-relevant.**
+   A defect that leaves funds unavailable until a restart or a manual
+   unlock, fixed in dcr-purse under Rule 7's default as amended on
+   2026-11-19, is not a security-relevant candidate under this record:
+   it needs no attacker and affects only the wallet's own funds. This
+   settles the point definition (c) and ADR-0012's addendum of 2026-11-19
+   ("Not settled") left to the owner. No such fix is added to the S-list,
+   and the test showing Go's behaviour that ADR-0012 asks of each such fix
+   (that addendum's procedure, item 2) stays in the repository; the rule
+   that keeps reproducers out concerns the S-list only. Such a fix is
+   still a Rule 7 divergence and so an upstream-report candidate under
+   ADR-0012's "Relation to D13"; QK-0279 keeps its place and severity on
+   the list of other defects (Open point 8).
+
+**What follows.** ADR-0012 gains an addendum of the same date recording
+item 2 from its side; the ADR index, brief §9 D13 and the dated pointers
+above say the same. Nothing is reported by this addendum.

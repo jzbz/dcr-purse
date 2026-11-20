@@ -291,7 +291,9 @@ the last segment it filled. Measured against Go in the same sessions,
 the two were within a few percent of each other at 4 lanes
 (`docs/bench-ledger.md`, "Argon2id with parallel lanes"). Not decided,
 and the owner's: whether concurrent derivations share a process-wide
-budget of lane threads; none is kept now.
+budget of lane threads; none is kept now. *Decided (project owner,
+2026-11-20): no such budget for now; each derivation keeps its own pool,
+capped per derivation as above.*
 
 ## Consequences
 

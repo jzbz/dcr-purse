@@ -1250,3 +1250,16 @@ grown file, and platforms other than Linux on x86_64 were not measured.
 The 2.8x initial-sync figure of the Phase 2 addendum was measured on raw
 rows; this addendum's 3.1x is through the operations as built, on the
 same machine under different load.
+
+## Addendum, 2026-11-20 — Decision of the project owner: the address manager before the stake gate
+
+Item 10 of the addendum "Decisions of the project owner" scheduled
+`dcroxide-stake`'s storage gate, and the pin reaching it, before Phase 3.
+On 2026-11-20 the project owner accepted the address manager slice of
+Phase 3 (`purse-udb`, commit `94afd6e`, over this store's schema version 1
+unchanged) ahead of the pin reaching the gate, an exception to that
+schedule (ADR-0006, addendum of 2026-11-20, item 1). The slice links
+neither `dcroxide-stake` nor `dcroxide-gcs`. The pin moved onto the gate
+the same day, at dcroxide `2074168` (item 10's dated note), so the
+transaction store, the first wallet code to link them, has the gate in
+the pin. Nothing in this record's schema or its other addenda changes.

@@ -577,11 +577,13 @@ Properties the port must preserve:
   within the fee of `math.MaxInt64` the target wraps negative, the wallet's source answers with no
   inputs, and the loop asks for the same negative target forever; an output total of `math.MinInt64`
   does the same through the wrapped remaining amount (QK-0753). `purse-txauthor` returns
-  `InsufficientBalance` where a retry would repeat the target instead (project owner, 2026-11-19;
-  `docs/PARITY.md`). *Decided (project owner, 2026-11-19; QK-0744): `new_unsigned_transaction`
+  `InsufficientBalance` where a retry would repeat the target instead (the error: project owner,
+  2026-11-19; the condition: confirmed by the project owner, 2026-11-20; `docs/PARITY.md`).
+  *Decided (project owner, 2026-11-19; QK-0744): `new_unsigned_transaction`
   is to return an error instead of looping (ADR-0012 Rule 2); the reproduction stays until that code
   change.* *Done (2026-11-20): the error is returned where a retry would repeat the target, not on the
-  overflow the ruling names; the condition awaits the owner's confirmation (QK-0744).*
+  overflow the ruling names (QK-0744).* *Confirmed (project owner, 2026-11-20): that condition
+  stands; QK-0753 falls under the same ruling, and loops with a period of two or more stay as in Go.*
 
 ### 4.6 Signing loop (`txauthor.AddAllInputScripts`, `wallet/txauthor/author.go:205-227`)
 

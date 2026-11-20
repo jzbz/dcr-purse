@@ -22,7 +22,7 @@ use common::*;
 
 /// The entries the file must hold per command (checked against the body,
 /// whose size and hash the file's header pins).
-const COUNTS: &[(&str, usize)] = &[("author", 304), ("randomize", 60), ("sign", 249)];
+const COUNTS: &[(&str, usize)] = &[("author", 308), ("randomize", 60), ("sign", 249)];
 
 #[test]
 fn frozen_vectors_agree() {

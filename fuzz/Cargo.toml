@@ -14,12 +14,25 @@ cargo-fuzz = true
 [workspace]
 
 [dependencies]
+# The types the txauthor target builds its transactions, scripts, keys and
+# networks from, and the script engine it verifies signatures with: already
+# in the graph through purse-txauthor.  The rev is the root workspace's
+# dcroxide pin and moves with it.
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
+dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1", features = ["std"] }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1" }
 libfuzzer-sys = "0.4"
 purse-boltread = { path = "../crates/purse-boltread" }
+purse-dcrutil = { path = "../crates/purse-dcrutil" }
+purse-errors = { path = "../crates/purse-errors" }
 purse-hdkeychain = { path = "../crates/purse-hdkeychain" }
 purse-mixsolver = { path = "../crates/purse-mixsolver" }
 purse-seed = { path = "../crates/purse-seed" }
 purse-store = { path = "../crates/purse-store" }
+purse-txauthor = { path = "../crates/purse-txauthor" }
+purse-txrules = { path = "../crates/purse-txrules" }
 sntrup4591761 = { path = "../crates/sntrup4591761" }
 
 [[bin]]
@@ -67,6 +80,13 @@ bench = false
 [[bin]]
 name = "store_open"
 path = "fuzz_targets/store_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "txauthor"
+path = "fuzz_targets/txauthor.rs"
 test = false
 doc = false
 bench = false

@@ -54,7 +54,10 @@ pub struct InputDetail {
 /// cumulative answers. A source that cannot reach the target says so by
 /// answering a smaller `amount`, which the loop turns into an
 /// `InsufficientBalance` error, or by returning an error of its own, which
-/// the loop wraps with its operation.
+/// the loop wraps with its operation. Unlike Go's, the loop never asks for
+/// the same target twice in a row (QK-0744, QK-0753); a source whose
+/// answers make the targets cycle with a longer period keeps it asking, as
+/// in Go.
 ///
 /// Any `FnMut(Amount) -> Result<InputDetail, AnyError>` is a source. Go's
 /// source returns a pointer that may be nil alongside a nil error, which
@@ -129,7 +132,9 @@ fn sum_output_values(outputs: &[TxOut]) -> i64 {
 /// - an error from `fetch_inputs`, wrapped with the operation
 ///   `txauthor.NewUnsignedTransaction`;
 /// - `txauthor.NewUnsignedTransaction: insufficient balance` when the
-///   source's amount falls short of the target;
+///   source's amount falls short of the target, and also when a retry
+///   would ask the source again for the target it was just asked for,
+///   where Go asks for it again (QK-0744, QK-0753; see below);
 /// - `invalid operation: signed tx size exceeds allowed maximum` (no
 ///   operation, as in Go) when the worst-case signed size, which counts the
 ///   change output even if none is then added, exceeds `max_tx_size`;
@@ -138,8 +143,32 @@ fn sum_output_values(outputs: &[TxOut]) -> i64 {
 ///   stack` (no operation) when the change script is longer than 2048
 ///   bytes.
 ///
-/// A source that keeps answering forever keeps the loop going, as in Go
-/// (QK-0744).
+/// # Divergence: the endless loop
+///
+/// Go retries with the fee its source's answer requires and never checks
+/// that the retry changes anything. When a wrapped sum stalls the loop (an
+/// output total within the fee of `i64::MAX`, so that the target wraps
+/// negative, QK-0744, whether the source answers with no inputs or with
+/// inputs covering the output total whose own fee wraps the retry; or a
+/// source amount that exceeds a wrapped output total by more than
+/// `i64::MAX`, so that the remaining amount wraps negative, QK-0753), the
+/// source answers the same and Go asks it for the same target forever,
+/// holding the wallet's outpoint lock. This function returns the
+/// insufficient-balance error instead at the point where the retry would
+/// repeat the target just asked for (ADR-0012 Rule 2(a); project owner,
+/// 2026-11-19), without making that call. Without a wrap each retry raises
+/// the target, so a repeat needs one. At a repeat Go ends only if the
+/// source fails or answers the repeated target differently; the wallet's
+/// sources answer it the same way. Every answer Go gives is otherwise
+/// kept, the calls before the repeat included.
+///
+/// Only that stall, of period 1, is refused. A source whose answer stops
+/// changing, as a cumulative source's does once it has added what it will
+/// (the wallet's `udb` source and its all-outputs wrapper among them), can
+/// stall in no other way: equal answers give equal retry targets. A source
+/// whose answers make the targets cycle with a period of 2 or more keeps
+/// Go's endless loop here too; only a source whose answer never settles,
+/// such as one that answers each target afresh, can do that.
 pub fn new_unsigned_transaction<I, C>(
     outputs: Vec<TxOut>,
     relay_fee_per_kb: Amount,
@@ -158,10 +187,10 @@ where
         &outputs,
         change_script_size,
     );
-    let mut target_fee = fee_for_serialize_size(relay_fee_per_kb, max_signed_size).0;
+    let target_fee = fee_for_serialize_size(relay_fee_per_kb, max_signed_size).0;
+    let mut target = target_amount.wrapping_add(target_fee);
 
     loop {
-        let target = target_amount.wrapping_add(target_fee);
         let detail = fetch_inputs
             .fetch(Amount(target))
             .map_err(|err| e!(OP, err))?;
@@ -175,7 +204,13 @@ where
         let max_required_fee = fee_for_serialize_size(relay_fee_per_kb, max_signed_size).0;
         let remaining_amount = detail.amount.0.wrapping_sub(target_amount);
         if remaining_amount < max_required_fee {
-            target_fee = max_required_fee;
+            let retry = target_amount.wrapping_add(max_required_fee);
+            if retry == target {
+                // Go asks for this target again, and forever while the
+                // source answers as it did (QK-0744, QK-0753).
+                return Err(e!(OP, Kind::InsufficientBalance));
+            }
+            target = retry;
             continue;
         }
 
@@ -294,6 +329,158 @@ mod tests {
             "txauthor.NewUnsignedTransaction: wallet locked: wallet is locked"
         );
         assert!(err.is_kind(Kind::Locked));
+    }
+
+    /// The most calls the tests' sources answer: a loop that does not end
+    /// fails on the source's error instead of hanging.
+    const TEST_CALL_LIMIT: usize = 64;
+
+    /// Authors one output of `total` at 10,000 atoms/kB, answering every
+    /// target with `answer(target)` up to [`TEST_CALL_LIMIT`] calls, and
+    /// returns the error and the targets asked for.
+    fn author_from(total: i64, mut answer: impl FnMut(i64) -> InputDetail) -> (Error, Vec<i64>) {
+        let mut calls = Vec::new();
+        let mut source = |target: Amount| -> Result<InputDetail, AnyError> {
+            calls.push(target.0);
+            if calls.len() > TEST_CALL_LIMIT {
+                return Err(purse_errors::new("test source: call limit reached"));
+            }
+            Ok(answer(target.0))
+        };
+        let err = new_unsigned_transaction(
+            vec![TxOut {
+                value: total,
+                version: 0,
+                pk_script: vec![0; 25],
+            }],
+            Amount(10_000),
+            &mut source,
+            &mut Change(25),
+            100_000,
+        )
+        .unwrap_err();
+        (err, calls)
+    }
+
+    /// As [`author_from`], from a source that answers with nothing.
+    fn from_empty_source(total: i64) -> (Error, Vec<i64>) {
+        author_from(total, |_| InputDetail::default())
+    }
+
+    /// One input of `amount` whose worst-case signature script is 1,000
+    /// bytes: its fee at 10,000 atoms/kB, 11,470 atoms with the output and
+    /// change of [`author_from`], is far above a P2PKH input's.
+    fn big_input(amount: i64) -> InputDetail {
+        InputDetail {
+            redeem_script_sizes: vec![1_000],
+            ..one_input(amount)
+        }
+    }
+
+    #[test]
+    fn endless_loop_is_insufficient_balance() {
+        // QK-0744: the target wraps. Go asks for the second target forever
+        // (the oracle's answers in tests/data); the crate asks twice.
+        // QK-0753: the remaining amount wraps, the target does not.
+        for (total, want) in [
+            (i64::MAX, [i64::MIN + 2_529, i64::MIN + 869]),
+            (i64::MIN, [i64::MIN + 2_530, i64::MIN + 870]),
+        ] {
+            let (err, calls) = from_empty_source(total);
+            assert_eq!(
+                err.render(":: "),
+                "txauthor.NewUnsignedTransaction: insufficient balance"
+            );
+            assert!(err.is_kind(Kind::InsufficientBalance));
+            assert_eq!(calls, want, "{total}");
+        }
+    }
+
+    #[test]
+    fn stall_with_inputs_covering_the_outputs_is_insufficient_balance() {
+        // QK-0744 with a source that answers: the first target does not
+        // wrap and the input covers the output total, so the remaining
+        // amount (here 3,000 atoms, and 11,469) is not negative; but it is
+        // below the input's own fee of 11,470, and the retry for that fee
+        // wraps (to i64::MIN in the second case). The same input answers
+        // the wrapped target, so Go asks for it forever (the oracle's
+        // answers in tests/data); the crate asks twice. A check on a
+        // negative remaining amount alone misses this.
+        for total in [i64::MAX - 3_000, i64::MAX - 11_469] {
+            let (err, calls) = author_from(total, |_| big_input(i64::MAX));
+            assert_eq!(
+                err.render(":: "),
+                "txauthor.NewUnsignedTransaction: insufficient balance"
+            );
+            assert!(err.is_kind(Kind::InsufficientBalance));
+            assert_eq!(
+                calls,
+                [total.wrapping_add(2_530), total.wrapping_add(11_470)],
+                "{total}"
+            );
+            assert!(calls[0] > 0 && calls[1] < 0, "{calls:?}");
+        }
+        // One atom more of output room and the input pays its fee exactly:
+        // no retry, and a transaction without change, as in Go.
+        let mut source = |_: Amount| Ok(big_input(i64::MAX));
+        let atx = new_unsigned_transaction(
+            vec![TxOut {
+                value: i64::MAX - 11_470,
+                version: 0,
+                pk_script: vec![0; 25],
+            }],
+            Amount(10_000),
+            &mut source,
+            &mut Change(25),
+            100_000,
+        )
+        .expect("the input pays its fee");
+        assert_eq!(atx.change_index, -1);
+        assert_eq!(atx.total_input, Amount(i64::MAX));
+    }
+
+    #[test]
+    fn longer_cycles_keep_go_s_loop() {
+        // Only a repeat of the target just asked for is refused. A source
+        // answering each target afresh, nothing for the first target and a
+        // worthless input for any other, makes the targets alternate
+        // between the output total plus 2,530 and plus 870 atoms, both
+        // wrapped: Go asks forever, and so does the crate, until the test
+        // source's limit. No cumulative source can answer so.
+        let total = i64::MAX - 100;
+        let first = total.wrapping_add(2_530);
+        let (err, calls) = author_from(total, |target| {
+            if target == first {
+                InputDetail::default()
+            } else {
+                InputDetail {
+                    redeem_script_sizes: vec![REDEEM_P2PKH_SIG_SCRIPT_SIZE],
+                    ..one_input(0)
+                }
+            }
+        });
+        assert_eq!(
+            err.render(":: "),
+            "txauthor.NewUnsignedTransaction: test source: call limit reached"
+        );
+        assert_eq!(calls.len(), TEST_CALL_LIMIT + 1);
+        let second = total.wrapping_add(870);
+        assert!(
+            calls
+                .iter()
+                .enumerate()
+                .all(|(i, &t)| t == if i % 2 == 0 { first } else { second }),
+            "{calls:?}"
+        );
+    }
+
+    #[test]
+    fn wrapped_first_target_is_retried_as_in_go() {
+        // The first target wraps, the second (the fee for no inputs) does
+        // not: Go asks for i64::MAX and finds the balance short, as here.
+        let (err, calls) = from_empty_source(i64::MAX - 870);
+        assert!(err.is_kind(Kind::InsufficientBalance));
+        assert_eq!(calls, [i64::MIN + 1_659, i64::MAX]);
     }
 
     #[test]

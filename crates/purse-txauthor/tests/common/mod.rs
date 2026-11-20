@@ -12,9 +12,13 @@
 //! [`rust_answer`] first checks the crate's own error and then reports Go's
 //! panic or fatal-error text, so a frozen or live comparison checks that
 //! the crate diverges exactly at Go's panics and crashes and nowhere else.
-//! The one other divergence, an ECDSA key that reduces to zero (QK-0682),
-//! is kept out of the corpora and checked on its own
-//! (`zero_ecdsa_key_cases`).
+//! Where Go's authoring loop never ends (QK-0744, QK-0753) and the crate
+//! returns an error, it checks that error and then plays on the scripted
+//! source the repeated calls Go makes until the source's call limit or
+//! `fail_at` ends them (`go_endless_loop`), so the comparison also checks
+//! every target Go asks for. The one other divergence, an ECDSA key that
+//! reduces to zero (QK-0682), is kept out of the corpora and checked on
+//! its own (`zero_ecdsa_key_cases`).
 
 #![allow(dead_code)]
 #![allow(
@@ -160,6 +164,8 @@ pub struct ScriptedSource {
     error: Option<Value>,
     limit: usize,
     pub calls: Vec<i64>,
+    /// Whether the last call answered rather than failed.
+    answered: bool,
     total: i64,
     detail: InputDetail,
     next: usize,
@@ -184,10 +190,20 @@ impl ScriptedSource {
             error: spec.get("error").filter(|e| !e.is_null()).cloned(),
             limit: if limit == 0 { 64 } else { limit },
             calls: Vec::new(),
+            answered: false,
             total: 0,
             detail: InputDetail::default(),
             next: 0,
         }
+    }
+
+    /// Whether the last call answered, with an amount that met its target.
+    pub fn met_last_target(&self) -> bool {
+        self.answered
+            && self
+                .calls
+                .last()
+                .is_some_and(|&t| self.total.wrapping_add(self.delta) >= t)
     }
 
     fn add(&mut self) {
@@ -211,6 +227,7 @@ impl ScriptedSource {
 impl InputSource for ScriptedSource {
     fn fetch(&mut self, target: Amount) -> Result<InputDetail, AnyError> {
         self.calls.push(target.0);
+        self.answered = false;
         let n = self.calls.len();
         if n == self.fail_at
             && let Some(e) = &self.error
@@ -231,6 +248,7 @@ impl InputSource for ScriptedSource {
         }
         let mut detail = self.detail.clone();
         detail.amount = Amount(self.total.wrapping_add(self.delta));
+        self.answered = true;
         Ok(detail)
     }
 }
@@ -295,6 +313,12 @@ pub fn author_answer(case: &Value) -> Value {
     {
         return answer_with_calls(answer, &source, &change);
     }
+    if let Err(err) = &result
+        && change.script_calls == 0
+        && let Some(answer) = go_endless_loop(err, &mut source)
+    {
+        return answer_with_calls(answer, &source, &change);
+    }
     let answer = match result {
         Ok(atx) => json!({
             "tx": hex(&atx.tx.serialize()),
@@ -313,6 +337,70 @@ fn answer_with_calls(mut answer: Value, source: &ScriptedSource, change: &Script
     answer["script_calls"] = json!(change.script_calls);
     answer["size_calls"] = json!(change.size_calls.get());
     answer
+}
+
+/// Whether the crate refuses `case` as Go's endless loop (QK-0744,
+/// QK-0753), where [`author_answer`] plays on Go's repeated calls.
+pub fn refused_as_endless(case: &Value) -> bool {
+    let outputs: Vec<TxOut> = case["outputs"]
+        .as_array()
+        .expect("outputs")
+        .iter()
+        .map(output_from_json)
+        .collect();
+    let mut source = ScriptedSource::new(&case["source"]);
+    let mut change = ScriptedChange::new(&case["change"]);
+    let result = new_unsigned_transaction(
+        outputs,
+        Amount(int(&case["rate"])),
+        &mut source,
+        &mut change,
+        int(&case["max"]),
+    );
+    result.is_err_and(|e| e.is_kind(Kind::InsufficientBalance))
+        && change.script_calls == 0
+        && source.met_last_target()
+}
+
+/// The most calls [`go_endless_loop`] makes before deciding the scripted
+/// source never refuses; the corpora's sources refuse by the 64th call.
+const MAX_REPEATED_CALLS: usize = 1 << 16;
+
+/// Go's answer where its loop never ends (QK-0744, QK-0753): the crate
+/// returned its insufficient-balance error although the source answered
+/// its last call with an amount that met the target and the change source
+/// was not asked (its errors are wrapped alike), which happens only where a
+/// retry would ask for that target again. This checks that error, then
+/// asks the scripted source for the same target until it fails, checking
+/// that every answer equals the last one (so Go, given it, would retry
+/// with the same target again), and reports that failure wrapped as Go
+/// wraps it: the scripted source's call limit or its error at `fail_at`.
+/// The calls recorded are then Go's: the crate's, followed by the repeats.
+fn go_endless_loop(err: &purse_errors::Error, source: &mut ScriptedSource) -> Option<Value> {
+    if !err.is_kind(Kind::InsufficientBalance) || !source.met_last_target() {
+        return None;
+    }
+    let &target = source.calls.last()?;
+    let last = InputDetail {
+        amount: Amount(source.total.wrapping_add(source.delta)),
+        ..source.detail.clone()
+    };
+    assert_eq!(
+        err.render(SEP),
+        "txauthor.NewUnsignedTransaction: insufficient balance"
+    );
+    for _ in 0..MAX_REPEATED_CALLS {
+        match source.fetch(Amount(target)) {
+            Ok(detail) => {
+                assert_eq!(detail, last, "the source answers a repeated target alike");
+            }
+            Err(e) => {
+                let wrapped = purse_errors::e!(Op::new("txauthor.NewUnsignedTransaction"), e);
+                return Some(json!({ "error": error_json(&AnyError::from(wrapped)) }));
+            }
+        }
+    }
+    panic!("the scripted source answered {MAX_REPEATED_CALLS} repeated calls");
 }
 
 /// Go's text for an integer division by zero (a `runtime.Error`).
@@ -765,8 +853,10 @@ fn dust_threshold(size: i64, rate: i64) -> i64 {
 /// just above the dust threshold, exact payment with no change,
 /// insufficient balance by one atom, a second input needed or not, the
 /// size limit at the estimate and one below, high fee rates, change
-/// scripts at and over the 2048-byte limit, wrapped targets, and the
-/// endless loop of QK-0744 cut by the source's call limit.
+/// scripts at and over the 2048-byte limit, wrapped targets, and Go's
+/// endless loop (QK-0744, QK-0753), from an empty source and from one
+/// whose input covers the output total, which the source's call limit cuts
+/// in Go and where the crate returns an error.
 pub fn edge_author_cases(rng: &mut SplitMix64) -> Vec<Value> {
     let mut cases = Vec::new();
     let change25 = json!({ "size": 25, "script": hex(&[0u8; 25]), "version": 0 });
@@ -892,7 +982,9 @@ pub fn edge_author_cases(rng: &mut SplitMix64) -> Vec<Value> {
         }
     }
     // Output totals that wrap, and the endless loop: a total within the
-    // fee of i64::MAX keeps the target negative and the source empty.
+    // fee of i64::MAX keeps the target negative and the source empty
+    // (QK-0744), and so does a total of i64::MIN, where the remaining
+    // amount wraps instead (QK-0753).
     let f0 = fee_for(10_000, 0, &[25], 25);
     for total in [
         i64::MAX,
@@ -925,6 +1017,34 @@ pub fn edge_author_cases(rng: &mut SplitMix64) -> Vec<Value> {
             "change": change25,
         }));
     }
+    // The endless loop with a source that answers (QK-0744): the first
+    // target does not wrap, the one input covers the output total, so the
+    // remaining amount is not negative (3,000 atoms and 11,469), but it is
+    // below the fee for the input's 1,000-byte signature script (11,470),
+    // and the retry for that fee wraps; the source answers the wrapped
+    // target with the same input. With one atom more of room the input
+    // pays its fee and Go ends. No rng draw, so the random cases after
+    // these are unchanged.
+    for total in [i64::MAX - 3_000, i64::MAX - 11_469, i64::MAX - 11_470] {
+        cases.push(json!({
+            "outputs": [{ "value": total, "version": 0, "script": p2pkh_like(25) }],
+            "rate": 10_000,
+            "max": 393_216,
+            "source": { "utxos": [[i64::MAX, 1_000, 25]], "limit": 5 },
+            "change": change25,
+        }));
+    }
+    // A change size within 19 of i64::MAX wraps the change output's
+    // estimated size and so the estimate the size limit is checked against:
+    // the limit of 0 passes, and without change Go reports the estimate
+    // without the change output, 15 bytes, above the limit.
+    cases.push(json!({
+        "outputs": [],
+        "rate": 0,
+        "max": 0,
+        "source": { "utxos": [] },
+        "change": { "size": i64::MAX - 10, "script": hex(&[0x76; 2]), "version": 0 },
+    }));
     // Source and change errors of every shape, at each call.
     for at in 1..=3u64 {
         let e = error_spec(rng);

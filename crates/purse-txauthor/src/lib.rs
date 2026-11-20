@@ -46,6 +46,16 @@
 //!
 //! Each is tested and recorded in `docs/PARITY.md` with its QUIRKS entry:
 //!
+//! - [`new_unsigned_transaction`] returns its insufficient-balance error
+//!   when a retry would ask the input source again for the target it was
+//!   just asked for, which happens only after a wrapped sum, an output
+//!   total within the fee of `i64::MAX` (QK-0744) or a source amount
+//!   exceeding a wrapped output total by more than `i64::MAX` (QK-0753);
+//!   Go asks for that target again, and forever while the source answers
+//!   as before (ADR-0012 Rule 2(a); project owner, 2026-11-19). That stall
+//!   is the only one a source whose answer settles can cause, the wallet's
+//!   among them; a source whose answers make the targets cycle with a
+//!   longer period keeps Go's endless loop.
 //! - [`randomize_output_position_with`] returns an error of kind `Invalid`
 //!   where Go panics: no outputs, or an index outside them, as for an
 //!   authored transaction without change, which JSON-RPC `spendoutputs`
@@ -73,9 +83,19 @@
 //! the transaction where Go aliases the slices, which spec 10 quirk 18
 //! shows unobservable.
 //!
-//! One Go defect is reproduced pending the owner's ruling: the loop never
-//! ends while the source answers and the output total plus the fee
-//! overflows (QK-0744).
+//! # Checks
+//!
+//! Besides the oracle differential, the frozen vectors, the ported
+//! upstream tests and the property tests (`tests/`), the cargo-fuzz target
+//! `txauthor` (`fuzz/fuzz_targets/txauthor.rs`) drives the authoring loop
+//! with arbitrary values and adversarial input sources, checking every
+//! call and the result against the loop's definition, and the signing loop
+//! with arbitrary scripts, keys and lookups; on honest inputs it verifies
+//! the signatures in dcroxide's script engine and the signed size against
+//! the estimate. It also builds the two signing shapes where Go dies,
+//! which random scripts reach too seldom for a short run, and checks the
+//! crate's error for each: the nested pay-to-script-hash merge (QK-0746)
+//! and the pay-to-pubkey key that does not parse (QK-0745).
 
 mod author;
 mod random;

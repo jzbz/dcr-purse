@@ -159,13 +159,62 @@ fn authoring_follows_its_definition() {
 
 #[test]
 fn authoring_is_total() {
-    // Any input, with the source's call limit standing in for Go's endless
-    // loop (QK-0744): no panic, whatever the values.
+    // Any input: no panic, whatever the values.
     let mut rng = SplitMix64::from_env("purse-txauthor properties: total");
     for _ in 0..cases() * 20_000 {
         let case = random_author_case(&mut rng);
         let _ = author_answer(&case);
     }
+}
+
+#[test]
+fn authoring_ends_without_a_call_limit() {
+    // Where Go loops forever (QK-0744, QK-0753) the crate returns an error,
+    // so it ends without a call limit in the source: a cumulative source
+    // over n UTXOs is asked at most n + 2 times, because a call that adds
+    // nothing repeats the answer before it, and the retry after that would
+    // repeat the target. The edge cases and random cases of every shape,
+    // with the source's limit moved to n + 3 calls: beyond any call the
+    // crate makes, so it never cuts the loop, and close enough that a loop
+    // reintroduced in the crate fails the bound below at once instead of
+    // running on (Go's call sequences are checked by the differential).
+    let mut rng = SplitMix64::from_env("purse-txauthor properties: ends");
+    let mut all = edge_author_cases(&mut rng);
+    for _ in 0..cases() * 20_000 {
+        all.push(random_author_case(&mut rng));
+    }
+    let mut stalled = 0;
+    for mut case in all {
+        let n = case["source"]["utxos"].as_array().map_or(0, Vec::len);
+        case["source"]["limit"] = json!(n + 3);
+        let outputs: Vec<TxOut> = case["outputs"]
+            .as_array()
+            .expect("outputs")
+            .iter()
+            .map(output_from_json)
+            .collect();
+        let mut source = ScriptedSource::new(&case["source"]);
+        let mut change = ScriptedChange::new(&case["change"]);
+        let result = new_unsigned_transaction(
+            outputs,
+            Amount(case["rate"].as_i64().expect("rate")),
+            &mut source,
+            &mut change,
+            case["max"].as_i64().expect("max"),
+        );
+        assert!(source.calls.len() <= n + 2, "{case}: {:?}", source.calls);
+        // The crate never asks for the same target twice in a row.
+        assert!(source.calls.windows(2).all(|w| w[0] != w[1]), "{case}");
+        if result.is_err_and(|e| e.is_kind(Kind::InsufficientBalance))
+            && source.met_last_target()
+            && change.script_calls == 0
+        {
+            stalled += 1;
+        }
+    }
+    eprintln!("ends: {stalled} stalled loops refused");
+    // The edge cases alone hold nine, two with a source that answers.
+    assert!(stalled >= 9, "{stalled}");
 }
 
 #[test]

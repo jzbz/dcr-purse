@@ -575,10 +575,13 @@ Properties the port must preserve:
   (2026-11-19, QK-0744): a retry can also lower the target (the first estimate assumes one P2PKH input,
   so a source answering with none makes the second target smaller), and when the output total lies
   within the fee of `math.MaxInt64` the target wraps negative, the wallet's source answers with no
-  inputs, and the loop asks for the same negative target forever. `purse-txauthor` reproduces that
-  pending the owner's ruling. *Decided (project owner, 2026-11-19; QK-0744): `new_unsigned_transaction`
+  inputs, and the loop asks for the same negative target forever; an output total of `math.MinInt64`
+  does the same through the wrapped remaining amount (QK-0753). `purse-txauthor` returns
+  `InsufficientBalance` where a retry would repeat the target instead (project owner, 2026-11-19;
+  `docs/PARITY.md`). *Decided (project owner, 2026-11-19; QK-0744): `new_unsigned_transaction`
   is to return an error instead of looping (ADR-0012 Rule 2); the reproduction stays until that code
-  change.*
+  change.* *Done (2026-11-20): the error is returned where a retry would repeat the target, not on the
+  overflow the ruling names; the condition awaits the owner's confirmation (QK-0744).*
 
 ### 4.6 Signing loop (`txauthor.AddAllInputScripts`, `wallet/txauthor/author.go:205-227`)
 

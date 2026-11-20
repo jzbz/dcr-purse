@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -19,6 +25,19 @@ name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
+
+[[package]]
+name = "blake3"
+version = "1.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae"
+dependencies = [
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+ "cpufeatures",
+]
 
 [[package]]
 name = "block-buffer"
@@ -49,6 +68,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "chacha20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
+name = "cipher"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+ "inout",
+]
+
+[[package]]
 name = "cmov"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -59,6 +100,12 @@ name = "const-oid"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "cpubits"
@@ -137,10 +184,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcroxide-base58"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-crypto",
+]
+
+[[package]]
+name = "dcroxide-chaincfg"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-chainhash",
+ "dcroxide-crypto",
+ "dcroxide-standalone",
+ "dcroxide-uint256",
+ "dcroxide-wire",
+]
+
+[[package]]
+name = "dcroxide-chainhash"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-crypto",
+]
+
+[[package]]
 name = "dcroxide-crypto"
 version = "0.1.0"
 source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
 dependencies = [
+ "chacha20",
+ "getrandom",
  "ripemd",
 ]
 
@@ -159,9 +236,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcroxide-dcrjson"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-chainhash",
+]
+
+[[package]]
 name = "dcroxide-secp256k1-vartime"
 version = "0.1.0"
 source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+
+[[package]]
+name = "dcroxide-standalone"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-chainhash",
+ "dcroxide-wire",
+ "num-bigint",
+]
+
+[[package]]
+name = "dcroxide-txscript"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "dcroxide-base58",
+ "dcroxide-chaincfg",
+ "dcroxide-chainhash",
+ "dcroxide-crypto",
+ "dcroxide-dcrec",
+ "dcroxide-wire",
+ "sha1",
+ "sha2",
+]
+
+[[package]]
+name = "dcroxide-uint256"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+
+[[package]]
+name = "dcroxide-wire"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1#f4b3d2e8f66a8394d1835c69a66fe2d968d9d8e1"
+dependencies = [
+ "blake3",
+ "dcroxide-chainhash",
+ "dcroxide-crypto",
+]
 
 [[package]]
 name = "der"
@@ -269,6 +394,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inout"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a580c13f0ffc335ef42dd3f6b1a41b726051c5e1656d9a3aa6fddb3c5dfbbf9"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "jobserver"
 version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -304,6 +438,25 @@ checksum = "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"
 dependencies = [
  "arbitrary",
  "cc",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-integer"
+version = "0.1.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -357,6 +510,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "purse-dcrutil"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "dcroxide-chainhash",
+ "dcroxide-dcrec",
+ "dcroxide-dcrjson",
+ "dcroxide-wire",
+ "zeroize",
+]
+
+[[package]]
 name = "purse-errors"
 version = "0.1.0"
 
@@ -364,12 +529,21 @@ version = "0.1.0"
 name = "purse-fuzz"
 version = "0.0.0"
 dependencies = [
+ "dcroxide-chaincfg",
+ "dcroxide-chainhash",
+ "dcroxide-dcrec",
+ "dcroxide-txscript",
+ "dcroxide-wire",
  "libfuzzer-sys",
  "purse-boltread",
+ "purse-dcrutil",
+ "purse-errors",
  "purse-hdkeychain",
  "purse-mixsolver",
  "purse-seed",
  "purse-store",
+ "purse-txauthor",
+ "purse-txrules",
  "sntrup4591761",
 ]
 
@@ -408,6 +582,33 @@ dependencies = [
  "purse-errors",
  "redb",
  "sha2",
+]
+
+[[package]]
+name = "purse-txauthor"
+version = "0.1.0"
+dependencies = [
+ "dcroxide-chaincfg",
+ "dcroxide-crypto",
+ "dcroxide-dcrec",
+ "dcroxide-txscript",
+ "dcroxide-wire",
+ "purse-dcrutil",
+ "purse-errors",
+ "purse-txrules",
+]
+
+[[package]]
+name = "purse-txrules"
+version = "0.1.0"
+dependencies = [
+ "dcroxide-chaincfg",
+ "dcroxide-standalone",
+ "dcroxide-txscript",
+ "dcroxide-wire",
+ "num-bigint",
+ "purse-dcrutil",
+ "purse-errors",
 ]
 
 [[package]]
@@ -477,6 +678,17 @@ name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
 
 [[package]]
 name = "sha2"

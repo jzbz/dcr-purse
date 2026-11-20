@@ -28,10 +28,14 @@
 mod common;
 
 use std::fmt::Write as _;
+use std::time::Duration;
 
 use common::*;
+use purse_dcrutil::{Amount, MAX_AMOUNT};
+use purse_errors::Kind;
 use purse_testutil::serde_json::{Value, json};
-use purse_testutil::{DCRWALLET_PARITY_COMMIT, Oracle, SplitMix64, oracle_or_skip};
+use purse_testutil::{DCRWALLET_PARITY_COMMIT, Oracle, SplitMix64, hex, oracle_or_skip};
+use purse_txauthor::new_unsigned_transaction;
 
 /// Collects mismatches and reports the first few.
 #[derive(Default)]
@@ -151,14 +155,19 @@ fn authoring_matches_go() {
             == json!("txauthor.NewUnsignedTransaction: input source: call limit reached")
     });
     let panics = count(&|a| a.get("panic").is_some());
+    // Where the crate refuses Go's endless loop (QK-0744, QK-0753),
+    // rust_answer played on Go's repeated calls; each such answer of Go's
+    // is cut by the source's call limit or fails at its fail_at. The edge
+    // cases alone hold nine.
+    let refused = cases.iter().filter(|c| refused_as_endless(c)).count();
     eprintln!(
         "author: {n_edge} edge cases; {with_change} with change, {without} without, \
          {insufficient} insufficient balance, {too_big} over the size limit, {big_script} \
          change scripts too long, {source_errors} wrapped errors, {endless} cut by the \
-         source's call limit, {panics} Go panics"
+         source's call limit, {panics} Go panics, {refused} endless loops the crate refuses"
     );
     assert!(with_change > 0 && without > 0 && insufficient > 0 && too_big > 0);
-    assert!(big_script > 0 && source_errors > 0 && endless > 0);
+    assert!(big_script > 0 && source_errors > 0 && endless > 0 && refused >= 9);
     // Go's only panic here is IsDustAmount's division by zero for a change
     // script size of -184 (QK-0741), which rust_answer maps.
     for (case, a) in cases.iter().zip(&go) {
@@ -280,6 +289,133 @@ fn zero_ecdsa_keys_diverge() {
     }
 }
 
+/// How long Go gets to answer an authoring it never ends. A single
+/// authoring takes it microseconds, its endless loop over the 4,393
+/// outputs below grows the process by about 16 MB a second on an x86_64
+/// Linux desktop (the scripted source records every target), so the limit
+/// bounds that too.
+const ENDLESS: Duration = Duration::from_secs(5);
+
+/// Go's endless authoring loop (QK-0744, QK-0753) against the crate's
+/// error (ADR-0012 Rule 2(a); project owner, 2026-11-19), through outputs
+/// the JSON-RPC send methods accept one by one (each within `MaxAmount`,
+/// none negative): 4,393 of them totalling `i64::MAX`, so that the target
+/// wraps (QK-0744), and totalling 2^63, which wraps to `i64::MIN`, so that
+/// the target does not wrap but the remaining amount does (QK-0753); and
+/// one output of `i64::MAX` - 3,000 from a source whose one input, of
+/// `i64::MAX` atoms with a 1,000-byte signature script, covers it, so that
+/// the remaining amount (3,000) is not negative but below the input's fee,
+/// and the retry for that fee wraps (QK-0744 with a source that answers;
+/// only gRPC's unchecked amounts and a source reporting more than any real
+/// balance reach it).
+///
+/// The crate asks the source twice and returns `insufficient balance`, its
+/// source's call limit of 64 untouched, so that a loop reintroduced in the
+/// crate fails here rather than hangs; Go, given a source whose call limit
+/// is never reached, gives no answer within [`ENDLESS`] and is killed; and
+/// with the scripted source's default limit of 64 calls Go asks for the
+/// crate's second target on every call after the first, which
+/// `rust_answer` plays on and compares.
+#[test]
+fn div_qk0744_endless_loop_is_an_error() {
+    let output = |value: i64| json!({ "value": value, "version": 0, "script": hex(&[0x76; 25]) });
+    let change = json!({ "size": 25, "script": hex(&[0x76; 25]), "version": 0 });
+    let mut cases = Vec::new();
+    for last in [
+        i64::MAX - 4_392 * MAX_AMOUNT,
+        i64::MAX - 4_392 * MAX_AMOUNT + 1,
+    ] {
+        let mut outputs = vec![output(MAX_AMOUNT); 4_392];
+        outputs.push(output(last));
+        cases.push(json!({
+            "outputs": outputs,
+            "rate": 10_000,
+            "max": 393_216,
+            "source": { "utxos": [[100_000_000, 108, 25]] },
+            "change": change,
+        }));
+    }
+    let covering = json!({
+        "outputs": [output(i64::MAX - 3_000)],
+        "rate": 10_000,
+        "max": 393_216,
+        "source": { "utxos": [[i64::MAX, 1_000, 25]] },
+        "change": change,
+    });
+    cases.push(covering);
+    let mut endless = Vec::new();
+    for (i, case) in cases.iter().enumerate() {
+        let outputs: Vec<_> = case["outputs"]
+            .as_array()
+            .expect("outputs")
+            .iter()
+            .map(output_from_json)
+            .collect();
+        if i < 2 {
+            assert!(outputs.iter().all(|o| (0..=MAX_AMOUNT).contains(&o.value)));
+        }
+        let total = outputs.iter().fold(0i64, |s, o| s.wrapping_add(o.value));
+        let mut source = ScriptedSource::new(&case["source"]);
+        let mut change = ScriptedChange::new(&case["change"]);
+        let err =
+            new_unsigned_transaction(outputs, Amount(10_000), &mut source, &mut change, 393_216)
+                .expect_err("the crate refuses Go's endless loop");
+        assert_eq!(
+            err.render(SEP),
+            "txauthor.NewUnsignedTransaction: insufficient balance",
+            "{total}: {:?}",
+            source.calls
+        );
+        assert!(err.is_kind(Kind::InsufficientBalance));
+        assert_eq!(source.calls.len(), 2, "{total}: {:?}", source.calls);
+        assert!(source.met_last_target());
+        if i < 2 {
+            // Both targets negative: the first wraps (i64::MAX) or not
+            // (i64::MIN plus the fee), and the source, asked for less than
+            // nothing, adds no input.
+            assert!(source.calls.iter().all(|&t| t < 0), "{:?}", source.calls);
+        } else {
+            // The first target does not wrap and the input is added; the
+            // retry for the input's fee wraps.
+            assert_eq!(
+                source.calls,
+                [total.wrapping_add(2_530), total.wrapping_add(11_470)]
+            );
+            assert!(source.calls[0] > 0 && source.calls[1] < 0);
+        }
+        eprintln!("total {total}: the crate asked for {:?}", source.calls);
+        let mut lifted = case.clone();
+        lifted["source"]["limit"] = json!(i64::MAX >> 1);
+        endless.push(lifted);
+    }
+    // Go's answer as played on: 64 answered calls and the 65th refused.
+    for case in &cases {
+        let calls = rust_answer("author", case)["calls"].clone();
+        assert_eq!(calls.as_array().map(Vec::len), Some(65), "{calls}");
+    }
+
+    let Some(mut o) = oracle_or_skip("txauthor") else {
+        return;
+    };
+    let go = call_batched(&mut o, "author", &cases);
+    for (case, want) in cases.iter().zip(&go) {
+        assert_eq!(&rust_answer("author", case), want);
+        assert_eq!(
+            want["error"]["error"],
+            json!("txauthor.NewUnsignedTransaction: input source: call limit reached")
+        );
+    }
+    drop(o);
+    for case in &endless {
+        let mut o = oracle_or_skip("txauthor").expect("the oracle was built");
+        let answer = o.call_within("author", json!({ "cases": [case] }), ENDLESS);
+        assert!(
+            answer.is_none(),
+            "Go answered an authoring it loops on forever (QK-0744 or QK-0753 fixed?): {answer:?}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------
 // Frozen vectors.
 // ---------------------------------------------------------------------
@@ -340,7 +476,7 @@ fn regenerate_frozen_vectors() {
     // Random cases, of which only the first two with an input over 10 KB
     // (the 253-element varint boundary) are kept, to bound the file.
     let mut large = 0;
-    while cases.len() < 304 {
+    while cases.len() < 308 {
         let case = random_author_case(&mut rng);
         if case.to_string().len() > 10_000 {
             if large == 2 {
@@ -365,7 +501,7 @@ fn regenerate_frozen_vectors() {
          docs/PARITY.md records, which tests/common/mod.rs `rust_answer` checks before \
          reporting Go's text. Corpus: \
          tests/common/mod.rs with SplitMix64({:#x}): edge_author_cases then \
-         random_author_case up to 304 cases, skipping every one whose input exceeds 10 KB \
+         random_author_case up to 308 cases, skipping every one whose input exceeds 10 KB \
          after the first two, for author ({authors} entries), randomize_cases(60) \
          ({randomizes}), edge_sign_cases(Big::Some) then sign_cases(45) ({signs}). Written by `PURSE_TXAUTHOR_REGEN=1 cargo \
          test -p purse-txauthor --test oracle -- --ignored regenerate_frozen_vectors`, which \

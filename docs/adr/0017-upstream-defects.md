@@ -1,9 +1,14 @@
 # ADR-0017 — D13: Upstream defects worth reporting
 
-- **Status:** Proposed (decision D13). Nothing in it is decided, and
-  nothing has been reported to any upstream project by this work: the
-  record proposes which defects to report, how and when, and gives the
-  substance of each report for the project owner to use or not.
+- **Status:** **Accepted** (decision D13; project owner, 2026-11-19),
+  except its reporting route: no report goes through the Decred bug
+  bounty and this project files no public issue; the owner delivers the
+  reports personally to the developers over private channels. Open points
+  1 and 5 to 8 were decided as recommended, and 2 to 4 against their
+  recommendations to that extent; see "Decision by the project owner"
+  before "What was not tested". The proposed route is kept as the record.
+  Nothing has been reported to any upstream project by this work; the
+  record gives the substance of each report for the owner to use or not.
 - **Date:** 2026-11-19
 
 ## Context
@@ -99,7 +104,11 @@ candidate is read from the source only.
   W1 defines it. ADR-0012's "Relation to D13" makes these candidates and
   its Open point 6 sends them to the bug bounty whoever triggers them, so
   they belong here even when only an authenticated client or the
-  operator's own log level starts them (S6, S7, S17);
+  operator's own log level starts them (S6, S7, S17); *(since 2026-11-19
+  ADR-0012 Rule 7 also fixes by default funds left unavailable until a
+  restart or a manual unlock; whether such a fix falls under (c) is the
+  owner's to decide, and none has been added to the S-list: ADR-0012,
+  addendum of that date)*
   (d) a participant in a mixing session can deny mixing to honest peers,
   by getting them blamed or excluded (S10, S12). The mixing protocol
   exists so that unauthenticated participants cannot do this; it is
@@ -526,7 +535,7 @@ point 3). Public issues or pull requests for everything else.
 until a pin move carries the fix, then follow it), or diverge early to the
 fixed behaviour before the pin carries it.
 
-## Decision (proposed)
+## Decision (proposed; accepted 2026-11-19 except the reporting route, which the owner replaced: items 2 and 3, and item 4's bounty clause; see "Decision by the project owner")
 
 1. **The owner files every report**, from the drafts above or later ones.
    No engineer or agent files, comments on or otherwise contacts an
@@ -610,17 +619,23 @@ fixed behaviour before the pin carries it.
 
 ## Open points
 
-Each for the owner, with a recommendation.
+Each for the owner, with a recommendation. Decided (project owner,
+2026-11-19): 1 and 5 to 8 as recommended, 2 to 4 against their
+recommendations as far as they concern the route of a report; each is
+marked, and "Decision by the project owner" below says what replaces
+them.
 
 1. *The definitions of security-relevant and severity, and the S-list?*
-   The definition has four clauses: outside parties (a), failed
+   **Decided as recommended (project owner, 2026-11-19).** The definition has four clauses: outside parties (a), failed
    protections (b), Rule 6 and Rule 7 divergences whoever triggers them
    (c), and mixing denial of service (d); (c) and (d) are what admit S6,
    S7, S17, S10 and S12. Recommended: accept as written; the S-list is
    complete for the entries read. Alternative: keep only (a) and (b) and
    move those five rows to the public list, which leaves S6, S7 and S17
    out of the bounty route ADR-0012 Open point 6 already decided for them.
-2. *Order and timing of the private reports.* Recommended: S1 as soon as
+2. *Order and timing of the private reports.* **Decided against the
+   recommendation (project owner, 2026-11-19):** the owner delivers the
+   reports in an order and at a time of the owner's choosing. Recommended: S1 as soon as
    its network-level run (a fake peer serving a lagging wallet's start-up
    sync) succeeds on current master; the others one by one, by severity,
    each as its run succeeds. S1, S2 and S8 are the high candidates. S1
@@ -631,7 +646,13 @@ Each for the owner, with a recommendation.
    (the listeners are loopback), and it must send about as many bytes as
    the memory it exhausts. S2 needs a configuration the operator chose
    (`--noservertls` with `--jsonrpcauthtype=clientcert`).
-3. *Amending ADR-0012 Open point 6 (Decision item 2).* Two changes: the
+3. *Amending ADR-0012 Open point 6 (Decision item 2).* **Decided against
+   the recommendation as to the bounty (project owner, 2026-11-19):** the
+   bounty route recorded in ADR-0012 Open point 6 is superseded by private
+   delivery by the owner, so neither extending it nor changing its
+   precondition arises; the reproducers stay out of this repository until
+   upstream releases a fix, as recommended (ADR-0012, addendum of
+   2026-11-19). Two changes: the
    bounty route extended from S1, S6, S7, S17 and S18 to the whole S-list;
    and the precondition for the security class changed from oracle
    confirmation to a run on dcrwallet's master and latest release, with
@@ -643,14 +664,17 @@ Each for the owner, with a recommendation.
    Alternative: keep Open point 6 as decided, report S2 to S5 and S8 to
    S16 by public issue, and confirm the five decided ones by oracle first,
    which waits for the phases that port their code (Phases 5 to 12).
-4. *Early public issues.* Recommended: QK-0204, the `MixSplitLimit` group,
+4. *Early public issues.* **Decided against the recommendation (project
+   owner, 2026-11-19):** this project files no public issue; the defects
+   listed are passed on by the owner like the rest. Recommended: QK-0204, the `MixSplitLimit` group,
    QK-0247, QK-0279, QK-0457, QK-0524, QK-0497 and QK-0531, each after a
    run; the rest as their phases confirm them.
-5. *Publishing the repository.* Recommended: keep it private until the
+5. *Publishing the repository.* **Decided as recommended (project owner, 2026-11-19).** Recommended: keep it private until the
    S-list is fixed upstream or cleared for disclosure. Alternative:
    publish with the S-list passages removed from the published tree, which
    needs care because history holds them.
-6. *dcr-purse dispositions for the Rule 11 cases.* Recommended: as the
+6. *dcr-purse dispositions for the Rule 11 cases.* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended: as the
    "dcr-purse" column says, each decided when its phase builds the code
    (S13 in Phase 3, where `Manager.Lock` is built (spec 02), with
    `Wallet.Lock` in Phase 5 (spec 06) and `walletlock`'s reply checked in
@@ -658,10 +682,13 @@ Each for the owner, with a recommendation.
    S11 in Phase 11; S3, S4, S14 in Phase 12). S5 changes a reply (dcrwallet
    accepts the key, dcr-purse would refuse it), so it is a W5 and W6
    divergence.
-7. *S10 and S12 (mixing).* Recommended: report both, and reproduce Go in
+7. *S10 and S12 (mixing).* **Decided as recommended (project owner,
+   2026-11-19)**, "report" meaning passed on by the owner. Recommended: report both, and reproduce Go in
    dcr-purse until upstream changes, since peers that disagree blame each
    other (W3).
-8. *QK-0279.* ADR-0012's "Relation to D13" names it as its example of
+8. *QK-0279.* **Decided as recommended as to the list (project owner,
+   2026-11-19):** it stays on the list of defects to pass on, passed on by
+   the owner, not filed as a public issue by this project. ADR-0012's "Relation to D13" names it as its example of
    the third class of candidate, a defect that harms dcrwallet's users,
    and it meets this record's rule for the public list: reserved fee
    credits stay unspendable until a restart or an explicit unlock, which
@@ -670,7 +697,85 @@ Each for the owner, with a recommendation.
    list, as a medium-severity issue filed after a run, with the fix
    dcr-purse adopted (release the reserved credits of the tickets not
    published). Alternative: leave it out; that departs from ADR-0012's
-   "Relation to D13" and needs the owner's word.
+   "Relation to D13" and needs the owner's word. *Since 2026-11-19
+   (project owner; ADR-0012, addendum of that date) QK-0279 is fixed as
+   an instance of Rule 7's amended default, not as an exception, and so is
+   a Rule 7 divergence; its place on this list and its severity are
+   unchanged unless the owner rules that clause (c) covers that class
+   (definition (c) above; ADR-0012 addendum, "Not settled"), and its
+   delivery by the owner is unchanged.*
+
+## Decision by the project owner (2026-11-19)
+
+The owner accepted the record except where it reports upstream: "we'll go
+with all your recommendations except with regards to reporting issues
+upstream and using the bug bounty, i will personally deliver the reports
+to the devs via private channels as i know them."
+
+**What replaces the route.** Decision items 2 and 3, and item 4 where it
+relies on the bounty, are kept above as the record of what was proposed.
+In their place:
+
+- No report goes through the Decred bug bounty, and the route is not a
+  public issue filed by this project: no engineer or agent files a public
+  issue or comment upstream (item 1).
+- The owner delivers the reports personally to the developers over
+  private channels, in an order and at a time of the owner's choosing.
+  This covers the security-relevant candidates and the other defects
+  worth reporting alike; the candidate lists, their severities and the
+  substance of each report above stand as written.
+- This project's part is to prepare accurate write-ups, re-verified
+  before the owner uses them, and to keep the write-ups and their
+  reproducers out of anything public. The reproducers of security-relevant
+  candidates stay out of this repository until upstream has released a
+  fix (Decision item 2 and Open point 3, as recommended; afterwards one
+  may become an oracle test).
+- Not settled by the owner's words, and the owner's to decide: whether a
+  write-up must first be reproduced on dcrwallet's current master and
+  latest release (Decision item 2's precondition, which followed the
+  bounty's rules); which developers receive the defects that live outside
+  dcrwallet (S10 to S12 in dcrd's modules, S17 and S18 in vspd's client,
+  QK-0415 in jrick/wsrpc, QK-0023 in bbolt); whether any defect,
+  security-relevant or not, is ever filed publicly later, and by whom;
+  whether a pull request with a fix is ever offered (item 3 left that to
+  the owner); and when a candidate counts as cleared for disclosure under
+  item 4.
+
+**The items.**
+
+1. *Item 1* stands: the owner makes every report, by private delivery. No
+   engineer or agent files, comments on or otherwise contacts an upstream
+   project about these defects.
+2. *Item 2* is replaced as above, except its sentence keeping reproducers
+   out of this repository until upstream has released a fix, which stands.
+3. *Item 3* is replaced: this project files no public issue, and the early
+   list (QK-0204, the `MixSplitLimit` group, QK-0247, QK-0279, QK-0457,
+   QK-0524, QK-0497, QK-0531) is passed on by the owner like the rest.
+4. *Item 4* stands, except that no bounty program agrees to disclosure:
+   the passages stay out of anything published until each candidate is
+   fixed in an upstream release or cleared for disclosure as the owner
+   decides.
+5. *Item 5* stands: an entry gets its "Upstream:" line when the owner says
+   its report was delivered, naming the channel as private delivery by the
+   owner and the date, nothing more; later the fixing commit and release.
+6. *Items 6 and 7* stand.
+
+**Open points**, as marked above: 1, 5, 6 and 7 as recommended (S10 and
+S12 passed on by the owner, and reproduced in dcr-purse until upstream
+changes); 8 as recommended as to the list (QK-0279 passed on by the owner,
+not filed as a public issue by this project); 2 to 4 against their
+recommendations as far as the route goes.
+
+**What follows.** ADR-0012 gains an addendum on its Open point 6 (the
+bounty route superseded by the owner's private delivery; reproducers kept
+out of this repository until upstream releases a fix). ADR-0015 Open point
+6 (QK-0737 left to this record) follows the same private route. ADR-0016's
+trigger (b) and item 5.10 are unaffected: they concern the list, not how a
+report travels. Of "Work created" under Consequences, the reproducers and
+the network-level run of S1 are no longer preconditions of a bounty
+filing; whether they are still made, and whether one must precede a
+delivery, is the owner's to decide. QK-0738 and QK-0739 were recorded with
+the draft. Nothing is reported by this record or by its acceptance.
 
 ## What was not tested
 

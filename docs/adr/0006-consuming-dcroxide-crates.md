@@ -101,3 +101,28 @@ Unaffected, and checked: the Context item "Stake and gcs enter in Phase 3" and r
 ## Addendum, 2026-11-19 — dcroxide on redb 5
 
 dcroxide `f4b3d2e` declares `redb = "5"` in `dcroxide-database` and `dcroxide-testutil` and locks 5.0.0, and its power-loss backend returns redb's `BackendError` (dcroxide `crates/dcroxide-database/Cargo.toml:15`, `Cargo.lock`, `crates/dcroxide-testutil/src/powerloss.rs`). The workspace pin moved from `5c6742f` to `f4b3d2e` the same day (`docs/SKEW.md`, 2026-11-19 section; ADR-0009 addendum). Rule 5's precondition for Phase 3, dcroxide's redb 5 move landed and the pin on it, is met. Its second half is not: `dcroxide-stake` still depends on `dcroxide-database` unconditionally, so a wallet crate that links `dcroxide-stake` or `dcroxide-gcs` links the node's database crate, with redb at whatever 5.x dcroxide's lock resolves (5.0.0 at this revision, the release the root manifest pins exactly). The Context bullet "Stake and gcs enter in Phase 3" describes the earlier revision.
+
+## Addendum, 2026-11-19 — Items the owner scheduled
+
+Rule 3 has the project owner schedule the dcroxide items. On 2026-11-19
+the owner decided, as recommended:
+
+1. **`dcroxide-stake`'s storage gate** lands, and the pin reaches it,
+   before Phase 3 starts. Rule 5's fallback (Phase 3 linking
+   `dcroxide-database` while the gate is late) stays as written.
+2. **The k256 precomputed tables** (ADR-0014 O1) are dcroxide commit
+   `5ace7a2`; Phase 1's speed clause is measured again once the pin
+   includes it (ADR-0014, addendum of 2026-11-19).
+3. **Small additions found while porting are queued**
+   in dcroxide: bounded draws `Uint32N` and `Int32N` among
+   `dcroxide-crypto`'s global random functions (spec 24, `rand.Int32N`);
+   an `is_null_data_script` that takes the script version (spec 24, the
+   `IsNullDataScript` row); `KeyDb` and `ScriptDb` errors that carry the
+   caller's own error; a guard in `sign_tx_output` against a
+   pay-to-pubkey script whose key does not parse (QK-0745). Each is
+   additive.
+4. **dudect-style checks and a micro benchmark for dcroxide's secp256k1**
+   are a follow-up in dcroxide.
+
+Other decisions of the same day about dcroxide's own work are dcroxide's
+to record.

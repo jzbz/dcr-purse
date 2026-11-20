@@ -682,3 +682,14 @@ rest"):
    side will not match.
 
 Open items 1 to 5 above stand as open.
+
+## Addendum, 2026-11-19 — The bounds-panic cut in other oracle commands
+
+The rule under "Panics" above, that a bounds-check panic's text is cut
+after "out of range" because the indices the Go runtime prints differ
+between amd64 and arm64, was written for the operation-script runner.
+Two later oracle commands apply the same cut, citing this record:
+`tools/oracle/cmd/txauthor` (QK-0745) and `tools/oracle/cmd/boltcursor`
+(QK-0748), so that their frozen vectors hold no architecture-dependent
+indices. The project owner kept the cut in both (2026-11-19). As here,
+nothing compares the indices: dcr-purse returns an error where Go panics.

@@ -2516,6 +2516,9 @@ oracle.
 
 1. **Q-7 reachability.** Can an SPV peer deliver a header that reaches `isAncestorOf` with a parent below
    the cached anchor? Needs the p2p header sanity checks (SPV spec). Decide whether to report upstream.
+   *Decided (project owner, 2026-11-19; ADR-0017, S1): it is passed on, by the owner's private delivery
+   to the developers, not through the bug bounty and not as a public issue. The reachability found by
+   reading is ADR-0017's S1.*
 2. **Q-11.** Reproduce the halving probe sequence (identical discovered-account set to the Go wallet on
    SPV) or implement a true bisect (finds more accounts; diverges)?
 3. **Q-12.** Reproduce the child-1-first behaviour for freshly discovered accounts or initialise the

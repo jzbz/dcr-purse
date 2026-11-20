@@ -212,7 +212,11 @@ follow the rule above.
 D11 (no ADR drafted yet) chooses between Go's unbuffered delivery under the
 server mutex and bounded per-client queues (brief §9). A expresses either;
 this ADR fixes only generation at Go's points, per-client order, and the
-mutex's place in Go's lock order.
+mutex's place in Go's lock order. *D11 decided by ADR-0015 (accepted,
+project owner, 2026-11-19): generation as here, then a queue per client
+counted in bytes for the notification streams, so a slow stream no longer
+back-pressures the notifier; the sync streams keep the back-pressure
+above (its Decision item 7).*
 
 ### Addendum (ADR-0004)
 

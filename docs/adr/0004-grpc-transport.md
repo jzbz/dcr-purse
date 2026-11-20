@@ -840,3 +840,22 @@ Either way:
   over `cargo metadata`.
 - The measurements come from one shared, loaded machine; build times were
   not re-measured after the fixes.
+
+## Addendum, 2026-11-19 — ADR-0015 (D11)
+
+On 2026-11-19 the project owner accepted ADR-0015, notification delivery
+by a byte-counted queue per client. This record says "D11 is decided
+inside the streaming bridge" (under "Decision by the project owner" and
+under Consequences). Under ADR-0015 D11's mechanism sits ahead of the
+bridge instead: the queue per client, the 8 MiB cap per client, the
+256 MiB budget for all notification streams and the removal of an
+overflowed client live in `purse-wallet`'s notification server, because
+the queue is filled and the client removed under the server's mutex. The
+bridge stays ADR-0008's plain sender within the 64 KiB per-stream quota,
+and it reports when quota comes back, which the budget needs. The handler
+of an overflowed `TransactionNotifications`, `AccountNotifications` or
+`ConfirmationNotifications` stream ends it with `ResourceExhausted` and a
+message of dcr-purse's own until Decrediton's handling is read (ADR-0015
+Open point 2). The sync streams `RpcSync` and `SpvSync` send through the
+bridge with Go's back-pressure, as before. Nothing else in this record
+changes.

@@ -7,6 +7,13 @@
   owner's rulings on the database divergence (2026-11-14,
   `docs/PARITY.md:70-72`), reference Go 1.27.4 (2026-11-18, spec 23 §13
   item 1) and QK-0729 (2026-11-18, `docs/QUIRKS.md:4395`).
+- **Amended, 2026-11-19 (project owner):** Rule 7's default for funds held
+  only until a restart or an unlock is reversed: such defects are fixed by
+  default, each with a PARITY.md row and a test showing Go's behaviour,
+  and only a case whose difference a client could observe in a reply goes
+  to the owner. QK-0279 is now an instance of the rule, not an exception.
+  See "Addendum, 2026-11-19 — Decision by the project owner: Rule 7" at
+  the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -76,7 +83,9 @@ class. It departs from the brief in five places, argued at each rule:
 Rule 2 widens "malformed data" to any external input and keeps Go's
 assertions as a stop; Rule 3(b) keeps wire-visible orders random; Rule 7
 reads "unspendable" as surviving a restart; Rule 8 refuses some input Go
-accepts; Rule 9 is a new class.
+accepts; Rule 9 is a new class. *(Rule 7's reading stands for W1; what it
+left outside, funds held until a restart or an unlock, is fixed by default
+since 2026-11-19: addendum of that date.)*
 
 **Rule 1 — Default.** A defect is reproduced when an external observer
 could depend on it: it repeats for the same input and shows on a surface
@@ -178,6 +187,13 @@ reproduced by default. QK-0279 is the decided exception (project owner,
 were not published, instead of leaving them locked until a restart. It is
 a divergence recorded in `PARITY.md` when the purchase flow is built
 (Phase 9), decided under Rule 11, and it does not widen W1.
+*Amended (project owner, 2026-11-19): funds a defect leaves unavailable
+until a restart or a manual unlock are no longer reproduced by default but
+fixed, each fix with a PARITY.md row and a test showing Go's behaviour;
+only a case whose difference a client could observe in a reply is brought
+to the owner. QK-0279 now reads as an instance of that default, not as an
+exception. The first sentence, W1's outcomes, is unchanged. Addendum of
+that date.*
 
 **Rule 8 — Input Go accepts.** The `wallet.db` reader may refuse input
 bbolt would read; ~~the refusal aborts the import cleanly (W2).~~ (Void
@@ -238,6 +254,9 @@ only at the redaction point.
 when it is a Rule 6 or 7 divergence, a Rule 2 panic reachable from
 network or RPC input (QK-0227, QK-0493), or a reproduced defect that
 harms dcrwallet's users (QK-0279). D13 decides who submits and when.
+*(Since 2026-11-19 a defect fixed under Rule 7's amended default, QK-0279
+included, is a Rule 7 divergence and so a candidate under the first
+clause; addendum of that date.)*
 
 ## Consequences
 
@@ -292,6 +311,8 @@ answered.
 3. **Funds locked until a restart (QK-0279).** Decided (project owner,
    2026-11-18), against the proposal: the bug is fixed. W1's scope is
    unchanged; this one case is an owner-decided exception (Rule 7).
+   *Since 2026-11-19 an instance of Rule 7's amended default rather than
+   an exception; the decision stands (addendum of that date).*
 4. **Non-UTF-8 seed prompt input.** How does `purse-prompt` convert raw
    terminal bytes? Proposed: lossy conversion to U+FFFD, recorded as a
    divergence; Go's matching sees those bytes as U+FFFD too
@@ -306,7 +327,8 @@ answered.
    to the Decred bug bounty and requires them reproducible on the latest
    release or master. Do Rule 6, Rule 7 and remote-panic candidates go
    there rather than to public issues? Proposed: yes, only after oracle
-   confirmation.
+   confirmation. *The bounty route is superseded by private delivery by
+   the owner (project owner, 2026-11-19); see the addendum of that date.*
 
 ## Addendum, 2026-11-18 — ADR-0013
 
@@ -351,3 +373,112 @@ to `:79`, `:81`) refer to the file as it stood when the ADR was accepted
 and no longer match it; the items are found by name under "Deliberate
 divergences" (the database bullet, then one bullet per crate) and in that
 section's closing paragraph, which now states this ADR's policy.
+
+## Addendum, 2026-11-19 — ADR-0017: the route of upstream reports
+
+On 2026-11-19 the project owner accepted ADR-0017 (D13) except its
+reporting route, and decided its Open point 3, which proposed amending
+Open point 6 above, against its recommendation as far as the bounty goes
+(ADR-0017, "Decision by the project owner", which quotes the owner's
+words). Open point 6 changes as follows:
+
+1. **The bounty route is superseded.** Rule 6, Rule 7 and remote-panic
+   candidates do not go to the Decred bug bounty, and no candidate goes to
+   a public issue filed by this project. The owner delivers the reports
+   personally to the developers over private channels, in an order and at
+   a time of the owner's choosing. The precondition recorded with the
+   route ("only after oracle confirmation") goes with it; what, if
+   anything, must be run before the owner passes a report on is the
+   owner's to decide.
+2. **Reproducers stay out of this repository until upstream has released
+   a fix** (ADR-0017 Open point 3, as recommended): a reproducer of a
+   security-relevant candidate (ADR-0017's S-list), an oracle differential
+   included, is kept outside the repository and enters it, if at all, only
+   after the fix is released. Other entries are confirmed by oracle runs
+   as Rule 12 says.
+3. **Unchanged:** "Relation to D13" (which entries are candidates), and
+   whether a defect is reproduced or diverged from in dcr-purse, which
+   this policy's rules and ADR-0017 Decision item 6 decide independently
+   of how upstream is told.
+
+## Addendum, 2026-11-19 — Decision by the project owner: Rule 7 and funds unavailable until a restart
+
+**What was put.** Rule 7 as accepted: defects that lose or misdirect funds
+(W1's outcomes) are never reproduced; funds held only until a restart or
+an unlock RPC are outside W1 and reproduced by default; QK-0279 is a
+one-off exception the owner decided on 2026-11-18 (Open point 3).
+
+**Decision.** On 2026-11-19 the owner chose the option put as "flip the
+default but keep the record": such bugs, those that make funds unavailable
+until a restart or a manual unlock, "are fixed by default, each with a
+PARITY row and a test showing Go's behaviour, and only the cases where a
+client could observe the difference in a reply are brought to the owner".
+It was the recommended option. The text above stays as written, apart from
+the dated pointers added to it.
+
+**Rule 7, second half, as it now reads.** Funds a defect leaves
+unavailable only until a restart or a manual unlock (an unlock RPC) are
+fixed by default, not reproduced. QK-0279 is an instance of this default:
+the fee credits a partial VSP purchase leaves locked are released. The
+owner's decision of 2026-11-18 on it stands; what changes is that it no
+longer stands alone. "It does not widen W1" holds for the class as
+recorded: the default is a rule of this policy, and brief §3 W1's text is
+unchanged. The first half of Rule 7, W1's outcomes, is unchanged.
+
+**Procedure for each such fix.**
+
+1. A PARITY.md row under the crate, and a QUIRKS disposition naming Rule
+   7, as Rule 10 asks of a divergence.
+2. A test showing Go's behaviour (the funds held until the restart or the
+   unlock), beside the test pinning dcr-purse's; the differential
+   excludes exactly those inputs and says so (Rule 10).
+3. The owner is consulted only where a client could observe the
+   difference in a reply; a case whose difference no reply shows is fixed
+   without asking. The owner settled two points the same day, each as
+   suggested. A difference counts when the outcome of a call itself
+   changes: a call that fails in Go succeeds, or the reverse. A change
+   only in which outputs `listlockunspent`, `listunspent` and their gRPC
+   counterparts list, which nearly every fix of this class causes
+   (QK-0178, QK-0179; spec 07), does not send the case to the owner; the
+   PARITY.md row still records it. And while a case waits for the owner's
+   ruling the code applies the fix, since that is the default. How such a
+   case is brought is not in the owner's words; proposed, the owner's to
+   confirm: as Rule 11 brings one, the proposed disposition in the QUIRKS
+   entry, marked "pending owner", named in the change submitted for
+   signing.
+
+**Entries met so far.** No QUIRKS entry has a disposition reproducing such
+a defect by default, so no disposition changes. QK-0279's disposition
+gains a pointer to this addendum. Two cases without a disposition may
+fall in the class. QK-0203: `AbandonTransaction` does not release locked
+input outpoints (read from the source; not run); it is decided in Phase 5,
+which ports that code, after an oracle run. QK-0282 (fee-payment jobs left
+idle) together with spec 11 Q6's second half and Q38: when `Process`
+swallows a `feeaddress` or fee-transaction error, the purchase loop keeps
+that ticket's fee credits locked for the job's reconcile retry, and until
+a restart if that retry leaves the job idle (Q14, QK-0282). No QUIRKS
+entry yet records that credit leak (QK-0278 records the swallowed errors,
+QK-0279 only Q6's first half); it is decided in Phase 9, which ports that
+code, after an oracle run. Entries that hold something other than funds
+until a restart are not in the class: QK-0340 and QK-0609 (a created
+wallet cannot mix until restarted), QK-0362 (`peers.json` not written
+again), QK-0608 (certificates read once). Defects that leave state wrong across a restart, such as
+QK-0734 and QK-0735, stay under the first half of Rule 7 or Rule 1, as
+their dispositions say.
+
+**Places amended with this addendum:** the Status line, the Decision
+preamble, Rule 7, "Relation to D13" and Open point 3 above, by dated
+pointers; brief §3 (last paragraph) and §9 D10; `docs/PARITY.md` (closing
+paragraph of "Deliberate divergences"); `docs/QUIRKS.md` (header and
+QK-0279); `README.md`; ADR-0017 (definition (c) and Open point 8); the
+ADR index.
+
+**Not settled by the owner's words, and the owner's to decide:**
+
+- Whether a fix under this default is security-relevant under ADR-0017's
+  clause (c), which admits "a Rule 6 or Rule 7 divergence" and describes
+  the funds case as funds "lost as W1 defines it". Such a fix is a
+  candidate under "Relation to D13"; no entry has been added to ADR-0017's
+  S-list for it.
+- Whether brief §3 W1 itself should cover these funds; the decision
+  amends this policy only.

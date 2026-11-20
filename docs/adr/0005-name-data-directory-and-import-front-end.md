@@ -4,6 +4,12 @@
   owner, 2026-11-18); the name, data directory, file names, version string
   and certificate fallback stand. See the Addendum below; void text is
   struck in place or moved, verbatim, to Appendix A.
+- **Addendum, 2026-11-19:** the P2P user agent carries dcr-purse's own
+  token, `/dcrwire:1.0.0/dcr-purse:0.1.0/`, and the JSON-RPC `version`
+  reply keeps the key `dcrwallet` (project owner, 2026-11-19). Item 9 is
+  amended to that extent and Open point 2 reversed for the user agent; see
+  "Addendum, 2026-11-19 — Decision by the project owner", before
+  Appendix A.
 - **Status:** Accepted (decision D1; project owner, 2026-11-18) as
   proposed, with one change: the dcrd certificate fallback also tries
   dcroxide's directory (Decision item 2; Open point 5). The name
@@ -35,7 +41,9 @@ directory) except its last two sentences. Item 9 (version string and user
 agent, v3). Item 10 ((c) waits for Phase 8), without its references to
 items 3 and 4 and to the passphrase path. Open points 1, 2, 5 and 6. Of the
 options: (a) without its explicit import, (c), (d) and the version options;
-with (b)'s offer void, the identity chosen is (a).
+with (b)'s offer void, the identity chosen is (a). *(Item 9's user agent
+and Open point 2 changed on 2026-11-19: the user agent carries dcr-purse's
+own token, the JSON-RPC key stays `dcrwallet`; addendum of that date.)*
 
 **What is void.** The choice of (b) in the part it adds to (a), the
 first-start offer, and the import flag of the Decision preamble. Item 2's
@@ -200,10 +208,15 @@ actions are flags.~~ (Void parts: ADR-0013; what stands is (a), see the
 Addendum.)
 
 1. **Name.** `dcr-purse`, hyphen included, with the crate prefix `purse-`;
-   both final (accepted, project owner, 2026-11-18).
+   both final (accepted, project owner, 2026-11-18). *One exception
+   (project owner, 2026-11-19): the crate `sntrup4591761` keeps the name
+   of the Go package it ports, without the prefix (brief §5).*
 2. **Data directory.** dcrwallet's `AppDataDir` with the name `dcr-purse`
    (`~/.dcr-purse`, elsewhere `Dcr-purse`). Inside: `dcr-purse.conf`;
-   `<net>/` with the store (named per ADR-0003) and `peers.json`;
+   `<net>/` with the store (named per ADR-0003) and `peers.json`
+   *(the store's file name is fixed in Phase 2 with the schema, a name
+   other than `wallet.db`: project owner, 2026-11-19; ADR-0003, addendum
+   of that date, item 5; ADR-0018 Open point 6)*;
    `logs/<net>/dcr-purse.log`, named for the program as dcroxide's is, so
    the two never share a log; TLS and CA files under dcrwallet's names.
    Options behave as dcrwallet's; no environment variables; the dcrd
@@ -225,7 +238,14 @@ Items 3 to 8: void (ADR-0013); the accepted text is in Appendix A.
    reproduces by default, and v3 sends software what every dcrwallet sends;
    moving to v2 once a consumer is known is one change. Confirmed once the
    release build metadata is read (spec 21 §13 item 2). Answers spec 16
-   D1, spec 14 §12 item 8, spec 21 §13 items 2 and 3.
+   D1, spec 14 §12 item 8, spec 21 §13 items 2 and 3. *Amended (project
+   owner, 2026-11-19): the P2P user agent is not v3's but dcr-purse's own
+   token, `/dcrwire:1.0.0/dcr-purse:0.1.0/`; the JSON-RPC `version` reply
+   keeps the key `dcrwallet` with the value this item gives, and
+   `getinfo` its number; `-V` and the startup line say `0.1.0`, the reply
+   gains a `dcr-purse` key, and a build from a checkout appends its
+   revision to the token (spec 14 §12 item 8); addendum of that date,
+   item 3.*
 10. **(c) waits** for a Phase 8 addendum. Nothing in items 2 ~~to 4~~ is
     known to rule it out; the config and log names ~~and the passphrase
     path~~ will be revisited there.
@@ -239,10 +259,17 @@ Items 3 to 8: void (ADR-0013); the accepted text is in Appendix A.
   byte-identical afterwards.~~
 - **Golden harness** must mask `buildmetadata` and `versionstring` under
   `dcrwallet` in `version` captures, and the user agent in P2P captures.
+  *(Since 2026-11-19 the user agent differs in its token, not only in its
+  build metadata, and with it the length of the `version` message: 31
+  bytes of user agent against Go's 45, or 35 without a revision (spec 14
+  §3.2). What the P2P mask must cover is the harness's to work out: the
+  field, its length prefix, and the header's payload length and checksum
+  (spec 14 §3.1) all change with it; addendum of that date.)*
 - **PARITY.md divergences:** binary, directory, config and log names (tools
   and Decrediton views reading `dcrwallet.log` find nothing, spec 21 §9
   item 14); ~~the two options; the offer;~~ the build metadata; the `-V`
-  and startup parenthetical.
+  and startup parenthetical. *Added 2026-11-19: the P2P user agent's token
+  (addendum of that date).*
 - **To amend on acceptance:** `README.md`, `What "drop-in" means`; brief §1
   ("the same `dcrwallet.conf`") and W6 ("the same data directory
   resolution"); spec 21 §9 item 1 and §13 item 11, marked superseded in
@@ -252,7 +279,8 @@ Items 3 to 8: void (ADR-0013); the accepted text is in Appendix A.
   it.
 - **Constraints.** Void (ADR-0013); the accepted text is in Appendix A.
 - **Revisit** when Decrediton's launcher is read or a consumer of the user
-  agent is found.
+  agent is found. *(For the user agent this was overtaken on 2026-11-19 by
+  the owner's decision, not by a consumer; addendum of that date.)*
 
 ## Open points
 
@@ -263,7 +291,11 @@ kept as the record of what was asked and answered.
 1. Decided (project owner, 2026-11-18): `dcr-purse`, hyphen included, is
    final.
 2. Should the user agent carry its own token now (v2)? Proposed: no, until
-   a consumer is known.
+   a consumer is known. *Reversed for the P2P user agent (project owner,
+   2026-11-19): it carries dcr-purse's own token, `dcr-purse:0.1.0`, which
+   is dcr-purse's own version rather than v2's `dcr-purse:2.2.0-pre`; the
+   JSON-RPC `version` reply keeps the key `dcrwallet`. Addendum of that
+   date.*
 
 Points 3 and 4: void (ADR-0013); the accepted text is in Appendix A.
 
@@ -274,8 +306,89 @@ Points 3 and 4: void (ADR-0013); the accepted text is in Appendix A.
    when the first has no certificate.
 6. Should dcroxide's open version identity (its ADR-0014 §6) follow this?
    Proposed: no, independent; the node's user agent is already its own.
+   *Unaffected by the decision of 2026-11-19, which gives dcr-purse a
+   token of its own as the node has; the two identities stay independent.*
 
 Point 7: void (ADR-0013); the accepted text is in Appendix A.
+
+## Addendum, 2026-11-19 — Decision by the project owner: the user agent and the `version` reply
+
+**What was put.** Item 9 chose v3: the user agent
+`/dcrwire:1.0.0/dcrwallet:2.2.0-pre+dcr-purse.0.1.0/` and the JSON-RPC
+`version` reply under the key `dcrwallet`, so that software sees a
+dcrwallet. It was chosen while looking identical to dcrwallet on the
+network was a goal. The owner has since put speed ahead of that goal
+(brief §3 W3, "Interoperability on the network"; ADR-0014, accepted
+2026-11-19, whose Decision §1, tier 4, makes blending in no longer a
+constraint).
+
+**Decision.** On 2026-11-19 the owner chose the option put as "split: own
+token on the P2P user agent, but keep the dcrwallet key in the JSON-RPC
+version reply so existing RPC clients such as Decrediton that look up that
+key still find it", the recommended one. The reason put with it:
+dcr-purse will behave differently on the wire (faster sync patterns, under
+ADR-0014), so dcrwallet's name in the user agent would attribute that
+behaviour to dcrwallet, while the RPC key is something clients may depend
+on; dcroxide already uses its own token. The text above stays as written,
+apart from the dated pointers added to it.
+
+1. **The P2P user agent** is `/dcrwire:1.0.0/dcr-purse:0.1.0/`, where
+   dcrwallet sends `/dcrwire:1.0.0/dcrwallet:<version>/` (spec 14 §3.2).
+   `0.1.0` is dcr-purse's own version, the one item 9 puts in the build
+   metadata. This replaces item 9 for the user agent only.
+2. **The JSON-RPC `version` reply** keeps the key `dcrwallet`, so a client
+   that looks it up finds it. `dcrwalletjsonrpcapi` stays `11.0.0` (spec
+   16 §4.8).
+3. **Settled by the owner later the same day, as suggested:** `0.1.0`
+   wherever dcr-purse names itself, and the dcrwallet-compatible number
+   where a client reads it to decide what the wallet can do.
+   - The `-V` output and the startup line read `dcr-purse version 0.1.0
+     (Rust version …)`, replacing item 9's
+     `2.2.0-pre+dcr-purse.0.1.0` there.
+   - The `version` reply gains a key `dcr-purse` reporting `0.1.0`, so a
+     tool can identify the wallet over RPC; a client that looks up the
+     keys it knows is not disturbed by another.
+   - The value under the `dcrwallet` key stays item 9's (`versionstring`
+     `2.2.0-pre+dcr-purse.0.1.0`, `buildmetadata` `dcr-purse.0.1.0`), and
+     `getinfo` stays 2020000: a client that compares either against a
+     minimum would take `0.1.0` for a very old dcrwallet.
+   - A build from a git checkout appends its revision to the user agent's
+     token, as Go's appends `+<9-hex revision>` (spec 14 §12 item 8), so
+     a development build is told from a release in peer lists.
+
+   Decrediton's use of the `version` reply is unread (Context, above;
+   the brief schedules the reading before Phase 8). The value under the
+   `dcrwallet` key is confirmed against that reading then, with item 9's
+   "Confirmed once the release build metadata is read".
+
+**What follows.**
+
+- **PARITY.md** records the user agent among the divergences decided ahead
+  of the code (Phase 10, where the SPV peer is built). It is a
+  wire-visible difference of the kind brief W3 says is recorded there.
+- **Golden harness.** P2P captures must mask the user agent and what
+  depends on its length, which now differ: the field's length prefix and
+  the message header's payload length and checksum (spec 14 §3.1;
+  Consequences, above).
+- **Specs.** Spec 14 §3.2's field note ("A drop-in replacement must emit
+  the same `dcrwallet:<semver>` token") and §8 item 2, spec 21 §9 item 13
+  (the P2P user agent component `dcrwallet:<version>/`) and spec 24 §9
+  item 12 are superseded for the user agent, and listed as such in
+  `docs/specs/README.md`. Spec 16's D1 and O6 (the value under the
+  `dcrwallet` key) stay answered by item 9; its `-V` and startup line
+  are answered by item 3 above.
+- **Interoperability.** dcrd uses a peer's user agent only in log lines
+  and `getpeerinfo`'s `subver` (Context, above); spec 24 §9 item 12 says
+  some operators filter on it, and crawlers' use is UNVERIFIED (spec 14
+  §8 item 2). Brief W3 requires that nothing dcr-purse sends gets it
+  banned, throttled, disconnected or deprioritised; the interop gate of
+  ADR-0014 runs against dcrd and dcroxide nodes, not against operators'
+  filters.
+- **Open point 6** is unaffected.
+
+**Not settled by the owner's words, and the owner's to decide:** the
+shape of the value under the new `dcr-purse` key (proposed: the same
+fields as under `dcrwallet`), fixed when Phase 7 builds the reply.
 
 ## Appendix A — Void text, as accepted on 2026-11-18
 

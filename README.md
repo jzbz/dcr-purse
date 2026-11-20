@@ -27,7 +27,9 @@ both RPC APIs with their exact results and error text, the command line and
 the configuration options. The same seed gives the same keys and addresses
 and, once the wallet has synced, the same balances and history. dcr-purse
 runs under its own name, with its own data directory (`~/.dcr-purse` on Unix),
-configuration file (`dcr-purse.conf`) and log (`dcr-purse.log`)
+configuration file (`dcr-purse.conf`) and log (`dcr-purse.log`), and names
+itself to peers in its P2P user agent (`/dcrwire:1.0.0/dcr-purse:0.1.0/`),
+while the JSON-RPC `version` reply keeps dcrwallet's `dcrwallet` key
 ([ADR-0005](docs/adr/0005-name-data-directory-and-import-front-end.md)).
 
 The database is the exception. dcr-purse keeps its own format (project
@@ -112,7 +114,7 @@ Environment variables the tests read:
 |---|---|
 | `PURSE_REQUIRE_ORACLE` | a missing Go toolchain fails differential tests instead of skipping them, and so does an oracle built with any Go release but the reference one |
 | `PURSE_ORACLE_DIR` | use prebuilt `purse-oracle-<name>` binaries from this directory instead of building them |
-| `PURSE_TEST_SEED` | run seed for generated test inputs (decimal or `0x` hex); unset, every test uses the same fixed inputs on every run; each test mixes it with its own label, so tests with different labels start from different states; every run prints the value to set to reproduce it |
+| `PURSE_TEST_SEED` | run seed for generated test inputs (decimal or `0x` hex); unset, every test uses the same fixed inputs on every run; each test mixes it with its own label, so tests with different labels start from different states; every run prints the value to set to reproduce it; a value recorded before the run seed was mixed with each test's label (2026-11-19) no longer reproduces its inputs, which the project owner accepted |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |
 | `PURSE_ERRORS_PROGRAMS` | number of random programs in the `purse-errors` differential |
 | `PURSE_SNTRUP_CASES` | multiplies the random instances of the `sntrup4591761` differential and property tests |
@@ -167,7 +169,9 @@ their criteria are listed in `crates/purse-bench/src/lib.rs`.
   [ADR-0012](docs/adr/0012-standing-quirk-policy.md): where Go panics on
   external input an error is returned; where Go's order is random, replies
   are sorted, while orders other parties see on the wire stay shuffled;
-  anything that would lose funds or leak secrets is fixed; and where Go's
+  anything that would lose funds or leak secrets is fixed, and so, by
+  default, is a defect that leaves funds unavailable until a restart or a
+  manual unlock; and where Go's
   answer depends on the CPU, one answer is given on every platform. Each
   divergence is listed in [PARITY.md](docs/PARITY.md).
 

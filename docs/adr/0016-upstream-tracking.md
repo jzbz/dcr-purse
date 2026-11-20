@@ -1,6 +1,8 @@
 # ADR-0016 — D12: Upstream tracking
 
-- **Status:** Proposed (decision D12). Nothing in it is decided. The
+- **Status:** **Accepted** as proposed (decision D12; project owner,
+  2026-11-19), with the ten open points answered as recommended; see
+  "Decision by the project owner" before "What was not tested". The
   repository facts, the history of dcrwallet's repository and the
   measurements under Context are not outcomes of it.
 - **Date:** 2026-11-19
@@ -244,7 +246,7 @@ moves the pin automatically. The latter cannot port upstream changes into
 crates already pinned, write a PARITY.md range section or re-read touched
 citations, so it can only report.
 
-## Decision (proposed)
+## Decision (accepted, 2026-11-19)
 
 1. **Until dcrwallet tags v2.2.0: master, option C.** The pin stays where
    it is until one of these, and then moves to master's head:
@@ -415,21 +417,24 @@ citations, so it can only report.
 
 ## Open points
 
-Each for the owner, with a recommendation.
+Each for the owner, with a recommendation. All ten were decided as
+recommended (project owner, 2026-11-19); each is marked.
 
 1. *Cadence before the tag: option C with triggers (a) to (d)?*
-   Recommended: yes. Alternatives: A (freeze until the tag), cheaper now
+   **Decided as recommended (project owner, 2026-11-19).** Recommended: yes. Alternatives: A (freeze until the tag), cheaper now
    and one large move later; B (follow master closely), smallest moves and
    the most checklist runs.
-2. *After the tag, every point release of the newest line?* Recommended:
+2. *After the tag, every point release of the newest line?* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended:
    yes (option (i)); a security or mandatory release promptly.
-3. *Who watches?* Recommended: the owner, as for dcroxide; the engineer
+3. *Who watches?* **Decided as recommended (project owner, 2026-11-19).** Recommended: the owner, as for dcroxide; the engineer
    starting a phase raises trigger (c). Plus a monthly scheduled CI job
    that runs `tools/pinmove report` against dcrwallet's master and newest
    tag and publishes the report as a job artifact, never failing the
    build. Alternative: no scheduled job; the report runs at each point
    release by hand.
-4. *Rewrite shifted citations mechanically?* Recommended: yes, in the
+4. *Rewrite shifted citations mechanically?* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended: yes, in the
    specs, QUIRKS.md, PARITY.md, SKEW.md, the brief and the README, with
    the touched ones listed for a human; never in ADRs, whose citations
    stay at the pin in force on their date, recorded once in
@@ -438,16 +443,17 @@ Each for the owner, with a recommendation.
    with that pin, which saves the rewrite and leaves the specs naming
    several pins; for the ADRs, a dated addendum naming `54b85b33` in each
    of the ten, which says the same at ten times the length.
-5. *Where the read-ahead notes live.* Recommended: `docs/UPSTREAM.md`,
+5. *Where the read-ahead notes live.* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended: `docs/UPSTREAM.md`,
    dated sections, separate from PARITY.md's range sections, which record
    what the port claims.
 6. *Where the acceptance releases are recorded, and how chosen.*
-   Recommended: a table at the head of PARITY.md; the newest release of
+   **Decided as recommended (project owner, 2026-11-19).** Recommended: a table at the head of PARITY.md; the newest release of
    each at the time of the move; filled by Phase 0's acceptance work.
-7. *Tool language.* Recommended: Go, under `tools/pinmove`, beside the
+7. *Tool language.* **Decided as recommended (project owner, 2026-11-19).** Recommended: Go, under `tools/pinmove`, beside the
    oracle. Alternatives: a Rust `xtask`, or Python, which the repository
    does not use today.
-8. *Frozen files and the pin.* Four batteries' tests require the
+8. *Frozen files and the pin.* **Decided as recommended (project owner, 2026-11-19).** Four batteries' tests require the
    current pin in their headers, so every move rewrites them; the second
    group (`purse-hdkeychain`'s vectors, `purse-dcrutil`'s vectors, `purse-export-check`'s frozen export
    and opvectors, `purse-snacl`'s generated database, `purse-boltread`'s
@@ -463,11 +469,53 @@ Each for the owner, with a recommendation.
    at separately, so an unchanged file need not be rewritten; this needs
    a change to every frozen test, and `tools/pinmove batteries` would
    then decide by package which files a move must regenerate.
-9. *Specs of phases not started.* Recommended: they are remapped and
+9. *Specs of phases not started.* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended: they are remapped and
    their touched citations re-read at every move, not deferred until
    their phase, so that no spec drifts from the pin it names.
-10. *Deferring a security fix.* Recommended: trigger (b) is never
+10. *Deferring a security fix.* **Decided as recommended (project owner, 2026-11-19).**
+    Recommended: trigger (b) is never
     deferred past the end of the phase in progress (item 7).
+
+## Decision by the project owner (2026-11-19)
+
+Accepted as proposed, every open point as recommended. The answers:
+
+1. *Before v2.2.0:* option C; the pin moves to master's head on triggers
+   (a) to (d) of Decision item 1, never on a calendar.
+2. *From v2.2.0:* every release tag of dcrwallet's newest line (option
+   (i)); a security or mandatory release promptly.
+3. *Who watches:* the owner; the engineer starting a phase raises trigger
+   (c); a monthly scheduled CI job runs `tools/pinmove report` against
+   dcrwallet's master and newest tag and publishes the report as a job
+   artifact, never failing the build.
+4. *Citations:* shifted ones rewritten mechanically in the specs,
+   QUIRKS.md, PARITY.md, SKEW.md, the brief and the README, touched ones
+   listed for a human; never in ADRs, whose citations stay at the pin in
+   force on their date, recorded once in `docs/adr/README.md` (already
+   there: its second paragraph).
+5. *Read-ahead notes:* `docs/UPSTREAM.md`, dated sections.
+6. *Acceptance releases:* a table at the head of PARITY.md, the newest
+   release of each at the time of the move, filled by Phase 0's acceptance
+   work.
+7. *Tool language:* Go, under `tools/pinmove`.
+8. *Frozen files:* the uniform rule, as a separate change before the first
+   move: every Go-generated or copied file names the dcrwallet commit in
+   its header or a manifest beside it, and a frozen test per crate
+   requires it to equal `DCRWALLET_PARITY_COMMIT`; all of them are
+   regenerated at each move, with the header-only check of item 5.6.
+9. *Specs of phases not started:* remapped and re-read at every move.
+10. *A security fix:* trigger (b) is never deferred past the end of the
+    phase in progress.
+
+ADR-0017's list, which trigger (b) and item 5.10 refer to, is accepted
+with its reporting route changed (the owner delivers reports privately;
+ADR-0017, "Decision by the project owner"); nothing in this record
+depends on how a defect reaches upstream. Nothing of "Work created" is
+built by the acceptance: `tools/pinmove` and its tests, the pin check in
+`purse-testutil`, `docs/UPSTREAM.md`, the pins table in PARITY.md, the
+frozen-file rule of answer 8 and the scheduled job of answer 3 are each a
+later change, all before the first move.
 
 ## What was not tested
 

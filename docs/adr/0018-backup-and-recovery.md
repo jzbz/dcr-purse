@@ -1,9 +1,11 @@
 # ADR-0018 — D15: Backup and recovery of the store
 
-- **Status:** Proposed (decision D15). Nothing in it is decided. The
+- **Status:** **Accepted** as proposed (decision D15; project owner,
+  2026-11-19), with the ten open points answered as recommended; see
+  "Decision by the project owner" before "What was not tested". The
   repository facts and measurements under Context are not outcomes of it;
   ADR-0003's Decision item 8 and its Open point 6, both accepted, are the
-  starting point.
+  starting point, and ADR-0003 gains the addendum of Open point 9.
 - **Date:** 2026-11-19
 
 ## Context
@@ -231,7 +233,7 @@ same file. Power loss was not simulated (see "What was not tested").
 | Divergence from dcrwallet | `backupwallet` answers | none | a new gRPC method | none on the wire | as B1 |
 | Risk | a JSON-RPC client chooses where the wallet writes (bounded by item 4) | users copy a running store anyway | Decrediton cannot use it | young locking code on every open | a second format |
 
-## Decision (proposed)
+## Decision (accepted, 2026-11-19)
 
 1. **A backup is a consistent snapshot copied into a new store file
    (B1).** The running wallet opens a read transaction and copies every
@@ -450,27 +452,28 @@ new and has no dcrwallet counterpart; no other surface changes.
 
 ## Open points
 
-Each for the owner, with a recommendation.
+Each for the owner, with a recommendation. All ten were decided as
+recommended (project owner, 2026-11-19); each is marked.
 
-1. *B1 with compaction, S1 plus S3, E1?* Recommended: yes, as above.
-2. *`backupwallet` at all?* It is a JSON-RPC divergence for a method
+1. *B1 with compaction, S1 plus S3, E1?* **Decided as recommended (project owner, 2026-11-19).** Recommended: yes, as above.
+2. *`backupwallet` at all?* **Decided as recommended (project owner, 2026-11-19).** It is a JSON-RPC divergence for a method
    dcrwallet reserves and answers with an error. The alternative is
    backups only with the wallet stopped (B3 and the tool), which keeps
    JSON-RPC identical but takes the wallet down for every backup and
    pushes users toward copying a running store, which the experiments
    show to be dangerous. Recommended: implement it, hidden from `help`.
-3. *Where `backupwallet` writes.* Recommended: only `<appdata>/<net>/
+3. *Where `backupwallet` writes.* **Decided as recommended (project owner, 2026-11-19).** Recommended: only `<appdata>/<net>/
    backups/`, by file name. Alternatives: any absolute path, as bitcoind's
    `backupwallet` takes, which lets an RPC credential create files
    anywhere the wallet's user can write; or a `backupdir` option, a
    configuration option dcrwallet does not have (W6). Revisit after 1.0
    with users' requests.
-4. *Encryption.* Recommended: none in 1.0 (E1), documented. E2 would
+4. *Encryption.* **Decided as recommended (project owner, 2026-11-19).** Recommended: none in 1.0 (E1), documented. E2 would
    protect history and addresses in a backup taken off the machine, but
    adds a container format, a passphrase to lose, and a decryption step
    before every restore, for data the live store keeps in the clear
    anyway. Revisit if users ask for it.
-5. *Compaction mode for the backup.* On a fresh snapshot copy the two
+5. *Compaction mode for the backup.* **Decided as recommended (project owner, 2026-11-19).** On a fresh snapshot copy the two
    modes give the same file: the copy inserts in key order and fills its
    pages, so `Maximum` finds nothing more to pack than `Balanced`
    (identical sizes and per-table page counts, Experiments), and their
@@ -481,29 +484,30 @@ Each for the owner, with a recommendation.
    416 MB above; `src/db.rs:2280-2297`), where whether to leave room for
    inserts matters; that belongs to in-place compaction, which 1.0 does
    not do (ADR-0003 Open point 6).
-6. *The store's file name.* ADR-0005 defers it to ADR-0003, which does not
+6. *The store's file name.* **Decided as recommended (project owner, 2026-11-19).** ADR-0005 defers it to ADR-0003, which does not
    give one; `restore`, the documentation's copy instructions and the
    tool's messages need it. Recommended: fix it in Phase 2 with the
    schema, a name other than `wallet.db`, for ADR-0005's reason: a
    dcrwallet started by mistake would otherwise find and open a file of
    that name ("Options considered", option (d)).
-7. *Windows.* Directory sync does not exist there; renaming with
+7. *Windows.* **Decided as recommended (project owner, 2026-11-19).** Directory sync does not exist there; renaming with
    `MoveFileExW(MOVEFILE_WRITE_THROUGH)` needs `windows-sys` or similar
    (no `unsafe` in dcr-purse crates, ADR-0008 Facts; the call would come
    from a crate that already wraps it). Recommended: measure on the
    Windows CI runner in Phase 8 and record what is guaranteed there; until
    then the documentation says a backup is complete once the call has
    returned, which holds for the file's contents.
-8. *A gRPC method later?* Recommended: not before Decrediton's call
+8. *A gRPC method later?* **Decided as recommended (project owner, 2026-11-19).** Recommended: not before Decrediton's call
    inventory shows a use for it (brief §6 Phase 0).
-9. *The addendum to ADR-0003.* ADR-0003 is accepted and says the
+9. *The addendum to ADR-0003.* **Decided as recommended (project owner, 2026-11-19).** ADR-0003 is accepted and says the
    snapshot copy compacts the backup, which the experiments here refute.
    Recommended: add the dated addendum described under Consequences when
    this record is accepted, written by the same change; the alternative,
    leaving ADR-0003 as it is with this record as the only correction,
    leaves an accepted record stating a measured falsehood that Phase 2
    would read first.
-10. *`backupwallet` and request cancellation.* Recommended: a started
+10. *`backupwallet` and request cancellation.* **Decided as recommended (project owner, 2026-11-19).**
+   Recommended: a started
    backup ignores its request's cancellation and runs to its end (item 4),
    so a POST caller is never left with a cancelled call whose backup may
    or may not have been published. The alternative, cancelling the
@@ -511,6 +515,38 @@ Each for the owner, with a recommendation.
    its context, but under a reproduced 10 s POST cancellation it would
    make backups of large wallets impossible through `dcrctl` and would
    need the documentation to send such users to the websocket.
+
+## Decision by the project owner (2026-11-19)
+
+Accepted as proposed, every open point as recommended. The answers:
+
+1. *What a backup is:* B1 with compaction, the JSON-RPC surface S1 and the
+   tool S3, no added encryption (E1).
+2. *`backupwallet`:* implemented, hidden from `help`.
+3. *Where it writes:* only `<appdata>/<net>/backups/`, by file name;
+   revisited after 1.0 with users' requests.
+4. *Encryption:* none in 1.0 (E1), documented; revisited if users ask
+   for it.
+5. *Compaction mode:* `Balanced`, the record stating that on a fresh
+   snapshot copy the choice makes no difference.
+6. *The store's file name:* fixed in Phase 2 with the schema, a name other
+   than `wallet.db`. `purse-store` as committed takes the path from its
+   caller, so the name is still to be chosen (a follow-up of Phase 2).
+7. *Windows:* measured on the Windows CI runner in Phase 8 and what is
+   guaranteed there recorded; until then the documentation says a backup
+   is complete once the call has returned.
+8. *A gRPC method:* not before Decrediton's call inventory shows a use.
+9. *ADR-0003:* the addendum is written by this change (ADR-0003, addendum
+   of 2026-11-19, "Decisions of the project owner").
+10. *Cancellation:* a started backup ignores its request's cancellation
+    and runs to its end (Decision item 4).
+
+What the acceptance leaves to do is "Consequences" above: the snapshot
+copy, backup record, digest and verify path in `purse-store` with their
+tests (not written yet: the Phase 2 change that built the store left
+backup out), `backupwallet` and its PARITY line with QK-0432's changed
+disposition for that one name in Phase 7, the tool in Phase 8, the
+documentation and the restore-every-release CI job in Phase 13.
 
 ## What was not tested
 

@@ -1,7 +1,10 @@
 # ADR-0015 — D11: Notification delivery
 
-- **Status:** Proposed (decision D11). Nothing in it is decided. The
-  repository facts and measurements under Context are not outcomes of it.
+- **Status:** **Accepted** as proposed (decision D11; project owner,
+  2026-11-19): option B, with the seven open points answered as
+  recommended; see "Decision by the project owner" before "What was not
+  tested". The repository facts and measurements under Context are not
+  outcomes of it.
 - **Date:** 2026-11-19
 
 ## Context
@@ -285,7 +288,7 @@ with its QUIRKS entry:
 3. If Open point 3 is answered yes: notifications generated inside a write
    transaction that then fails are not delivered (QK-0212).
 
-## Decision (proposed)
+## Decision (accepted, 2026-11-19)
 
 Option B, applied as follows.
 
@@ -433,9 +436,10 @@ Option B, applied as follows.
 
 ## Open points
 
-Each for the owner, with a recommendation.
+Each for the owner, with a recommendation. All seven were decided as
+recommended (project owner, 2026-11-19); each is marked.
 
-1. *Option B rather than A?* Recommended: B, as above. A is exact, but it
+1. *Option B rather than A?* **Decided as recommended (project owner, 2026-11-19).** Recommended: B, as above. A is exact, but it
    lets one hung or hostile client with a valid certificate stop the
    wallet's writes, sends and block processing (QK-0737), and puts a
    thread handoff per subscriber inside write transactions; B diverges
@@ -443,7 +447,8 @@ Each for the owner, with a recommendation.
    dcrwallet. If A is chosen, ADR-0008's quota rule is all that is
    needed, and the bridge's buffering is measured against the ~200 KB
    above.
-2. *What Decrediton does when a notification stream ends.* Decrediton's
+2. *What Decrediton does when a notification stream ends.* **Decided as recommended (project owner, 2026-11-19).**
+   Decrediton's
    source was not among the inputs of the specs (brief §6 Phase 0).
    Recommended: read its handling of `TransactionNotifications`,
    `AccountNotifications` and `ConfirmationNotifications` errors with its
@@ -452,7 +457,7 @@ Each for the owner, with a recommendation.
    clients conventionally retry. Until then `ResourceExhausted` is the
    proposal.
 3. *Hold notifications generated inside a write transaction until it
-   commits?* This would fix QK-0212: a client is never told of an unmined
+   commits?* **Decided as recommended (project owner, 2026-11-19).** This would fix QK-0212: a client is never told of an unmined
    transaction whose recording failed, and a client that queries right
    after a notification always finds the transaction, where in Go the
    query can run before the commit and miss it. Keeping per-client order
@@ -462,11 +467,11 @@ Each for the owner, with a recommendation.
    in 1.0. The defect needs a failed write transaction, no client can
    depend on it either way, and the change touches the store's commit
    path; reproduce it (Rule 1) and revisit with Phase 5's code.
-4. *Sync streams.* Recommended: keep Go's back-pressure (Decision item
+4. *Sync streams.* **Decided as recommended (project owner, 2026-11-19).** Recommended: keep Go's back-pressure (Decision item
    7). Alternatives: a queue that ends the stream on overflow, which
    cancels the sync; or coalescing progress callbacks, which changes the
    sequence a client sees. The stall harms only the client's own sync.
-5. *The cap and the budget.* Without a total, the per-client cap bounds
+5. *The cap and the budget.* **Decided as recommended (project owner, 2026-11-19).** Without a total, the per-client cap bounds
    nothing useful: at ADR-0004's caps 8 MiB per stream is 512 MiB per
    connection and about 512 GiB in all (Options considered), and two large
    `Watch` requests reach a client's cap with an idle wallet.
@@ -482,10 +487,13 @@ Each for the owner, with a recommendation.
    accounting; or a cap on the number of notification streams, which adds
    a refusal dcrwallet does not have. A configuration option is not
    proposed: dcrwallet has none to mirror.
-6. *QK-0737 upstream.* A candidate for D13: low severity, an
+6. *QK-0737 upstream.* **Decided as recommended (project owner, 2026-11-19).** A candidate for D13: low severity, an
    authenticated client can stall the wallet. Recommended: leave it to
-   ADR-0017.
-7. *In-process subscribers: rendezvous or queue?* Recommended: the
+   ADR-0017. *ADR-0017's route was decided otherwise (project owner,
+   2026-11-19): no bug bounty and no public issue filed by this project;
+   the owner delivers the reports to the developers privately. QK-0737
+   follows that route.*
+7. *In-process subscribers: rendezvous or queue?* **Decided as recommended (project owner, 2026-11-19).** Recommended: the
    rendezvous (Decision item 8), Go's exact interleaving, with no PARITY
    entry; the ticket buyer is trusted code with a short step, so the
    objection to A does not apply to it. Alternative: a queue that blocks
@@ -495,6 +503,38 @@ Each for the owner, with a recommendation.
    PARITY entry, since the buyer can start purchases with an `expiry` and
    cancellations computed at a stale height, which Go's scheduler never
    allows past one tip.
+
+## Decision by the project owner (2026-11-19)
+
+Accepted as proposed, every open point as recommended (the owner's one
+exception that day concerns reporting upstream, ADR-0017, and reaches this
+record only through Open point 6). The answers:
+
+1. *Option B.* Yes: a byte-counted queue per client, the wallet never
+   waiting for a notification-stream client.
+2. *Decrediton's handling of an ended stream.* Read with Decrediton's call
+   inventory before Phase 12, and the status code chosen then;
+   `ResourceExhausted` until then.
+3. *Holding notifications until their write transaction commits.* Not in
+   1.0: QK-0212 is reproduced (ADR-0012 Rule 1) and revisited with Phase
+   5's code.
+4. *Sync streams.* Go's back-pressure is kept (Decision item 7).
+5. *Limits.* 8 MiB per client and 256 MiB for all notification streams
+   together, queues and the bridge's quota counted, shared values once,
+   the client furthest behind ended when the total is full; as constants,
+   revisited with Phase 5's measurements of real notification sizes.
+6. *QK-0737 upstream.* Left to ADR-0017, and so to the owner's private
+   delivery of reports decided there.
+7. *In-process subscribers.* The ticket buyer keeps Go's rendezvous, with
+   no PARITY entry (Decision item 8).
+
+Written by the same change, as Consequences prescribes for acceptance:
+ADR-0004's addendum of 2026-11-19 (ADR-0015); spec 19 §12.3 item 5 and spec 08 §12
+Hazard 1 listed among the superseded passages in `docs/specs/README.md`;
+QK-0737's and QK-0212's dispositions in `docs/QUIRKS.md`. The rest of
+"Work created" (the queue type, the bridge's report of returned quota,
+the handlers and their tests, the PARITY lines) comes with the code in
+Phases 5 and 12.
 
 ## What was not tested
 

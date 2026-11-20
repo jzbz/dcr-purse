@@ -7,6 +7,8 @@
   more important". Open points 1 to 12 were all decided as recommended
   (project owner, 2026-11-19); each is marked. Every number is a starting
   value, fixed from measurements; items 13 to 22 are not yet established.
+  The owner's decisions on the Phase 1 speed row and the first
+  measurements' findings (2026-11-19) are the addendum at the end.
 - **Date:** 2026-11-19
 
 ## Context
@@ -190,7 +192,7 @@ the user's own node (S14) the ratio is unknown.
 | O5 | Cheaper scrypt for new wallets | — | — | REJECT (Open point 11) |
 | O6 | Maintained balances; `AccountBalances` not quadratic; unused `NewBalances` dropped (specs 06 Q14, 08 Q13) | not measured | LOCAL | DO in ADR-0003 |
 | O7 | Range queries, `findEligibleOutputs` by index | ADR-0003 | LOCAL | DO; order kept |
-| O8 | Notifications outside write transactions | — | LOCAL | brief D11's ADR |
+| O8 | Notifications outside write transactions | — | LOCAL | brief D11's ADR; *ADR-0015 (accepted 2026-11-19): generation stays inside, delivery is a push onto a queue; holding until commit not in 1.0 (its Open point 3)* |
 
 REJECTED: Go's variable-time secret arithmetic (tier 1); sorting the query
 set once per rescan (the SipHash key changes per block,
@@ -334,7 +336,9 @@ Most valuable first.
    by hash (ADR-0003 Open point 5). *Measured (ADR-0003, addendum of
    2026-11-19): by hash, initial sync writes 3.4 times the bytes and takes
    2.8 times as long with durable commits; height keys are recommended,
-   and the schema change waits on the owner.*
+   and the schema change waits on the owner.* *Decided (project owner,
+   2026-11-19): height keys, changed in schema version 1 before Phase 3
+   (ADR-0003, addendum "Decisions of the project owner").*
 7. *ADR-0008 addendum* **Decided as recommended (project owner, 2026-11-19).** Recorded as ADR-0008's
    "Addendum (ADR-0014)". (items 2 and 3, Accepted). Recommended: permit S3's
    lock span and S5–S9, R6, R7's request sets, each with its PARITY row.
@@ -362,3 +366,42 @@ file by hash and by height: Phase 2, with ADR-0003 Open point 9's table
 merging; (20) Go's anonymous-memory baseline: `RssAnon` from [S]'s samples;
 (21) real restore pass counts F: Layer 6's corpus; (22) ADR-0003's query
 results, which Phase 2–3's N needs.
+
+## Addendum, 2026-11-19 — The Phase 1 speed row and the first ledger entry
+
+The ledger's first entry (`docs/bench-ledger.md`, 2026-11-19) measured
+Phase 1's row of the exit table under item 4 and some workloads outside
+it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
+2026-11-19 the project owner decided, each as recommended:
+
+1. **Phase 1's exit.** Its parity clauses are closed (brief §6 Phase 1;
+   `docs/PHASE1-EXIT.md`). Its speed clause stays open until the dcroxide
+   pin includes dcroxide `5ace7a2`, which builds k256 with its
+   precomputed tables (O1; Open point 8), and the row is then measured
+   again. The secret paths measured 1.57 to 1.59 times Go's time against
+   at most 1.15, about 90% of a hardened derivation being k256's
+   multiplication of the generator without those tables.
+2. **base58 decoding** measured at parity with Go (0.98 to 1.02 over ten
+   sessions on a shared desktop). It is settled by a measurement on a
+   dedicated machine first; only if that misses does it call for a
+   dcroxide change (about half of Rust's time is dcroxide-crypto's
+   portable BLAKE-256).
+3. **secretbox at about 3 times Go's time** (2.9 to 4.0; the `poly1305`
+   crate's AVX2 backend calls its intrinsics out of line) is accepted for
+   now. It was recommended that the RustCrypto project be told later;
+   telling an upstream project is covered by the owner's exception of the
+   same day on reporting upstream (ADR-0017, "Decision by the project
+   owner"), so whether and how it is reported is the owner's, and this
+   project files nothing.
+4. **`Amount`'s string form at 2 times Go's time** is accepted for now; the
+   remaining cost is dcroxide-dcrjson's `format_float_f`.
+5. **The `bench-gate` CI job** (micro ratios at a 2x regression, item 4)
+   is not a required check at first.
+6. **`sntrup4591761`'s timing comparison against Go** gets no CI gate for
+   now (deferred); it stays an ignored test, run by hand.
+7. **Argon2id with several lanes** (2.37 times Go's time with 4 lanes):
+   the `argon2` crate's `parallel` feature is to be turned on in
+   `purse-snacl`. That is a separate change, not made with this addendum.
+
+dudect-style checks and a micro benchmark for dcroxide's secp256k1 are a
+follow-up in dcroxide (ADR-0006, addendum of 2026-11-19).

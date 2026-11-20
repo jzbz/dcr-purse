@@ -4,7 +4,10 @@
   D2), major 5 (project owner, 2026-11-18; [ADR index](README.md);
   ADR-0006 rule 5 builds on it). The schema, the rules around it and the
   answers to the nine open points are **Accepted** as recommended
-  (project owner, 2026-11-19); each open point is marked.
+  (project owner, 2026-11-19); each open point is marked. Later the same
+  day the owner decided main-chain headers and filters keyed by height,
+  tables not merged, and the correction ADR-0018 asks for on backup and
+  compaction (addendum "Decisions of the project owner", at the end).
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -759,7 +762,9 @@ to allow it is Open point 4.
    `Tx.Copy`; the backup is a snapshot copied table by table into a new file
    in one durable commit (measured above, with and without a writer; copy
    verified equal to the snapshot by a digest of every table), which also
-   compacts it. A raw copy of the file is safe only while no process has it
+   compacts it *(it does not: a fresh copy is compact only after an
+   explicit compaction; ADR-0018, and the addendum of 2026-11-19
+   "Decisions of the project owner", item 4)*. A raw copy of the file is safe only while no process has it
    open. What a user restores from is such a copy, opened as the wallet's
    store after the version check.
 9. **Relaxed durability only where nothing external depends on it.**
@@ -869,7 +874,8 @@ to allow it is Open point 4.
      costs"); not measured. Recommended: measure in Phase 2 before the
      schema is frozen. *Measured (2026-11-19 addendum): each further table
      a commit touches costs about 6.9 KiB and well under 1 ms; not merging
-     is recommended.*
+     is recommended.* *Decided (project owner, 2026-11-19): not merged;
+     addendum "Decisions of the project owner".*
 - **Power-loss rig before acceptance.** The sweep above ran on redb 5.0.0
   at every storage operation of the tiny workload; it should be repeated
   on the exact 5.0.x the wallet pins when dcroxide moves (ADR-0006 rule 5),
@@ -943,7 +949,9 @@ height, detached ones by hash in separate tables. The relaxed-durability
 figures of "Header and filter ingest" above were measured on the spike's
 height keys and assume this layout. The schema in `purse-store` still keys
 them by hash; changing it adds tables to Decision item 2's list and changes
-`SyncBatch`, and waits on the owner.
+`SyncBatch`, and waits on the owner. *Decided (project owner, 2026-11-19):
+height keys, in schema version 1, before Phase 3; addendum "Decisions of
+the project owner".*
 
 **Tables per commit (Open point 9).** Fifteen tables of 100,000 rows each
 (36-byte random keys, 60-byte values: the shape of credit and unspent
@@ -1042,3 +1050,70 @@ write transaction that count includes the transaction's own writes, where
 bbolt's does not (QK-0003); dcrwallet's one such call, `txToMultisig`'s,
 comes before any write to `unspent` in its transaction (PARITY.md,
 `purse-store`).
+
+## Addendum, 2026-11-19 — Decisions of the project owner: height keys, unmerged tables, backup, and the store's open items
+
+On 2026-11-19 the project owner decided the questions the two addenda
+above left open, accepted ADR-0018 (D15), whose Open point 9 calls for
+this addendum, and settled smaller points about `purse-store`. Each is as
+recommended. The text above stays as written, apart from the dated
+pointers added to it.
+
+1. **Headers and filters keyed by height** (ADR-0014 Open point 6; the
+   first addendum's answer). Main-chain headers and committed filters are
+   keyed by height; detached ones stay keyed by hash, in tables of their
+   own, as Open point 5 decided. This is a change to schema version 1,
+   made before Phase 3, while no dcr-purse release exists and no wallet
+   has been written at version 1 (as the second addendum's changes were).
+   It adds tables to Decision item 2's list, changes `SyncBatch`, and
+   regenerates the checked-in version-1 fixture and its pinned digest. The
+   tables' names, how a reorganisation moves rows between the main-chain
+   and detached tables, and the measurement of reorganisations the first
+   addendum did not make, come with that change. Grounds: by hash, initial
+   sync wrote 3.4 to 3.5 times the bytes and took 2.8 times as long with
+   durable commits; a header looked up by hash costs a second lookup.
+2. **Tables are not merged** (Open point 9). Decision item 2's tables stay
+   separate; revisited only if bytes written per commit come to matter in
+   their own right.
+3. **Confirmed** (project owner, 2026-11-19), as decided before: compaction
+   only through backup in 1.0 (Open point 6), whether `addr_by_hash`
+   stores public keys decided in Phase 3 (Open point 7), and spent credits
+   kept (Open point 8).
+4. **Backup is not compacting by itself** (ADR-0018 Open point 9).
+   Decision item 8 says the snapshot copy "also compacts it". ADR-0018's
+   measurements refute that: a fresh copy of a 649 MB store was 570 MB,
+   and 412 to 422 MB only after an explicit compaction, where `Balanced`
+   and `Maximum` gave the same file. Item 8 is corrected: a backup is the
+   snapshot copied into a new file in one durable commit and then
+   compacted by an explicit step, `CompactionMode::Balanced`, before it is
+   published by rename (ADR-0018 Decision items 1 to 3). Open point 6's
+   premise, "on backup, which compacts anyway", is restated accordingly:
+   backup compacts because ADR-0018 makes compaction one of its steps. Its
+   decision, compaction only through backup in 1.0 and never in place, is
+   unchanged. What a user restores from, and how, is ADR-0018's (its
+   Decision items 5, 6 and 8).
+5. **The store's file name** (ADR-0018 Open point 6) is fixed in Phase 2
+   with the schema, a name other than `wallet.db`. `purse-store` takes the
+   path from its caller, so the name is still to be chosen.
+6. **Integrity check on open.** Whether the wallet opens its own store
+   with redb's integrity check (`purse-store`'s
+   `OpenOptions::check_integrity`, off by default) is decided in Phase 3.
+   A file handed in from outside is always opened with it (ADR-0018 Decision item 6).
+7. **`KeyN` of `unspent` in a write transaction.** The store's count
+   includes the transaction's own writes, where bbolt's does not
+   (QK-0003): accepted. Phase 3 carries the obligation the second addendum
+   and PARITY.md state: `purse-udb` keeps `txToMultisig`'s count before
+   any write to `unspent` in its transaction, or reproduces bbolt's
+   committed-only count for that call.
+8. **bbolt's cursor defects under mutation** (QK-0747 to QK-0750) are not
+   reproduced: accepted.
+9. **Tests.** The model-based property test runs 48 sequences by default
+   (`PURSE_STORE_MODEL_CASES`), with a large count in a nightly job, which
+   CI does not have yet. The `store_open` fuzz target runs in CI without
+   debug assertions, as the wallet ships, because redb 5.0.0's debug
+   assertions fire on some damaged files; it is run once by hand with
+   them. Fuzz soaks of the store (with those of `sntrup4591761` and
+   `purse-txauthor`) come before its PARITY row moves to pinned.
+10. **`dcroxide-stake`'s storage gate** is scheduled to land in dcroxide,
+    and the pin to reach it, before Phase 3 (ADR-0006 rule 5; the addendum
+    to ADR-0006 of 2026-11-19 on the owner's scheduling).

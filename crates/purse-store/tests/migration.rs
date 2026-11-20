@@ -33,18 +33,20 @@ use purse_store::{
     AccountKey, AccountName, AccountNames, AccountNumber, AccountRow, Accounts, AcctHistory,
     AcctHistoryKey, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrByPath, AddrPathKey, AddrRow,
     BalanceClass, BalanceHeightKey, BalanceHeights, BalanceKey, BalanceRow, Balances, BirthState,
-    BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CoinTypeKeys, CommitmentRow,
-    CommitmentUnspentRow, Commitments, CommitmentsUnspent, CreditFlags, CreditKey, CreditRow,
-    Credits, CreditsInvalidated, DebitRow, Debits, DebitsInvalidated, Empty, Hash32, Hash160,
-    HeaderBytes, Headers, Height, History, HistoryKey, MasterKeyParams, Meta, MetaKey, Migration,
-    NEWER_VERSION_TEXT, OpenOptions, OutputTag, ReadTx, SCHEMA_VERSION, Schema, ScriptLoc,
-    SealedKey, Slip0044Acct0Row, Spender, Store, Table, TableId, Tickets, Tip, TxMined, TxMinedRow,
-    TxRecKey, TxUnmined, TxUnminedRow, UnminedCreditRow, UnminedCredits, UnminedInputs,
-    Unpublished, UnpublishedFlag, Unspent, UnspentRow, Wallet, WalletKey, WriteTx, wallet,
+    BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, ChainBlock,
+    CoinTypeKeys, CommitmentRow, CommitmentUnspentRow, Commitments, CommitmentsUnspent,
+    CreditFlags, CreditKey, CreditRow, Credits, CreditsInvalidated, DebitRow, Debits,
+    DebitsInvalidated, Empty, Hash32, Hash160, Headers, HeadersDetached, History, HistoryKey,
+    MasterKeyParams, Meta, MetaKey, Migration, NEWER_VERSION_TEXT, OpenOptions, OutputTag, ReadTx,
+    SCHEMA_VERSION, Schema, ScriptLoc, SealedKey, Slip0044Acct0Row, Spender, Store, Table, TableId,
+    Tickets, Tip, TxMined, TxMinedRow, TxRecKey, TxUnmined, TxUnminedRow, UnminedCreditRow,
+    UnminedCredits, UnminedInputs, Unpublished, UnpublishedFlag, Unspent, UnspentRow, Wallet,
+    WalletKey, WriteTx, wallet,
 };
 use purse_testutil::SplitMix64;
+use support::chain::chain_view;
 use support::powerloss::{Cut, PowerLoss, Shared};
-use support::{StoreDigest, digest, raw_digest, short};
+use support::{StoreDigest, chain_header, digest, raw_digest, short};
 
 // The dummy steps.
 
@@ -131,8 +133,43 @@ fn schema(version: u32) -> Schema<'static> {
 // The version-1 store the sweeps start from.
 
 /// Wallet-shaped version-1 rows: 300 credits, 300 unspent outputs, 20
-/// accounts and a large transaction record.
+/// accounts and a large transaction record; and the chain tables in the
+/// height layout: a main chain of 60 blocks after a reorganisation that
+/// left a branch of three detached, with their headers and filters.
 fn base_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
+    let chain = |from: u32, n: u32, mut prev: Hash32, salt: u8| {
+        (from..from + n)
+            .map(|height| {
+                let mut hash = [salt; 32];
+                hash[..4].copy_from_slice(&height.to_be_bytes());
+                let row = BlockRow {
+                    hash: Hash32(hash),
+                    time: i64::from(height) * 300,
+                    ..BlockRow::default()
+                };
+                let header = chain_header(height, &prev, salt);
+                let filter = CFilterRow {
+                    key: [salt; 16],
+                    filter: vec![salt; 200],
+                };
+                prev = row.hash;
+                (row, header, filter)
+            })
+            .collect::<Vec<_>>()
+    };
+    let a = chain(0, 60, Hash32::default(), 1);
+    tx.connect_blocks(0, &as_chain(&a))?;
+    let side = chain(57, 3, a[56].0.hash, 2);
+    tx.reorganize(56, &as_chain(&side))?;
+    let back: Vec<_> = a[57..]
+        .iter()
+        .map(|(row, header, _)| ChainBlock {
+            row,
+            header,
+            filter: None,
+        })
+        .collect();
+    tx.reorganize(56, &back)?;
     let mut rng = SplitMix64(0x6d69_6772_6174_6531);
     for _ in 0..300 {
         let mut k = vec![0u8; 40];
@@ -146,6 +183,17 @@ fn base_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
         tx.put_raw(TableId::Accounts, &n.to_le_bytes(), &rng.bytes(40))?;
     }
     tx.put_raw(TableId::TxMined, &rng.bytes(36), &rng.bytes(30_000))
+}
+
+/// The blocks of `v` to connect, each with its filter.
+fn as_chain(v: &[(BlockRow, purse_store::HeaderBytes, CFilterRow)]) -> Vec<ChainBlock<'_>> {
+    v.iter()
+        .map(|(row, header, filter)| ChainBlock {
+            row,
+            header,
+            filter: Some(filter),
+        })
+        .collect()
 }
 
 /// The image of a clean version-1 store holding [`base_rows`].
@@ -284,6 +332,9 @@ fn sweep(to: u32, cut: Cut) -> Outcome {
             *digests.last().expect("digests"),
             "cut after {n}: the resumed migration ended elsewhere"
         );
+        tx.check_chain()
+            .unwrap_or_else(|e| panic!("cut after {n}: {e}"));
+        chain_view(&tx).unwrap_or_else(|e| panic!("cut after {n}: {e}"));
     }
     eprintln!("{out:?}");
     assert!(out.cut_reached > 0);
@@ -341,6 +392,19 @@ fn a_store_newer_than_the_build_is_refused_with_its_rows_unchanged() {
         assert_eq!(err.newer_version_info(), Some((3, older)));
     }
     assert_eq!(inspect(&b), before, "the refusals changed a row");
+    // The chain tables, in the height layout, are whole, and the build of
+    // the store's own version reads them.
+    let store = OpenOptions::new()
+        .schema(schema(3))
+        .open_on_backend(Shared(b))
+        .expect("the newer build opens its store");
+    let tx = store.read().unwrap();
+    tx.check_chain().unwrap();
+    let view = chain_view(&tx).unwrap();
+    assert_eq!(view.main.len(), 60);
+    assert_eq!(view.detached.len(), 3);
+    assert_eq!(view.detached_filters.len(), 3);
+    assert_eq!(view.filters.len(), 60);
 }
 
 /// The refusal is not read-only at the byte level: redb takes the file for
@@ -498,30 +562,41 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
         &AddrAcctShaKey::for_address(0x7fff_ffff, &imported),
         &imported,
     )?;
+    // A main chain of three blocks (which also sets the tip) and a
+    // detached block with its filter.
+    let mut prev = Hash32::default();
     for height in 0u32..3 {
         let hash = h32(0xb0 + height as u8);
-        tx.put::<Headers>(&hash, &HeaderBytes([height as u8; 180]))?;
-        tx.put::<CFilters>(
-            &hash,
-            &CFilterRow {
-                key: [height as u8; 16],
-                filter: vec![0xf0; 20],
+        let header = chain_header(height, &prev, height as u8);
+        let filter = CFilterRow {
+            key: [height as u8; 16],
+            filter: vec![0xf0; 20],
+        };
+        let row = BlockRow {
+            hash,
+            time: 1_700_000_000 + i64::from(height) * 300,
+            vote_bits: 1,
+            invalid: false,
+            wallet_txs: u32::from(height == 2),
+        };
+        tx.connect_block(
+            height,
+            ChainBlock {
+                row: &row,
+                header: &header,
+                filter: Some(&filter),
             },
         )?;
-        tx.put::<Blocks>(
-            &Height(height),
-            &BlockRow {
-                hash,
-                time: 1_700_000_000 + i64::from(height) * 300,
-                vote_bits: 1,
-                invalid: false,
-                wallet_txs: u32::from(height == 2),
-            },
-        )?;
-        tx.put::<BlockByHash>(&hash, &Height(height))?;
+        prev = hash;
     }
-    // A detached header.
-    tx.put::<Headers>(&h32(0xbf), &HeaderBytes([0xbf; 180]))?;
+    tx.insert_detached(
+        &h32(0xbf),
+        &chain_header(2, &h32(0xb1), 0xbf),
+        Some(&CFilterRow {
+            key: [0xbf; 16],
+            filter: vec![0xf1; 24],
+        }),
+    )?;
     let txh = h32(0x7a);
     tx.put::<TxMined>(
         &TxRecKey {
@@ -672,10 +747,13 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
             count: 1,
         },
     )?;
-    tx.set_tip(&Tip {
-        height: 2,
-        hash: h32(0xb2),
-    })?;
+    assert_eq!(
+        tx.tip()?,
+        Some(Tip {
+            height: 2,
+            hash: h32(0xb2),
+        })
+    );
     tx.set_processed_marker(&h32(0xb2))?;
     tx.set_birth_state(&BirthState {
         set_from_height: false,
@@ -723,7 +801,7 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
 const FIXTURES: &[(u32, &str, &str)] = &[(
     1,
     "schema-v1.redb",
-    "1fd4897de529307403bfb0ac7de34912ce3093d9d4c56146c78f01ba9492ef2a",
+    "2153a18e9d5bc02012abd42bf4348206dae41628af14c68746e795d7ced3ee56",
 )];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -755,6 +833,8 @@ fn every_table_decodes(tx: &ReadTx) {
         (TableId::Blocks, count::<Blocks>(tx)),
         (TableId::BlockByHash, count::<BlockByHash>(tx)),
         (TableId::CFilters, count::<CFilters>(tx)),
+        (TableId::HeadersDetached, count::<HeadersDetached>(tx)),
+        (TableId::CFiltersDetached, count::<CFiltersDetached>(tx)),
         (TableId::TxMined, count::<TxMined>(tx)),
         (TableId::TxUnmined, count::<TxUnmined>(tx)),
         (TableId::Unpublished, count::<Unpublished>(tx)),
@@ -788,6 +868,9 @@ fn every_table_decodes(tx: &ReadTx) {
         "a wallet row is missing"
     );
     assert!(tx.tip().expect("tip").is_some());
+    tx.check_chain()
+        .expect("the chain tables hold their invariants");
+    chain_view(tx).expect("the chain tables pass the independent check");
     assert!(tx.processed_marker().expect("marker").is_some());
     assert!(tx.birth_state().expect("birth").is_some());
     assert!(

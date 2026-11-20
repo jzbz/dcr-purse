@@ -16,12 +16,17 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
+mod support;
+use support::chain::chain_view;
+use support::chain_header;
+
 use purse_errors::Kind;
 use purse_store::{
-    AccountKey, AccountName, AccountNames, AccountNumber, AccountRow, Accounts, BlockRow, Blocks,
-    CFilterRow, CreditKey, CreditRow, Credits, Error, FORMAT_MAGIC, Hash32, HeaderBytes, Headers,
-    Height, MAX_DURABLE_INTERVAL, MetaKey, Migration, OpenOptions, SCHEMA_VERSION, Schema, Store,
-    TableId, Tip, WriteTx,
+    AccountKey, AccountName, AccountNames, AccountNumber, AccountRow, Accounts, BlockByHash,
+    BlockRow, Blocks, CFilterRow, CFiltersDetached, ChainBlock, CreditKey, CreditRow, Credits,
+    Error, FORMAT_MAGIC, GENESIS_AGAIN_TEXT, Hash32, HeaderBytes, Headers, HeadersDetached, Height,
+    IN_MAIN_CHAIN_TEXT, MAX_DURABLE_INTERVAL, MAX_VALUE_SIZE, MetaKey, Migration, OpenOptions,
+    SCHEMA_VERSION, Schema, Store, TableId, Tip, WriteTx,
 };
 
 fn path(name: &str) -> PathBuf {
@@ -339,11 +344,11 @@ fn a_corrupt_row_is_an_io_error_naming_the_table() {
 }
 
 fn add_marker(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
-    tx.put::<Headers>(&h(0xee), &HeaderBytes([0xee; 180]))
+    tx.put::<HeadersDetached>(&h(0xee), &HeaderBytes([0xee; 180]))
 }
 
 fn add_second_marker(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
-    tx.put::<Headers>(&h(0xef), &HeaderBytes([0xef; 180]))
+    tx.put::<HeadersDetached>(&h(0xef), &HeaderBytes([0xef; 180]))
 }
 
 fn failing_step(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
@@ -373,8 +378,8 @@ fn migrations_run_one_step_per_transaction_and_stamp_the_version() {
     let store = OpenOptions::new().schema(schema).open(&p).unwrap();
     let tx = store.read().unwrap();
     assert_eq!(tx.schema_version().unwrap(), Some(SCHEMA_VERSION + 2));
-    assert!(tx.contains::<Headers>(&h(0xee)).unwrap());
-    assert!(tx.contains::<Headers>(&h(0xef)).unwrap());
+    assert!(tx.contains::<HeadersDetached>(&h(0xee)).unwrap());
+    assert!(tx.contains::<HeadersDetached>(&h(0xef)).unwrap());
     drop(tx);
     store.close().unwrap();
 
@@ -415,7 +420,7 @@ fn a_failed_step_leaves_the_old_version_and_nothing_of_the_step() {
     let store = Store::open(&p).unwrap();
     let tx = store.read().unwrap();
     assert_eq!(tx.schema_version().unwrap(), Some(SCHEMA_VERSION));
-    assert!(!tx.contains::<Headers>(&h(0xee)).unwrap());
+    assert!(!tx.contains::<HeadersDetached>(&h(0xee)).unwrap());
 }
 
 #[test]
@@ -614,41 +619,93 @@ fn store_is_send_and_sync() {
     assert_send_sync::<Error>();
 }
 
+/// A block of a test chain: its row, header and filter.
+type TestBlock = (BlockRow, HeaderBytes, CFilterRow);
+
+/// A raw write that breaks one invariant of the chain tables: its name,
+/// the start of `check_chain`'s complaint about it (so that each break
+/// shows which of the checks catches it), and the write.
+type Break = (
+    &'static str,
+    &'static str,
+    fn(&mut WriteTx<'_>, &[TestBlock]),
+);
+
+/// The block at `height` of a test chain: hash `salt ‖ height`, a header
+/// naming `prev`, a filter of a few bytes.
+fn chain_block(height: u32, prev: &Hash32, salt: u8) -> TestBlock {
+    let mut hash = [salt; 32];
+    hash[..4].copy_from_slice(&height.to_be_bytes());
+    let row = BlockRow {
+        hash: Hash32(hash),
+        time: 1_700_000_000 + i64::from(height),
+        ..BlockRow::default()
+    };
+    let filter = CFilterRow {
+        key: [salt; 16],
+        filter: vec![height as u8; 3],
+    };
+    (row, chain_header(height, prev, salt), filter)
+}
+
+fn cb<'a>(b: &'a TestBlock) -> ChainBlock<'a> {
+    ChainBlock {
+        row: &b.0,
+        header: &b.1,
+        filter: Some(&b.2),
+    }
+}
+
+/// `n` blocks from `from`, above the block `prev`.
+fn branch(from: u32, n: u32, prev: Hash32, salt: u8) -> Vec<TestBlock> {
+    let mut out = Vec::new();
+    let mut prev = prev;
+    for height in from..from + n {
+        let b = chain_block(height, &prev, salt);
+        prev = b.0.hash;
+        out.push(b);
+    }
+    out
+}
+
+/// The chain tables pass the store's check and the tests' independent one.
+fn checked(tx: &purse_store::ReadTx) {
+    tx.check_chain().unwrap();
+    chain_view(tx).unwrap();
+}
+
+/// A store holding `blocks` as its main chain from the genesis block.
+fn chain_store(name: &str, blocks: &[TestBlock]) -> Store {
+    let store = Store::create(&path(name)).unwrap();
+    store
+        .update(|tx| {
+            let v: Vec<ChainBlock<'_>> = blocks.iter().map(cb).collect();
+            tx.connect_blocks(0, &v)
+        })
+        .unwrap();
+    store
+}
+
 #[test]
 fn initial_sync_commits_durably_every_interval_and_at_the_end() {
     let p = path("initial-sync.redb");
     let store = Store::create(&p).unwrap();
     let mut sync = store.initial_sync();
     let mut durable_at = Vec::new();
+    let mut prev = Hash32::default();
     for i in 1..=120u32 {
+        let b = chain_block(i - 1, &prev, 1);
         let ((), durable) = sync
-            .batch(|b| {
-                let hash = Hash32({
-                    let mut x = [0u8; 32];
-                    x[..4].copy_from_slice(&i.to_be_bytes());
-                    x
-                });
-                b.put_header(&hash, &HeaderBytes([i as u8; 180]))?;
-                b.put_cfilter(
-                    &hash,
-                    &CFilterRow {
-                        key: [1; 16],
-                        filter: vec![i as u8; 3],
-                    },
-                )?;
-                b.put_block(
-                    i,
-                    &BlockRow {
-                        hash,
-                        ..BlockRow::default()
-                    },
-                )?;
-                b.set_tip(&Tip { height: i, hash })?;
-                b.set_processed_marker(&hash)?;
-                assert_eq!(b.block_height(&hash)?, Some(i));
+            .batch(|x| {
+                x.connect_block(i - 1, cb(&b))?;
+                x.set_processed_marker(&b.0.hash)?;
+                assert_eq!(x.block_height(&b.0.hash)?, Some(i - 1));
+                assert_eq!(x.header(&b.0.hash)?, Some(b.1));
+                assert_eq!(x.tip()?.map(|t| t.height), Some(i - 1));
                 Ok::<_, Error>(())
             })
             .unwrap();
+        prev = b.0.hash;
         if durable {
             durable_at.push(i);
         }
@@ -656,13 +713,19 @@ fn initial_sync_commits_durably_every_interval_and_at_the_end() {
     assert_eq!(durable_at, [50, 100]);
     assert_eq!(sync.pending(), 20);
     // Readers see non-durable commits at once.
-    assert_eq!(store.read().unwrap().tip().unwrap().unwrap().height, 120);
+    assert_eq!(store.read().unwrap().tip().unwrap().unwrap().height, 119);
     sync.finish().unwrap();
     let tx = store.read().unwrap();
-    assert_eq!(tx.len(TableId::Headers).unwrap(), 120);
-    assert_eq!(tx.len(TableId::CFilters).unwrap(), 120);
-    assert_eq!(tx.len(TableId::Blocks).unwrap(), 120);
-    assert_eq!(tx.len(TableId::BlockByHash).unwrap(), 120);
+    for t in [
+        TableId::Headers,
+        TableId::CFilters,
+        TableId::Blocks,
+        TableId::BlockByHash,
+    ] {
+        assert_eq!(tx.len(t).unwrap(), 120, "{}", t.name());
+    }
+    assert!(tx.is_empty(TableId::HeadersDetached).unwrap());
+    checked(&tx);
 }
 
 #[test]
@@ -687,160 +750,1001 @@ fn a_failed_batch_keeps_nothing_and_does_not_count() {
     let store = Store::create(&p).unwrap();
     let mut sync = store.initial_sync().with_interval(2).unwrap();
     let r = sync.batch(|b| {
-        b.put_header(&h(1), &HeaderBytes([1; 180]))?;
+        b.insert_detached(&h(1), &HeaderBytes([1; 180]), None)?;
         Err::<(), _>(Error::from(redb::Error::Corrupted("fetch failed".into())))
     });
     assert!(r.is_err());
     assert_eq!(sync.pending(), 0);
-    assert!(!store.read().unwrap().contains::<Headers>(&h(1)).unwrap());
+    assert!(
+        !store
+            .read()
+            .unwrap()
+            .contains::<HeadersDetached>(&h(1))
+            .unwrap()
+    );
     let ((), durable) = sync.batch(|_| Ok::<_, Error>(())).unwrap();
     assert!(!durable);
     let ((), durable) = sync.batch(|_| Ok::<_, Error>(())).unwrap();
     assert!(durable);
 }
 
+/// Main-chain rows are keyed by height and found by hash through the
+/// index; a range of filters is one scan; reads inside a write
+/// transaction see its own chain writes.
 #[test]
-fn a_header_reorganisation_keeps_detached_headers() {
-    let p = path("initial-sync-reorg.redb");
-    let store = Store::create(&p).unwrap();
-    let mut sync = store.initial_sync();
-    sync.batch(|b| {
-        b.put_header(&h(1), &HeaderBytes([1; 180]))?;
-        b.put_block(
-            1,
-            &BlockRow {
-                hash: h(1),
-                ..BlockRow::default()
-            },
-        )
-    })
-    .unwrap();
-    sync.batch(|b| {
-        let old = b.remove_block(1)?.unwrap();
-        assert_eq!(old.hash, h(1));
-        assert_eq!(b.remove_block(1)?, None);
-        b.put_header(&h(2), &HeaderBytes([2; 180]))?;
-        b.put_block(
-            1,
-            &BlockRow {
-                hash: h(2),
-                ..BlockRow::default()
-            },
-        )
-    })
-    .unwrap();
-    sync.finish().unwrap();
+fn chain_rows_by_height_and_by_hash() {
+    let blocks = branch(0, 10, Hash32::default(), 3);
+    let store = chain_store("chain-reads.redb", &blocks);
     let tx = store.read().unwrap();
-    assert!(tx.contains::<Headers>(&h(1)).unwrap());
-    assert_eq!(tx.get::<Blocks>(&Height(1)).unwrap().unwrap().hash, h(2));
-    assert_eq!(tx.len(TableId::BlockByHash).unwrap(), 1);
-}
-
-/// A header batch cannot change wallet state without durability: a block
-/// row with wallet transactions or the invalidation flag is refused, as a
-/// new row, as a row to replace and as a row to remove, and nothing of the
-/// refused call is written.
-#[test]
-fn a_header_batch_refuses_block_rows_with_wallet_state() {
-    let p = path("initial-sync-wallet-state.redb");
-    let store = Store::create(&p).unwrap();
-    let with_txs = BlockRow {
-        hash: h(10),
-        wallet_txs: 3,
-        ..BlockRow::default()
-    };
-    let invalid = BlockRow {
-        hash: h(12),
-        invalid: true,
-        ..BlockRow::default()
-    };
+    checked(&tx);
+    for (height, (row, header, filter)) in blocks.iter().enumerate() {
+        let height = height as u32;
+        assert_eq!(tx.block(height).unwrap(), Some(*row));
+        assert_eq!(tx.block_height(&row.hash).unwrap(), Some(height));
+        assert_eq!(tx.header_at(height).unwrap(), Some(*header));
+        assert_eq!(tx.header(&row.hash).unwrap(), Some(*header));
+        assert_eq!(tx.cfilter_at(height).unwrap().as_ref(), Some(filter));
+        assert_eq!(tx.cfilter(&row.hash).unwrap().as_ref(), Some(filter));
+        assert_eq!(header.height(), height);
+    }
+    assert_eq!(tx.header(&h(0x99)).unwrap(), None);
+    assert_eq!(tx.block_height(&h(0x99)).unwrap(), None);
+    let got: Vec<u32> = tx
+        .cfilters_in(3..7)
+        .unwrap()
+        .map(|r| r.unwrap().0.0)
+        .collect();
+    assert_eq!(got, [3, 4, 5, 6]);
+    let got: Vec<u32> = tx
+        .headers_in(8..)
+        .unwrap()
+        .rev()
+        .map(|r| r.unwrap().0.0)
+        .collect();
+    assert_eq!(got, [9, 8]);
+    let got: Vec<Hash32> = tx
+        .blocks_in(..=1)
+        .unwrap()
+        .map(|r| r.unwrap().1.hash)
+        .collect();
+    assert_eq!(got, [blocks[0].0.hash, blocks[1].0.hash]);
+    assert_eq!(
+        tx.tip().unwrap(),
+        Some(Tip {
+            height: 9,
+            hash: blocks[9].0.hash
+        })
+    );
+    // The keys are the heights, big-endian.
+    assert_eq!(
+        tx.get_raw(TableId::Headers, &5u32.to_be_bytes()).unwrap(),
+        Some(blocks[5].1.0.to_vec())
+    );
+    drop(tx);
     store
         .update(|tx| {
-            for (height, row) in [(10, with_txs), (12, invalid)] {
-                tx.put::<Blocks>(&Height(height), &row)?;
-                tx.put::<purse_store::BlockByHash>(&row.hash, &Height(height))?;
+            let next = chain_block(10, &blocks[9].0.hash, 3);
+            tx.connect_block(10, cb(&next))?;
+            assert_eq!(tx.header(&next.0.hash)?, Some(next.1));
+            assert_eq!(tx.cfilters_in(9..)?.count(), 2);
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    checked(&store.read().unwrap());
+}
+
+/// A reorganisation moves the detached blocks' headers and filters to the
+/// detached tables, where a lookup by hash still finds them, and connects
+/// the new branch at the same heights, in one transaction; a block of the
+/// old branch connected again takes its rows back.
+#[test]
+fn a_reorganisation_moves_rows_between_the_layouts() {
+    let old = branch(0, 6, Hash32::default(), 1);
+    let store = chain_store("chain-reorg.redb", &old);
+    let new = branch(4, 4, old[3].0.hash, 2);
+    let detached = store
+        .update(|tx| {
+            let v: Vec<ChainBlock<'_>> = new.iter().map(cb).collect();
+            tx.reorganize(3, &v)
+        })
+        .unwrap();
+    assert_eq!(
+        detached,
+        vec![(5, old[5].0), (4, old[4].0)],
+        "detached rows, highest first"
+    );
+    let tx = store.read().unwrap();
+    checked(&tx);
+    assert_eq!(tx.tip().unwrap().unwrap().height, 7);
+    for (i, b) in new.iter().enumerate() {
+        assert_eq!(tx.header_at(4 + i as u32).unwrap(), Some(b.1));
+    }
+    for b in &old[4..] {
+        assert_eq!(tx.block_height(&b.0.hash).unwrap(), None);
+        assert_eq!(tx.header(&b.0.hash).unwrap(), Some(b.1), "detached header");
+        assert_eq!(tx.cfilter(&b.0.hash).unwrap(), Some(b.2.clone()));
+        assert_eq!(tx.get::<HeadersDetached>(&b.0.hash).unwrap(), Some(b.1));
+    }
+    assert_eq!(tx.len(TableId::HeadersDetached).unwrap(), 2);
+    assert_eq!(tx.len(TableId::CFiltersDetached).unwrap(), 2);
+    drop(tx);
+
+    // Back to the old branch: the new one is detached, the old blocks
+    // promoted from their detached rows, filter included.
+    store
+        .update(|tx| {
+            let gone = tx.disconnect_from(4)?;
+            assert_eq!(gone.len(), 4);
+            assert_eq!(tx.tip()?.map(|t| t.height), Some(3));
+            tx.promote_block(4, &old[4].0)?;
+            tx.promote_block(5, &old[5].0)
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    checked(&tx);
+    for (height, b) in old.iter().enumerate() {
+        assert_eq!(tx.block(height as u32).unwrap(), Some(b.0));
+        assert_eq!(tx.cfilter_at(height as u32).unwrap(), Some(b.2.clone()));
+    }
+    assert_eq!(tx.len(TableId::HeadersDetached).unwrap(), 4);
+    assert!(tx.get::<HeadersDetached>(&old[4].0.hash).unwrap().is_none());
+    drop(tx);
+
+    // A reorganisation may connect a block of the branch it detaches; a
+    // block connected without a filter keeps its detached one.
+    store
+        .update(|tx| {
+            let again = ChainBlock {
+                filter: None,
+                ..cb(&new[0])
+            };
+            tx.reorganize(3, &[again])?;
+            assert_eq!(tx.cfilter_at(4)?, Some(new[0].2.clone()));
+            let back = ChainBlock {
+                filter: None,
+                ..cb(&old[4])
+            };
+            tx.reorganize(3, &[back])?;
+            assert_eq!(tx.cfilter_at(4)?, Some(old[4].2.clone()));
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    checked(&store.read().unwrap());
+}
+
+/// The row count of every chain table, to show a refused call wrote
+/// nothing.
+fn chain_lens(tx: &mut WriteTx<'_>) -> Vec<u64> {
+    [
+        TableId::Blocks,
+        TableId::Headers,
+        TableId::CFilters,
+        TableId::BlockByHash,
+        TableId::HeadersDetached,
+        TableId::CFiltersDetached,
+    ]
+    .into_iter()
+    .map(|t| tx.len(t).unwrap())
+    .collect()
+}
+
+/// Every refusal of the chain operations writes nothing, and the
+/// transaction stays usable after it.
+#[test]
+fn chain_operations_refuse_what_would_break_the_chain() {
+    let blocks = branch(0, 4, Hash32::default(), 1);
+    let store = chain_store("chain-refusals.redb", &blocks);
+    let before = store.read().unwrap().tip().unwrap();
+    store
+        .update(|tx| {
+            let lens = chain_lens(tx);
+            let tip = blocks[3].0.hash;
+            let invalid = |e: Error| assert_eq!(e.kind(), Kind::Invalid, "{e}");
+            // The block that fits the tip, a real (row, header) pair.
+            let b4 = chain_block(4, &tip, 2);
+            // Not the next height, above or below, given with a header that
+            // states that wrong height: refused for the height or the
+            // header, whichever is checked.
+            let b = chain_block(5, &tip, 2);
+            invalid(tx.connect_block(5, cb(&b)).unwrap_err());
+            let b = chain_block(3, &blocks[2].0.hash, 2);
+            invalid(tx.connect_block(3, cb(&b)).unwrap_err());
+            // The height given is checked on its own: the block that fits
+            // the tip, given any height but the next, is refused.
+            for wrong in [5, 3, 0, u32::MAX] {
+                let e = tx.connect_block(wrong, cb(&b4)).unwrap_err();
+                assert_eq!(e.kind(), Kind::Invalid, "{e}");
+                assert_eq!(
+                    e.to_string(),
+                    "invalid operation: a block connects only at the height above the tip",
+                    "height {wrong}"
+                );
+                invalid(tx.connect_blocks(wrong, &[cb(&b4)]).unwrap_err());
+                invalid(tx.connect_blocks(wrong, &[]).unwrap_err());
+            }
+            // A header stating another height, or naming another parent.
+            let b = chain_block(5, &tip, 2);
+            invalid(tx.connect_block(4, cb(&b)).unwrap_err());
+            let b = chain_block(4, &blocks[2].0.hash, 2);
+            invalid(tx.connect_block(4, cb(&b)).unwrap_err());
+            // Blocks after the first must name the one before.
+            let b5 = chain_block(5, &h(0x55), 2);
+            invalid(tx.connect_blocks(4, &[cb(&b4), cb(&b5)]).unwrap_err());
+
+            // A main-chain block delivered again, its own header with it:
+            // dcrwallet's kind and text, whatever height is given, the
+            // check reading the height its header states, as
+            // `ExtendMainChain` does before it looks at the parent.
+            let exist = |e: Error| {
+                assert_eq!(e.kind(), Kind::Exist, "{e}");
+                assert_eq!(
+                    e.to_string(),
+                    format!("item already exists: {IN_MAIN_CHAIN_TEXT}")
+                );
+            };
+            for (j, b) in blocks.iter().enumerate().skip(1) {
+                for given in [j as u32, 4, 9] {
+                    exist(tx.connect_block(given, cb(b)).unwrap_err());
+                }
+                // Later in a call, after a block that would connect.
+                exist(tx.connect_blocks(4, &[cb(&b4), cb(b)]).unwrap_err());
+                // In a reorganisation, at or below the fork point.
+                for fork in j as u32..4 {
+                    exist(tx.reorganize(fork, &[cb(b)]).unwrap_err());
+                }
+            }
+            // The same block twice in one call: the second copy is a block
+            // already in the main chain.
+            exist(tx.connect_blocks(4, &[cb(&b4), cb(&b4)]).unwrap_err());
+            // The genesis block again: dcrwallet refuses any header stating
+            // height 0 with kind `Invalid`.
+            let genesis = format!("invalid operation: {GENESIS_AGAIN_TEXT}");
+            for given in [0, 4] {
+                let e = tx.connect_block(given, cb(&blocks[0])).unwrap_err();
+                assert_eq!(e.kind(), Kind::Invalid, "{e}");
+                assert_eq!(e.to_string(), genesis);
+            }
+            let e = tx.reorganize(0, &[cb(&blocks[0])]).unwrap_err();
+            assert_eq!(e.to_string(), genesis);
+            // A header stating a height of 2^31 or more: dcrwallet reads the
+            // height as an `int32`, negative there, and gives the same
+            // refusal (`wallet/udb/txmined.go:204-207`), whatever height is
+            // given and though the header names the tip.
+            for stated in [1u32 << 31, (1 << 31) + 4, u32::MAX] {
+                let big = chain_block(stated, &tip, 2);
+                for given in [4, stated] {
+                    let e = tx.connect_block(given, cb(&big)).unwrap_err();
+                    assert_eq!(e.kind(), Kind::Invalid, "{e}");
+                    assert_eq!(e.to_string(), genesis, "stated {stated}, given {given}");
+                }
+                let e = tx.connect_blocks(4, &[cb(&b4), cb(&big)]).unwrap_err();
+                assert_eq!(e.to_string(), genesis, "stated {stated}, after b4");
+                let e = tx.reorganize(3, &[cb(&big)]).unwrap_err();
+                assert_eq!(e.to_string(), genesis, "stated {stated}, reorganised");
+            }
+            // The last height dcrwallet reads as positive is no such
+            // header: refused for not being the next height only.
+            let e = tx
+                .connect_block(4, cb(&chain_block(i32::MAX as u32, &tip, 2)))
+                .unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                "invalid operation: the header does not state the height it is connected at"
+            );
+            // A main-chain block's hash with a header stating another
+            // height is no block delivered again (that header is not the
+            // block's), and connecting it would put one hash at two
+            // heights: kind `Invalid`.
+            let other = (blocks[1].0, chain_header(4, &tip, 9), blocks[1].2.clone());
+            invalid(tx.connect_block(4, cb(&other)).unwrap_err());
+            invalid(tx.reorganize(3, &[cb(&other)]).unwrap_err());
+            let twice = (b4.0, chain_header(5, &b4.0.hash, 2), b4.2.clone());
+            invalid(tx.connect_blocks(4, &[cb(&b4), cb(&twice)]).unwrap_err());
+
+            let e = tx
+                .insert_detached(&blocks[2].0.hash, &blocks[2].1, None)
+                .unwrap_err();
+            exist(e);
+            // The genesis block stays; a fork point above the tip is no
+            // fork point; nothing to promote; no block for a filter.
+            invalid(tx.disconnect_from(0).unwrap_err());
+            invalid(tx.reorganize(4, &[]).unwrap_err());
+            invalid(tx.promote_block(4, &b4.0).unwrap_err());
+            invalid(tx.put_cfilter_at(4, &b4.2).unwrap_err());
+            // Nothing above the tip to detach.
+            assert!(tx.disconnect_from(4)?.is_empty());
+            assert_eq!(tx.tip()?, before);
+            assert_eq!(chain_lens(tx), lens, "a refused call wrote nothing");
+            // Still usable: a valid connect goes through.
+            tx.connect_block(4, cb(&b4))
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    checked(&tx);
+    assert_eq!(tx.tip().unwrap().unwrap().height, 4);
+    assert!(tx.is_empty(TableId::HeadersDetached).unwrap());
+    drop(tx);
+
+    // An empty chain starts at height 0, whatever header comes with
+    // another height, and has nothing to reorganise.
+    let store = Store::create(&path("chain-empty.redb")).unwrap();
+    store
+        .update(|tx| {
+            let b = chain_block(1, &Hash32::default(), 1);
+            assert_eq!(
+                tx.connect_block(1, cb(&b)).unwrap_err().kind(),
+                Kind::Invalid
+            );
+            for wrong in [1, 3] {
+                let e = tx.connect_block(wrong, cb(&blocks[0])).unwrap_err();
+                assert_eq!(e.kind(), Kind::Invalid, "{e}");
+                assert_eq!(
+                    e.to_string(),
+                    "invalid operation: an empty main chain starts with a block at height 0"
+                );
+            }
+            // The genesis block twice in one call.
+            let e = tx
+                .connect_blocks(0, &[cb(&blocks[0]), cb(&blocks[0])])
+                .unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                format!("invalid operation: {GENESIS_AGAIN_TEXT}")
+            );
+            // A first block whose header states 2^31 or more: dcrwallet
+            // has no `ExtendMainChain` call for the genesis block, and the
+            // store refuses such a header on any chain.
+            let big = chain_block(1 << 31, &Hash32::default(), 1);
+            let e = tx.connect_block(0, cb(&big)).unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                format!("invalid operation: {GENESIS_AGAIN_TEXT}")
+            );
+            assert_eq!(tx.reorganize(0, &[]).unwrap_err().kind(), Kind::Invalid);
+            assert!(tx.disconnect_from(1)?.is_empty());
+            assert_eq!(chain_lens(tx), [0; 6]);
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    assert_eq!(tx.tip().unwrap(), None);
+    checked(&tx);
+    drop(tx);
+
+    // A tip at height u32::MAX, written raw (the operations never put a
+    // block above 2^31 - 1): there is no height above it, so a
+    // reorganisation there with blocks to connect is refused by that
+    // check, before any block is looked at, and one with none detaches
+    // nothing and changes nothing.
+    let store = Store::create(&path("chain-max-tip.redb")).unwrap();
+    let top = chain_block(u32::MAX, &h(0x01), 4);
+    store
+        .update(|tx| {
+            let key = Height(u32::MAX);
+            tx.put::<Blocks>(&key, &top.0)?;
+            tx.put::<Headers>(&key, &top.1)?;
+            tx.put::<BlockByHash>(&top.0.hash, &key)?;
+            tx.set_tip(&Tip {
+                height: u32::MAX,
+                hash: top.0.hash,
+            })
+        })
+        .unwrap();
+    store
+        .update(|tx| {
+            let lens = chain_lens(tx);
+            let tip = tx.tip()?;
+            let next = chain_block(u32::MAX, &top.0.hash, 5);
+            let e = tx.reorganize(u32::MAX, &[cb(&next)]).unwrap_err();
+            assert_eq!(e.kind(), Kind::Invalid, "{e}");
+            assert_eq!(
+                e.to_string(),
+                "invalid operation: no height above the fork point"
+            );
+            let e = tx.connect_blocks(u32::MAX, &[cb(&next)]).unwrap_err();
+            assert_eq!(e.kind(), Kind::Invalid, "{e}");
+            assert_eq!(tx.reorganize(u32::MAX, &[])?, []);
+            assert_eq!(tx.block(u32::MAX)?, Some(top.0));
+            assert_eq!(tx.block_height(&top.0.hash)?, Some(u32::MAX));
+            assert_eq!(tx.block_height(&next.0.hash)?, None);
+            assert_eq!(tx.tip()?, tip);
+            assert_eq!(chain_lens(tx), lens, "a refused call wrote nothing");
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+}
+
+/// A filter whose row is longer than bbolt's value limit is refused by
+/// every chain operation given it, as the put that writes it would refuse
+/// it, but before the call writes anything: the earlier blocks of the
+/// call, the detach of a reorganisation and a detached header stay
+/// unwritten, and a commit after the refusals leaves a chain that passes
+/// both checks.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn a_filter_over_the_value_limit_is_refused_before_anything_is_written() {
+    // Allocated zeroed and never written, so the 2 GiB costs address
+    // space, not memory.
+    let huge = CFilterRow {
+        key: [9; 16],
+        filter: vec![0; MAX_VALUE_SIZE - 16 + 1],
+    };
+    let too_large = |e: Error| {
+        assert_eq!(e.kind(), Kind::Invalid, "{e}");
+        assert_eq!(e.to_string(), "invalid operation: value too large");
+    };
+    let blocks = branch(0, 3, Hash32::default(), 1);
+    let store = chain_store("chain-huge-filter.redb", &blocks);
+    let b3 = chain_block(3, &blocks[2].0.hash, 2);
+    let b4 = chain_block(4, &b3.0.hash, 2);
+    store
+        .update(|tx| {
+            let lens = chain_lens(tx);
+            let tip = tx.tip()?;
+            let huge3 = ChainBlock {
+                filter: Some(&huge),
+                ..cb(&b3)
+            };
+            let huge4 = ChainBlock {
+                filter: Some(&huge),
+                ..cb(&b4)
+            };
+            let none3 = ChainBlock {
+                filter: None,
+                ..cb(&b3)
+            };
+            // The second block's filter, after a first that would connect.
+            too_large(tx.connect_blocks(3, &[none3, huge4]).unwrap_err());
+            too_large(tx.connect_block(3, huge3).unwrap_err());
+            // In a reorganisation, after the detach it would make.
+            let x1 = chain_block(1, &blocks[0].0.hash, 3);
+            let hugex = ChainBlock {
+                filter: Some(&huge),
+                ..cb(&x1)
+            };
+            too_large(tx.reorganize(0, &[hugex]).unwrap_err());
+            // A detached header with such a filter: neither is written.
+            too_large(
+                tx.insert_detached(&b3.0.hash, &b3.1, Some(&huge))
+                    .unwrap_err(),
+            );
+            too_large(tx.put_cfilter_at(2, &huge).unwrap_err());
+            assert_eq!(tx.tip()?, tip);
+            assert_eq!(chain_lens(tx), lens, "a refused call wrote nothing");
+            // The transaction stays usable, and is committed.
+            tx.connect_block(3, cb(&b3))
+        })
+        .unwrap();
+    checked(&store.read().unwrap());
+
+    // The same in a relaxed header batch, committed after the refusals.
+    let mut sync = store.initial_sync();
+    let ((), durable) = sync
+        .batch(|b| {
+            let r = b.connect_block(
+                4,
+                ChainBlock {
+                    filter: Some(&huge),
+                    ..cb(&b4)
+                },
+            );
+            too_large(r.unwrap_err());
+            let r = b.insert_detached(&b4.0.hash, &b4.1, Some(&huge));
+            too_large(r.unwrap_err());
+            assert!(b.header(&b4.0.hash)?.is_none());
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    assert!(!durable);
+    assert_eq!(sync.pending(), 1);
+    sync.finish().unwrap();
+    let tx = store.read().unwrap();
+    checked(&tx);
+    assert_eq!(tx.tip().unwrap().unwrap().height, 3);
+    assert!(tx.is_empty(TableId::HeadersDetached).unwrap());
+}
+
+/// A header stating a height of 2^31 or more is refused as dcrwallet's
+/// `ExtendMainChain` refuses it, live against the pin through the
+/// `oprunner` oracle: there `int32(header.Height)` is negative, so the
+/// refusal is `Invalid`, `block 0 cannot be added`, before the parent and
+/// the height are looked at (`wallet/udb/txmined.go:204-207`). Both sides
+/// extend a chain whose tip is at height 1 with a header naming the tip.
+#[test]
+fn heights_past_int32_are_refused_as_extend_main_chain_refuses_them() {
+    use purse_testutil::serde_json::{Value, json};
+    let Some(mut o) = purse_testutil::oracle_or_skip("oprunner") else {
+        return;
+    };
+    let heights = [1u32 << 31, (1 << 31) + 4, u32::MAX - 1, u32::MAX];
+    let mut ops = vec![json!({"label": "b1", "op": "store.extend_main_chain"})];
+    ops.extend(
+        heights
+            .iter()
+            .map(|h| json!({"op": "store.extend_main_chain", "height": h})),
+    );
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "headers stating heights past int32",
+        "ops": ops,
+        "setup": {
+            "chain_time": 1_794_000_000,
+            "clock": 1_794_990_000,
+            "network": "simnet",
+            "privpass": "private",
+            "pubpass": "public",
+            "rand": "16".repeat(32),
+            "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        },
+    });
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("purse-store-oprunner-int32");
+    let _ = std::fs::remove_dir_all(&dir);
+    let run = o
+        .try_call(
+            "run",
+            json!({"script": script, "dir": dir.to_str().expect("utf-8 path")}),
+        )
+        .unwrap_or_else(|e| panic!("oprunner: {}", e.text));
+    let results = run["results"].as_array().expect("results");
+    assert_eq!(results.len(), heights.len() + 1, "{run}");
+    assert_eq!(results[0]["ok"]["height"], json!(1), "{}", results[0]);
+
+    let blocks = branch(0, 2, Hash32::default(), 1);
+    let store = chain_store("chain-int32-heights.redb", &blocks);
+    store
+        .update(|tx| {
+            for (h, go) in heights.iter().zip(&results[1..]) {
+                let b = chain_block(*h, &blocks[1].0.hash, 2);
+                let e = tx.connect_block(2, cb(&b)).unwrap_err();
+                let err: &Value = &go["err"];
+                assert_eq!(err["kind"], json!("Invalid"), "height {h}: {go}");
+                assert_eq!(e.kind(), Kind::Invalid, "height {h}: {e}");
+                assert_eq!(err["text"], json!(e.to_string()), "height {h}");
             }
             Ok::<_, Error>(())
         })
         .unwrap();
+    checked(&store.read().unwrap());
+}
+
+/// A chain of `n` blocks whose hashes are their headers' (dcrd's
+/// serialization and hash, through `dcroxide-wire`), from a genesis block.
+fn hashed_chain(n: u32, salt: u8) -> Vec<(BlockRow, HeaderBytes)> {
+    let mut out = Vec::new();
+    let mut prev = Hash32::default();
+    for height in 0..n {
+        let raw = chain_header(height, &prev, salt).0;
+        let (wire, _) = dcroxide_wire::BlockHeader::from_bytes(&raw).expect("180 bytes decode");
+        let header = HeaderBytes(wire.serialize());
+        assert_eq!((header.height(), header.prev_block()), (height, prev));
+        let row = BlockRow {
+            hash: Hash32(wire.block_hash().0),
+            ..BlockRow::default()
+        };
+        prev = row.hash;
+        out.push((row, header));
+    }
+    out
+}
+
+/// A main-chain block delivered a second time, as dcrwallet's notification
+/// path re-delivers one (each block a real header and the hash of it), is
+/// refused with dcrwallet's `Exist`, which that path ignores
+/// (`wallet/chainntfns.go:45-49`): `ExtendMainChain` looks for the block
+/// at the height its header states before it checks the parent and the
+/// height (`wallet/udb/txmined.go:214-226`). The genesis block delivered
+/// again is `Invalid`, as dcrwallet refuses any header of height 0.
+#[test]
+fn a_block_delivered_again_is_refused_as_dcrwallet_refuses_it() {
+    let chain = hashed_chain(5, 0x3c);
+    let store = Store::create(&path("chain-delivered-again.redb")).unwrap();
+    let block = |i: usize| ChainBlock {
+        row: &chain[i].0,
+        header: &chain[i].1,
+        filter: None,
+    };
+    store
+        .update(|tx| {
+            let v: Vec<ChainBlock<'_>> = (0..5).map(block).collect();
+            tx.connect_blocks(0, &v)
+        })
+        .unwrap();
+    let next = hashed_chain(6, 0x3c).pop().unwrap();
+    let next = ChainBlock {
+        row: &next.0,
+        header: &next.1,
+        filter: None,
+    };
+    store
+        .update(|tx| {
+            let lens = chain_lens(tx);
+            for i in 1..5 {
+                // At the next height, at its own, or at any other.
+                for given in [5, i as u32, 0, u32::MAX] {
+                    let e = tx.connect_block(given, block(i)).unwrap_err();
+                    assert_eq!(e.kind(), Kind::Exist, "block {i} at {given}: {e}");
+                    assert_eq!(
+                        e.to_string(),
+                        format!("item already exists: {IN_MAIN_CHAIN_TEXT}")
+                    );
+                }
+                // After the block that does connect, in one call.
+                let e = tx.connect_blocks(5, &[next, block(i)]).unwrap_err();
+                assert_eq!(e.kind(), Kind::Exist, "{e}");
+                // After a rollback to a fork point at or above it.
+                let e = tx.reorganize(i as u32, &[block(i)]).unwrap_err();
+                assert_eq!(e.kind(), Kind::Exist, "{e}");
+            }
+            let e = tx.connect_blocks(5, &[next, next]).unwrap_err();
+            assert_eq!(e.kind(), Kind::Exist, "{e}");
+            let e = tx.connect_block(5, block(0)).unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                format!("invalid operation: {GENESIS_AGAIN_TEXT}")
+            );
+            assert_eq!(chain_lens(tx), lens, "a refused call wrote nothing");
+            // A block above the fork point comes back.
+            assert_eq!(tx.reorganize(3, &[block(4)])?, vec![(4, chain[4].0)]);
+            tx.connect_block(5, next)
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    checked(&tx);
+    assert_eq!(tx.tip().unwrap().unwrap().height, 5);
+}
+
+/// Detached headers of blocks never connected, and a main-chain block's
+/// filter added later.
+#[test]
+fn detached_inserts_and_missing_filters() {
+    let blocks = branch(0, 3, Hash32::default(), 1);
+    let store = Store::create(&path("chain-detached.redb")).unwrap();
+    store
+        .update(|tx| {
+            let v: Vec<ChainBlock<'_>> = blocks
+                .iter()
+                .map(|b| ChainBlock {
+                    filter: None,
+                    ..cb(b)
+                })
+                .collect();
+            tx.connect_blocks(0, &v)?;
+            assert_eq!(tx.cfilter_at(1)?, None);
+            tx.put_cfilter_at(1, &blocks[1].2)?;
+            let side = chain_block(3, &blocks[2].0.hash, 7);
+            tx.insert_detached(&side.0.hash, &side.1, None)?;
+            tx.insert_detached(&side.0.hash, &side.1, Some(&side.2))?;
+            assert_eq!(tx.header(&side.0.hash)?, Some(side.1));
+            assert_eq!(tx.cfilter(&side.0.hash)?, Some(side.2.clone()));
+            // Promoted, it becomes the tip with its filter.
+            tx.promote_block(3, &side.0)?;
+            assert_eq!(tx.cfilter_at(3)?, Some(side.2.clone()));
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    checked(&tx);
+    let got: Vec<u32> = tx
+        .cfilters_in(..)
+        .unwrap()
+        .map(|r| r.unwrap().0.0)
+        .collect();
+    assert_eq!(got, [1, 3]);
+    assert!(tx.is_empty(TableId::HeadersDetached).unwrap());
+    assert!(tx.is_empty(TableId::CFiltersDetached).unwrap());
+}
+
+/// `check_chain`, and the tests' independent check, name each invariant
+/// broken by a raw write, in either direction of each correspondence.
+#[test]
+fn check_chain_finds_each_broken_invariant() {
+    use purse_store::Codec as _;
+    let blocks = branch(0, 4, Hash32::default(), 1);
+    checked(&chain_store("chain-check-ok.redb", &blocks).read().unwrap());
+    let breaks: [Break; 19] = [
+        (
+            "gap",
+            "blocks hold 3 rows from height 0 to 3, not 0 to 2",
+            |tx, _| {
+                tx.delete::<Blocks>(&Height(1)).unwrap();
+            },
+        ),
+        // A hole in the main chain with every other table made to agree
+        // with it: the header above the hole names the block below it,
+        // and no filter, header or index row is left over. Only the
+        // contiguity check sees it.
+        (
+            "hole kept consistent",
+            "blocks hold 3 rows from height 0 to 3, not 0 to 2",
+            |tx, b| {
+                tx.delete::<Blocks>(&Height(1)).unwrap();
+                tx.delete::<Headers>(&Height(1)).unwrap();
+                tx.delete::<BlockByHash>(&b[1].0.hash).unwrap();
+                tx.delete_raw(TableId::CFilters, &Height(1).encode())
+                    .unwrap();
+                tx.delete_raw(TableId::CFilters, &Height(3).encode())
+                    .unwrap();
+                tx.put::<Headers>(&Height(2), &chain_header(2, &b[0].0.hash, 1))
+                    .unwrap();
+            },
+        ),
+        // The same with the hole at the bottom: no genesis block.
+        (
+            "no genesis block",
+            "blocks hold 3 rows from height 1 to 3, not 0 to 2",
+            |tx, b| {
+                tx.delete::<Blocks>(&Height(0)).unwrap();
+                tx.delete::<Headers>(&Height(0)).unwrap();
+                tx.delete::<BlockByHash>(&b[0].0.hash).unwrap();
+                tx.delete_raw(TableId::CFilters, &Height(3).encode())
+                    .unwrap();
+            },
+        ),
+        ("tip", "the tip row is not the last block", |tx, b| {
+            tx.set_tip(&Tip {
+                height: 2,
+                hash: b[2].0.hash,
+            })
+            .unwrap();
+        }),
+        (
+            "header missing",
+            "headers and blocks differ in length",
+            |tx, _| {
+                tx.delete::<Headers>(&Height(2)).unwrap();
+            },
+        ),
+        (
+            "header height",
+            "the header at height 2 states height 9",
+            |tx, b| {
+                tx.put::<Headers>(&Height(2), &chain_header(9, &b[1].0.hash, 1))
+                    .unwrap();
+            },
+        ),
+        (
+            "header parent",
+            "the header at height 2 does not name the block below",
+            |tx, _| {
+                tx.put::<Headers>(&Height(2), &chain_header(2, &h(0x44), 1))
+                    .unwrap();
+            },
+        ),
+        (
+            "index",
+            "block_by_hash does not map the block at height 1 to it",
+            |tx, b| {
+                tx.put::<BlockByHash>(&b[1].0.hash, &Height(3)).unwrap();
+            },
+        ),
+        (
+            "detached main",
+            "a detached header of a main-chain block",
+            |tx, b| {
+                tx.put::<HeadersDetached>(&b[1].0.hash, &b[1].1).unwrap();
+            },
+        ),
+        (
+            "filter alone",
+            "a detached filter without its detached header",
+            |tx, b| {
+                tx.put::<CFiltersDetached>(&h(0x77), &b[1].2).unwrap();
+            },
+        ),
+        (
+            "detached filter of a main-chain block",
+            "a detached header of a main-chain block",
+            |tx, b| {
+                tx.put::<HeadersDetached>(&b[2].0.hash, &b[2].1).unwrap();
+                tx.put::<CFiltersDetached>(&b[2].0.hash, &b[2].2).unwrap();
+            },
+        ),
+        (
+            "index row missing",
+            "block_by_hash and blocks differ in length",
+            |tx, b| {
+                tx.delete::<BlockByHash>(&b[2].0.hash).unwrap();
+            },
+        ),
+        (
+            "stale index row",
+            "block_by_hash and blocks differ in length",
+            |tx, _| {
+                tx.put::<BlockByHash>(&h(0x99), &Height(1)).unwrap();
+            },
+        ),
+        (
+            "index row and block row disagree",
+            "block_by_hash does not map the block at height 2 to it",
+            |tx, b| {
+                let mut row = b[2].0;
+                row.hash = h(0x98);
+                tx.put::<Blocks>(&Height(2), &row).unwrap();
+            },
+        ),
+        // The genesis header moved above the chain: as many headers as
+        // blocks, none at a height a filter check reads, and every header
+        // above the genesis block in place; only the walk's lookup at
+        // height 0 sees it.
+        (
+            "genesis header moved above the chain",
+            "no header at height 0",
+            |tx, b| {
+                tx.delete::<Headers>(&Height(0)).unwrap();
+                tx.put::<Headers>(&Height(b.len() as u32 + 1), &b[0].1)
+                    .unwrap();
+            },
+        ),
+        (
+            "header above the chain",
+            "headers and blocks differ in length",
+            |tx, b| {
+                tx.put::<Headers>(&Height(4), &chain_header(4, &b[3].0.hash, 1))
+                    .unwrap();
+            },
+        ),
+        // A filter at the first height above the tip, and far above it.
+        (
+            "filter just above the chain",
+            "a filter at height 4 above the main chain",
+            |tx, _| {
+                tx.put_raw(TableId::CFilters, &Height(4).encode(), &[0; 16])
+                    .unwrap();
+            },
+        ),
+        (
+            "no tip row",
+            "the tip row is not the last block",
+            |tx, _| {
+                tx.delete_raw(TableId::Meta, MetaKey::Tip.name()).unwrap();
+            },
+        ),
+        (
+            "tip row with no chain",
+            "a tip row with no main chain",
+            |tx, b| {
+                tx.disconnect_from(1).unwrap();
+                tx.delete::<Blocks>(&Height(0)).unwrap();
+                tx.delete::<Headers>(&Height(0)).unwrap();
+                tx.delete_raw(TableId::CFilters, &Height(0).encode())
+                    .unwrap();
+                tx.delete::<BlockByHash>(&b[0].0.hash).unwrap();
+            },
+        ),
+    ];
+    for (i, (name, why, f)) in breaks.into_iter().enumerate() {
+        let store = chain_store(&format!("chain-check-{i}.redb"), &blocks);
+        store
+            .update(|tx| {
+                f(tx, &blocks);
+                Ok::<_, Error>(())
+            })
+            .unwrap();
+        let tx = store.read().unwrap();
+        let e = tx.check_chain().unwrap_err();
+        assert_eq!(e.kind(), Kind::Io, "{name}: {e}");
+        let got = e.inconsistency().unwrap_or_default();
+        assert!(got.starts_with(why), "{name}: {e}");
+        let e = chain_view(&tx).expect_err(name);
+        eprintln!("{name}: {e}");
+    }
+    // A filter far above the main chain.
+    let store = chain_store("chain-check-filter.redb", &blocks);
+    store
+        .update(|tx| tx.put_raw(TableId::CFilters, &Height(9).encode(), &[0; 16]))
+        .unwrap();
+    let tx = store.read().unwrap();
+    let e = tx.check_chain().unwrap_err();
+    assert_eq!(
+        e.inconsistency(),
+        Some("a filter at height 9 above the main chain")
+    );
+    assert!(chain_view(&tx).is_err());
+}
+
+/// A header batch cannot change wallet state without durability: it
+/// refuses to connect a block row with wallet transactions or the
+/// invalidation flag, and to detach one, and nothing of the refused call
+/// is written.
+#[test]
+fn a_header_batch_refuses_block_rows_with_wallet_state() {
+    let mut blocks = branch(0, 4, Hash32::default(), 1);
+    blocks[1].0.wallet_txs = 3;
+    blocks[3].0.invalid = true;
+    let store = chain_store("initial-sync-wallet-state.redb", &blocks);
     let mut sync = store.initial_sync();
-    for height in [10, 12] {
-        let e = sync.batch(|b| b.remove_block(height)).err().unwrap();
-        assert_eq!(e.kind(), Kind::Invalid, "{e}");
-        let e = sync
-            .batch(|b| {
-                b.put_block(
-                    height,
-                    &BlockRow {
-                        hash: h(0x40),
-                        ..BlockRow::default()
-                    },
-                )
-            })
-            .err()
-            .unwrap();
+    for height in [1, 2, 3] {
+        let e = sync.batch(|b| b.disconnect_from(height)).err().unwrap();
         assert_eq!(e.kind(), Kind::Invalid, "{e}");
     }
-    for row in [with_txs, invalid] {
-        let e = sync
-            .batch(|b| {
-                b.put_header(&h(0x41), &HeaderBytes([0x41; 180]))?;
-                b.put_block(11, &row)
-            })
-            .err()
-            .unwrap();
-        assert_eq!(e.kind(), Kind::Invalid, "{e}");
+    let e = sync
+        .batch(|b| {
+            let x = chain_block(1, &blocks[0].0.hash, 5);
+            b.reorganize(0, &[cb(&x)])
+        })
+        .err()
+        .unwrap();
+    assert_eq!(e.kind(), Kind::Invalid, "{e}");
+    let not_batch = "invalid operation: a block row with wallet transactions or invalidated \
+                     is not a header batch's";
+    for (txs, invalid) in [(1, false), (0, true)] {
+        // The row is refused before the height given is looked at
+        // (`connect_block`'s refusals 3 and 4): at the next height or any
+        // other, singly or first of several.
+        for given in [4, 7, 2, 0, u32::MAX] {
+            let e = sync
+                .batch(|b| {
+                    let mut x = chain_block(4, &blocks[3].0.hash, 5);
+                    x.0.wallet_txs = txs;
+                    x.0.invalid = invalid;
+                    b.connect_block(given, cb(&x))
+                })
+                .err()
+                .unwrap();
+            assert_eq!(e.kind(), Kind::Invalid, "{e}");
+            assert_eq!(e.to_string(), not_batch, "given {given}");
+            let e = sync
+                .batch(|b| {
+                    let mut x = chain_block(4, &blocks[3].0.hash, 5);
+                    x.0.wallet_txs = txs;
+                    x.0.invalid = invalid;
+                    let y = chain_block(5, &x.0.hash, 5);
+                    b.connect_blocks(given, &[cb(&x), cb(&y)])
+                })
+                .err()
+                .unwrap();
+            assert_eq!(e.to_string(), not_batch, "given {given}, of two");
+        }
     }
+    // A main-chain block delivered again, its row carrying wallet state:
+    // the refusal is dcrwallet's `Exist`, which comes before the header
+    // batch's refusal of the row.
+    let e = sync
+        .batch(|b| b.connect_block(4, cb(&blocks[1])))
+        .err()
+        .unwrap();
+    assert_eq!(e.kind(), Kind::Exist, "{e}");
     assert_eq!(sync.pending(), 0, "a refused batch commits nothing");
+    // A refusal inside a batch leaves it usable.
+    let ((), _) = sync
+        .batch(|b| {
+            assert!(b.disconnect_from(3).is_err());
+            let x = chain_block(4, &blocks[3].0.hash, 5);
+            b.connect_block(4, cb(&x))
+        })
+        .unwrap();
     sync.finish().unwrap();
     let tx = store.read().unwrap();
-    assert_eq!(tx.get::<Blocks>(&Height(10)).unwrap(), Some(with_txs));
-    assert_eq!(tx.get::<Blocks>(&Height(12)).unwrap(), Some(invalid));
-    assert_eq!(tx.get::<Blocks>(&Height(11)).unwrap(), None);
-    assert!(!tx.contains::<Headers>(&h(0x41)).unwrap());
-    assert_eq!(tx.len(TableId::BlockByHash).unwrap(), 2);
+    checked(&tx);
+    for (height, b) in blocks.iter().enumerate() {
+        assert_eq!(tx.block(height as u32).unwrap(), Some(b.0));
+    }
+    assert_eq!(tx.tip().unwrap().unwrap().height, 4);
     drop(tx);
 
     // Through Store::update the same changes go through, durably.
-    store
-        .update(|tx| {
-            tx.delete::<Blocks>(&Height(10))?;
-            tx.delete::<purse_store::BlockByHash>(&h(10))
-        })
-        .unwrap();
-}
+    let gone = store.update(|tx| tx.disconnect_from(1)).unwrap();
+    assert_eq!(gone.len(), 4);
+    checked(&store.read().unwrap());
 
-/// Replacing a main-chain block row in a header batch drops the replaced
-/// block's hash index, so `block_by_hash` never names a block no longer at
-/// that height.
-#[test]
-fn a_replaced_block_takes_its_hash_index_with_it() {
-    let p = path("initial-sync-replace.redb");
-    let store = Store::create(&p).unwrap();
+    // On an empty chain the row of a first block is refused before the
+    // height given is: any height but 0 would be refused for that.
+    let store = Store::create(&path("initial-sync-wallet-state-empty.redb")).unwrap();
     let mut sync = store.initial_sync();
-    for hash in [h(1), h(2)] {
-        sync.batch(|b| {
-            b.put_block(
-                5,
-                &BlockRow {
-                    hash,
-                    ..BlockRow::default()
-                },
-            )
-        })
-        .unwrap();
+    for given in [0, 3] {
+        let e = sync
+            .batch(|b| {
+                let mut x = chain_block(0, &Hash32::default(), 5);
+                x.0.wallet_txs = 1;
+                b.connect_block(given, cb(&x))
+            })
+            .err()
+            .unwrap();
+        assert_eq!(e.to_string(), not_batch, "given {given}");
     }
+    assert_eq!(sync.pending(), 0);
     sync.finish().unwrap();
-    let tx = store.read().unwrap();
-    assert_eq!(
-        tx.get::<purse_store::BlockByHash>(&h(1)).unwrap(),
-        None,
-        "the replaced block's index stayed"
-    );
-    assert_eq!(
-        tx.get::<purse_store::BlockByHash>(&h(2)).unwrap(),
-        Some(Height(5))
-    );
+    assert_eq!(store.read().unwrap().tip().unwrap(), None);
 }
 
 /// The wallet-wide rows of ADR-0001's `[wallet]`, `[masterkeys]`,

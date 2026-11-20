@@ -69,6 +69,12 @@ enum Repr {
     Corrupt { table: TableId, error: DecodeError },
     /// A request the store refuses (a caller error).
     Invalid(&'static str),
+    /// A request the store refuses because what it would add is already
+    /// there (a block already in the main chain).
+    Duplicate(&'static str),
+    /// Rows that contradict each other: an invariant of the schema does
+    /// not hold ([`ReadTx::check_chain`](crate::ReadTx::check_chain)).
+    Inconsistent(String),
     /// A migration step failed.
     Migration { from: u32, source: Box<Error> },
 }
@@ -132,6 +138,18 @@ impl Error {
         }
     }
 
+    pub(crate) fn duplicate(why: &'static str) -> Error {
+        Error {
+            repr: Repr::Duplicate(why),
+        }
+    }
+
+    pub(crate) fn inconsistent(why: String) -> Error {
+        Error {
+            repr: Repr::Inconsistent(why),
+        }
+    }
+
     /// A commit's storage error (redb's `CommitError::Storage`): the
     /// transaction's changes are applied fully or not at all, but which is
     /// unknown until the store is reopened (redb 5.0.0
@@ -164,13 +182,13 @@ impl Error {
         match &self.repr {
             Repr::Engine(e) | Repr::CommitUnknown(e) => engine_kind(e),
             Repr::Io(_) => Kind::Io,
-            Repr::Exists(_) => Kind::Exist,
+            Repr::Exists(_) | Repr::Duplicate(_) => Kind::Exist,
             Repr::Missing | Repr::NotInitialized => Kind::NotExist,
             Repr::Foreign(_)
             | Repr::NewerVersion { .. }
             | Repr::NoMigration { .. }
             | Repr::Invalid(_) => Kind::Invalid,
-            Repr::Corrupt { .. } | Repr::MissingTable(_) => Kind::Io,
+            Repr::Corrupt { .. } | Repr::MissingTable(_) | Repr::Inconsistent(_) => Kind::Io,
             Repr::Migration { source, .. } => source.kind(),
         }
     }
@@ -223,6 +241,16 @@ impl Error {
         }
     }
 
+    /// For rows that contradict an invariant of the schema: what does not
+    /// hold.
+    pub fn inconsistency(&self) -> Option<&str> {
+        match &self.repr {
+            Repr::Inconsistent(why) => Some(why),
+            Repr::Migration { source, .. } => source.inconsistency(),
+            _ => None,
+        }
+    }
+
     /// For a failed migration step: the version it started from.
     pub fn migration_from(&self) -> Option<u32> {
         match &self.repr {
@@ -251,7 +279,8 @@ impl Error {
             }
             Repr::MissingTable(table) => format!("{}: table missing", table.name()),
             Repr::Corrupt { table, error } => format!("{}: {error}", table.name()),
-            Repr::Invalid(why) => (*why).to_owned(),
+            Repr::Invalid(why) | Repr::Duplicate(why) => (*why).to_owned(),
+            Repr::Inconsistent(why) => format!("inconsistent rows: {why}"),
             Repr::Migration { from, source } => {
                 format!("migration from schema version {from}: {}", source.cause())
             }

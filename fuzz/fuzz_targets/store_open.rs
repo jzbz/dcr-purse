@@ -13,9 +13,10 @@
 //! the checked open only. The default, unchecked open is not fuzzed: redb
 //! does not promise it survives a file damaged outside redb. (After an
 //! unclean shutdown redb runs its own repair walk on open whatever the
-//! flag says.) A store that opens is walked table by table and its meta
-//! rows read through the typed accessors; the row decoders themselves are
-//! the `store_decode` target's.
+//! flag says.) A store that opens is walked table by table, its meta rows
+//! read through the typed accessors and its chain tables checked
+//! (`ReadTx::check_chain`); the row decoders themselves are the
+//! `store_decode` target's.
 //!
 //! Run it without debug assertions (`cargo fuzz run -O`), as CI does: redb
 //! 5.0.0 has a `debug_assert!` that a damaged page number reaches
@@ -113,6 +114,12 @@ fn exercise(bytes: Vec<u8>) {
     let _ = tx.birth_state();
     let _ = tx.have_cfilters();
     let _ = tx.wallet_row::<purse_store::wallet::Slip0044Account0>();
+    // The chain walk reads every chain table and both header fields.
+    let _ = tx.check_chain();
+    if let Ok(Some(tip)) = tx.tip() {
+        let _ = tx.header(&tip.hash);
+        let _ = tx.cfilters_in(tip.height.saturating_sub(3)..).map(|i| i.take(4).count());
+    }
     drop(tx);
     let _ = store.update(|w| w.put_raw(TableId::Tickets, &[1; 32], b""));
 }

@@ -21,6 +21,10 @@ sha2 = { version = "0.11.1", default-features = false }
 [dev-dependencies]
 # SplitMix64 for the seeded property tests.
 purse-testutil.workspace = true
+# dcrd's header serialization, already in the workspace: the header fields
+# the chain operations read (height, previous block) are checked against
+# it.
+dcroxide-wire.workspace = true
 
 [lints]
 workspace = true

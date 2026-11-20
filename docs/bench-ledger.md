@@ -397,6 +397,108 @@ the median. Not measured: cold reads (the page cache was not dropped),
 reorganisations and detached rows, relaxed durability in the three
 layouts, other platforms and file systems.
 
+### 2026-11-19 — the chain tables keyed by height, as built
+
+Schema version 1 with main-chain headers and filters keyed by height and
+detached ones by hash (ADR-0003, addendum "Chain tables keyed by height,
+as built"), measured through the chain operations beside the three raw
+layouts of the entry above, in one session.
+
+- **Machine:** d1, carrying other work (builds and tests of other
+  worktrees): one-minute load average 8.2 at the start of the first run,
+  22.4 and 25.0 at the ends of the first and second, 6.9 at the end of the
+  third. Not pinned. The sync of a single durable commit took between
+  about 6 and 19 ms depending on the run, so every time below that a
+  commit's sync dominates moves with the load.
+- **Commits:** dcr-purse `b44f267` with the uncommitted change that keys
+  the chain tables by height and adds this entry; redb 5.0.0; Rust
+  1.100.0, release profile. Go: not run (Rust against Rust).
+- **Harness:** `crates/purse-store/tests/measure.rs`, both ignored tests,
+  `--test-threads 1`, three runs back to back, 22:06:02 to 22:20:44 UTC:
+
+  ```text
+  PURSE_STORE_BENCH_DIR=<scratch directory> cargo test --release -p purse-store \
+      --locked --test measure -- --ignored --nocapture --test-threads 1
+  ```
+
+  Bytes, writes and syncs were identical in all three runs; times are the
+  median of the three runs' figures with their range.
+- **Raw:** per run, `headers-and-filters.txt`, `tables-per-commit.txt`,
+  the test log and the start and end notes with the load averages; not
+  retained.
+
+**`headers_and_filters_by_height_or_hash`.** The workload of the entry
+above (1,050,000 blocks, 525 commits of 2,000, then 200 one-block commits
+and the warm reads), now in five layouts: *hash*, *height* and *merged*
+written as raw rows as before; *chain*, the layout as built, written
+through `WriteTx::connect_blocks` in durable `Store::update`s and read
+through `ReadTx::header_at`, `ReadTx::header` and `ReadTx::cfilters_in`
+(headers of the same size, with the height and previous-block fields the
+operations check set); *chain-relaxed*, the same with the ingest as
+`InitialSync` batches at the default interval (a durable commit every
+50th batch and at `finish`), the tip commits durable. On the two *chain*
+files, also 100 durable reorganisations per depth at the tip, alternating
+between the main chain's last blocks and a branch of as many.
+
+| figure | hash | height | merged | chain | chain-relaxed |
+|---|---:|---:|---:|---:|---:|
+| ingest, s | 103.9 (97.9–134.8) | 37.5 (33.0–53.1) | 33.3 (30.0–67.4) | 33.9 (30.1–36.4) | 9.3 (8.5–10.8) |
+| ingest bytes written | 13.99 GiB | 4.06 GiB | 4.05 GiB | 4.06 GiB | 1.09 GiB |
+| ingest write calls; syncs | 3,667,272; 543 | 1,065,867; 543 | 1,062,337; 543 | 1,065,867; 543 | 286,786; 29 |
+| 2,000-block commit (last 50), p50 ms | 294.8 (218.2–302.9) | 80.1 (76.4–94.2) | 68.4 (64.5–75.6) | 68.5 (63.3–71.3) | 13.2 (12.7–16.0) |
+| 2,000-block commit (last 50), p90 ms | 523.8 (283.2–627.6) | 99.0 (95.6–160.9) | 79.9 (69.1–111.8) | 83.2 (68.0–87.7) | 15.8 (13.2–17.3) |
+| bytes per 2,000-block commit (last 50, mean) | 32.25 MiB | 9.21 MiB | 9.18 MiB | 9.21 MiB | 2.64 MiB |
+| one-block commit, p50 ms | 10.80 (10.25–18.93) | 11.40 (9.31–19.63) | 17.23 (9.41–19.22) | 10.02 (9.41–17.02) | 10.57 (6.10–10.62) |
+| bytes and writes per one-block commit | 85.2 KiB, 22.2 | 84.4 KiB, 22.0 | 52.5 KiB, 14.0 | 84.4 KiB, 22.0 | 84.4 KiB, 22.0 |
+| header by height, warm, µs | 1.91 (1.34–2.08) | 0.81 (0.77–1.23) | 0.85 (0.75–0.96) | 0.73 (0.64–0.77) | 0.76 (0.68–0.87) |
+| header by hash, warm, µs | 1.00 (0.66–1.02) | 1.77 (1.75–2.58) | 1.86 (1.61–2.39) | 1.62 (1.55–1.72) | 1.63 (1.54–2.08) |
+| 2,000 filters by height, warm, ms | 1.98 (1.90–2.20) | 0.19 (0.18–0.26) | 0.28 (0.25–0.29) | 0.16 (0.15–0.17) | 0.17 (0.16–0.20) |
+| file after ingest; after close | 1,088; 1,088 MiB | 1,088; 1,029 MiB | 1,088; 1,031 MiB | 1,088; 1,029 MiB | 1,088; 1,088 MiB |
+
+| reorganisation at the tip (durable) | chain | chain-relaxed file |
+|---|---:|---:|
+| depth 1, p50 ms | 10.20 (9.72–18.54) | 10.49 (6.29–10.76) |
+| depth 1, p90 ms | 13.01 (10.19–27.25) | 11.29 (6.59–12.14) |
+| depth 6, p50 ms | 11.20 (10.49–19.56) | 11.31 (7.09–19.12) |
+| depth 6, p90 ms | 12.58 (11.01–36.56) | 18.50 (7.70–19.86) |
+| bytes and writes per commit, depth 1 | 100.4 KiB, 26.0 | 100.4 KiB, 26.0 |
+| bytes and writes per commit, depth 6 | 184.4 KiB, 47.0 | 184.4 KiB, 47.0 |
+
+Read against each other: the chain operations write exactly the bytes of
+the raw height layout (4.06 GiB, 9.21 MiB per batch, 84.4 KiB per tip
+commit), so their extra reads per block (the hash index, the two detached
+tables, the tip) cost no I/O; their time is within this session's noise
+of the raw layout's (33.9 against 37.5 s at the median, the raw layout's
+first run at the load's peak). Keyed by hash, the same ingest writes 3.45
+times the bytes and, at the median, took 3.1 times as long as *chain*
+(the entry above: 3.4 and 2.8). With relaxed batches the ingest writes
+1.09 GiB in 29 syncs and took 9.3 s, 3.6 times faster than *chain* with
+every batch durable. The relaxed per-batch mean is spread over the
+durable commits that write what the relaxed ones kept in memory; a
+relaxed batch alone writes almost nothing. A reorganisation of one block
+at the tip writes 100.4 KiB in 26 writes, against 84.4 KiB in 22 for
+connecting one block: the detached tables' leaves on top.
+
+**`commit_cost_by_tables_touched`.** Unchanged workload.
+
+| k | bytes per commit | writes per commit | syncs | p50 ms | p90 ms |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 222.6 KiB | 56.6 | 1.0 | 7.70 (7.56–18.31) | 13.40 (8.87–21.98) |
+| 2 | 245.9 KiB | 62.4 | 1.0 | 7.87 (7.81–17.67) | 14.65 (9.60–21.75) |
+| 4 | 264.6 KiB | 67.1 | 1.0 | 8.16 (8.01–17.83) | 15.14 (9.53–22.73) |
+| 8 | 287.6 KiB | 72.8 | 1.0 | 8.42 (8.33–18.97) | 15.26 (9.49–22.94) |
+| 15 | 319.8 KiB | 80.9 | 1.0 | 8.72 (8.65–18.89) | 16.04 (9.87–22.80) |
+
+Bytes and writes are those of the entry above; the times are lower in two
+of the three runs, the machine's syncs being faster then.
+
+**What this entry does not show.** A dedicated machine's figures; cold
+reads (the page cache was not dropped); headers from a real chain (the
+generated ones are random bytes, which neither redb nor the counting
+backend compresses, so the byte counts do not depend on it); deep
+reorganisations (above 6 blocks) on a grown file; other platforms and file
+systems.
+
 ## purse-txrules and purse-txauthor
 
 The crates' ignored `tests/bench.rs` time their main entry points against

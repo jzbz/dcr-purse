@@ -338,7 +338,9 @@ Most valuable first.
    2.8 times as long with durable commits; height keys are recommended,
    and the schema change waits on the owner.* *Decided (project owner,
    2026-11-19): height keys, changed in schema version 1 before Phase 3
-   (ADR-0003, addendum "Decisions of the project owner").*
+   (ADR-0003, addendum "Decisions of the project owner").* *Done
+   (2026-11-20): built in schema version 1 (ADR-0003, addendum "Chain
+   tables keyed by height, as built").*
 7. *ADR-0008 addendum* **Decided as recommended (project owner, 2026-11-19).** Recorded as ADR-0008's
    "Addendum (ADR-0014)". (items 2 and 3, Accepted). Recommended: permit S3's
    lock span and S5–S9, R6, R7's request sets, each with its PARITY row.

@@ -8,10 +8,12 @@
 //! The workload creates a store, runs wallet-shaped write transactions
 //! (many small rows, a transaction record of several pages, overwrites, a
 //! bulk delete that lets the file shrink), an initial sync of header and
-//! filter batches with a header-only reorganisation, and more writes after
-//! it. A reference run records the digest of every table after every
-//! commit and counts the run's storage operations (writes, length changes,
-//! syncs). Then, for every count `n`, a fresh run on the same starting image
+//! filter batches through the chain operations (blocks connected by
+//! height, a header-only reorganisation that moves five blocks' headers
+//! and filters to the detached tables, a detached header recorded and a
+//! detached block promoted back), and more writes after it. A reference
+//! run records the digest of every table after every commit and counts the
+//! run's storage operations (writes, length changes, syncs). Then, for every count `n`, a fresh run on the same starting image
 //! loses power after its `n`th operation; the image the cut leaves is
 //! reopened through the store's own open (which repairs it), and:
 //!
@@ -23,6 +25,8 @@
 //! - under relaxed durability, the commits lost are only initial-sync
 //!   batches committed without durability since the last durable one,
 //!   fewer than the interval (`sync.rs`, ADR-0003 Decision item 9);
+//! - the chain tables hold their invariants (`ReadTx::check_chain`, and
+//!   the tests' independent check, `support::chain`);
 //! - the reopened store takes a further durable commit and opens cleanly
 //!   after it.
 //!
@@ -31,6 +35,19 @@
 //! at random) or a killed process's (every write kept, synced or not). A
 //! backend whose sync acknowledges without making anything durable must make
 //! the sweep fail: otherwise the sweep would prove nothing about durability.
+//!
+//! A second sweep cuts one reorganisation, on a store of 400 blocks whose
+//! side branch is already detached, at every storage operation from the
+//! open to the close, with each kind of cut: one block replaced at the
+//! tip and forty, durably in a transaction that also writes and deletes
+//! wallet rows and moves blocks carrying wallet state, and one and four as
+//! a relaxed header batch made durable by `finish`. The new branch takes
+//! the side branch back from the detached tables. Every reopened image
+//! must hold the old chain or the new one whole: the store's digest before
+//! or after, both consistency checks passing, and the chain (main-chain
+//! hashes by height, the hash index, filters and detached rows) exactly
+//! the old or the new; a reorganisation acknowledged as durable is never
+//! lost.
 //!
 //! `PURSE_STORE_SWEEP_STEP` (default 1: every operation) cuts at every
 //! that-many-th operation instead, for quick local runs.
@@ -46,9 +63,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use purse_store::{
-    BlockRow, CFilterRow, Error, Hash32, HeaderBytes, OpenOptions, Store, TableId, Tip,
+    BlockRow, CFilterRow, ChainBlock, Error, Hash32, HeaderBytes, OpenOptions, Store, SyncBatch,
+    TableId,
 };
 use purse_testutil::SplitMix64;
+use support::chain::{ChainView, chain_view};
 use support::powerloss::{Cut, PowerLoss, Shared};
 use support::{StoreDigest, digest, short};
 
@@ -62,11 +81,14 @@ enum W {
 /// One header-and-filter batch of initial sync.
 #[derive(Clone, Debug)]
 struct Batch {
-    first_height: u32,
-    blocks: Vec<(Hash32, HeaderBytes, CFilterRow)>,
-    /// Heights removed (a header-only reorganisation) before the batch's
-    /// blocks are recorded.
-    remove: Vec<u32>,
+    /// The main chain is kept up to this height and `blocks` connect above
+    /// it: the tip, or below it for a reorganisation.
+    fork: Option<u32>,
+    blocks: Vec<(BlockRow, HeaderBytes, CFilterRow)>,
+    /// Detached blocks promoted back, at the heights after `blocks`.
+    promote: Vec<BlockRow>,
+    /// A header recorded detached, of a block never connected.
+    detached: Option<Box<(Hash32, HeaderBytes)>>,
 }
 
 #[derive(Clone, Debug)]
@@ -144,33 +166,83 @@ fn workload() -> Vec<Step> {
         rng.bytes(36),
         rng.bytes(60_000),
     )]));
-    // Initial sync: 10 batches of 40 blocks, a reorganisation in the 7th.
-    let mut height = 0u32;
+    // Initial sync: 10 batches of 40 blocks. The 7th reorganises: it
+    // detaches the last five blocks and connects its own at their heights.
+    // The 8th records a detached header. After the 9th, one batch detaches
+    // its last two blocks and the next promotes them back.
+    let mut chain: Vec<(BlockRow, HeaderBytes, CFilterRow)> = Vec::new();
     for b in 0..10 {
-        let remove = if b == 6 {
-            (height - 5..height).rev().collect()
-        } else {
-            Vec::new()
+        let fork = match b {
+            0 => None,
+            6 => Some(chain.len() as u32 - 6),
+            _ => Some(chain.len() as u32 - 1),
         };
-        if b == 6 {
-            height -= 5;
-        }
-        let blocks = (0..40)
-            .map(|_| {
+        let keep = fork.map_or(0, |f| f as usize + 1);
+        chain.truncate(keep);
+        let blocks: Vec<_> = (0..40)
+            .map(|i| {
+                let height = (keep + i) as u32;
+                let prev = if height == 0 {
+                    Hash32::default()
+                } else {
+                    // The block below: one of this batch, or the chain's.
+                    chain
+                        .get(height as usize - 1)
+                        .map(|c: &(BlockRow, HeaderBytes, CFilterRow)| c.0.hash)
+                        .unwrap_or_default()
+                };
                 let mut hdr = [0u8; 180];
                 rng.fill(&mut hdr);
+                hdr[4..36].copy_from_slice(&prev.0);
+                hdr[128..132].copy_from_slice(&height.to_le_bytes());
                 let mut key = [0u8; 16];
                 rng.fill(&mut key);
                 let filter = sized(&mut rng, 150, 250);
-                (hash(&mut rng), HeaderBytes(hdr), CFilterRow { key, filter })
+                let row = BlockRow {
+                    hash: hash(&mut rng),
+                    time: i64::from(height) * 300,
+                    vote_bits: 1,
+                    invalid: false,
+                    wallet_txs: 0,
+                };
+                let blk = (row, HeaderBytes(hdr), CFilterRow { key, filter });
+                chain.push(blk.clone());
+                blk
             })
             .collect();
+        let detached = (b == 7).then(|| {
+            let mut hdr = [0x5d; 180];
+            hdr[128..132].copy_from_slice(&1_000u32.to_le_bytes());
+            Box::new((hash(&mut rng), HeaderBytes(hdr)))
+        });
         steps.push(Step::Batch(Batch {
-            first_height: height,
+            fork,
             blocks,
-            remove,
+            promote: Vec::new(),
+            detached,
         }));
-        height += 40;
+        if b == 8 {
+            // Detach this batch's last two blocks, then promote them back.
+            let n = chain.len();
+            let back: Vec<BlockRow> = chain[n - 2..].iter().map(|c| c.0).collect();
+            steps.push(Step::Batch(Batch {
+                fork: Some(n as u32 - 3),
+                blocks: Vec::new(),
+                promote: Vec::new(),
+                detached: None,
+            }));
+            // Promoted back, the chain is as before the detach; the
+            // detached header recorded beside makes the commit's rows its
+            // own.
+            let mut hdr = [0x6e; 180];
+            hdr[128..132].copy_from_slice(&2_000u32.to_le_bytes());
+            steps.push(Step::Batch(Batch {
+                fork: Some(n as u32 - 3),
+                blocks: Vec::new(),
+                promote: back,
+                detached: Some(Box::new((hash(&mut rng), HeaderBytes(hdr)))),
+            }));
+        }
     }
     steps.push(Step::Finish);
     for rows in [30, 2, 90] {
@@ -243,31 +315,29 @@ fn run(
                         .expect("interval in range")
                 });
                 let r = s.batch(|sb| {
-                    for &h in &b.remove {
-                        sb.remove_block(h)?;
+                    let blocks: Vec<ChainBlock<'_>> = b
+                        .blocks
+                        .iter()
+                        .map(|(row, header, filter)| ChainBlock {
+                            row,
+                            header,
+                            filter: Some(filter),
+                        })
+                        .collect();
+                    match b.fork {
+                        None => sb.connect_blocks(0, &blocks)?,
+                        Some(f) => {
+                            sb.reorganize(f, &blocks)?;
+                        }
                     }
-                    let mut last = None;
-                    for (j, (hash, hdr, filter)) in b.blocks.iter().enumerate() {
-                        let height = b.first_height + j as u32;
-                        sb.put_header(hash, hdr)?;
-                        sb.put_cfilter(hash, filter)?;
-                        sb.put_block(
-                            height,
-                            &BlockRow {
-                                hash: *hash,
-                                time: i64::from(height) * 300,
-                                vote_bits: 1,
-                                invalid: false,
-                                wallet_txs: 0,
-                            },
-                        )?;
-                        last = Some(Tip {
-                            height,
-                            hash: *hash,
-                        });
+                    for row in &b.promote {
+                        let next = sb.tip()?.map_or(0, |t| t.height + 1);
+                        sb.promote_block(next, row)?;
                     }
-                    if let Some(t) = last {
-                        sb.set_tip(&t)?;
+                    if let Some(d) = &b.detached {
+                        sb.insert_detached(&d.0, &d.1, None)?;
+                    }
+                    if let Some(t) = sb.tip()? {
                         sb.set_processed_marker(&t.hash)?;
                     }
                     Ok::<_, Error>(())
@@ -417,6 +487,12 @@ fn check_cut(
         }
     };
     let got = digest(&store.read().map_err(|e| e.to_string())?);
+    store
+        .read()
+        .and_then(|tx| tx.check_chain())
+        .map_err(|e| format!("chain tables after reopen: {e}"))?;
+    chain_view(&store.read().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("chain tables after reopen (independent check): {e}"))?;
     // The commits the reopened store may hold: from the last durable
     // acknowledged one to the one in flight when the power went.
     let lo = acked.durable;
@@ -688,14 +764,6 @@ fn two_initial_syncs_share_the_durable_bound() {
     let store = OpenOptions::new()
         .create_on_backend(Shared(b.clone()), |_| Ok(()))
         .unwrap();
-    let block = |i: u32| BlockRow {
-        hash: Hash32({
-            let mut h = [0u8; 32];
-            h[..4].copy_from_slice(&i.to_be_bytes());
-            h
-        }),
-        ..BlockRow::default()
-    };
     let mut a = store.initial_sync();
     let mut c = store.initial_sync();
     let mut durable = 0;
@@ -703,7 +771,7 @@ fn two_initial_syncs_share_the_durable_bound() {
     for _ in 0..(MAX_DURABLE_INTERVAL - 1) {
         for s in [&mut a, &mut c] {
             height += 1;
-            let ((), d) = s.batch(|x| x.put_block(height, &block(height))).unwrap();
+            let ((), d) = s.batch(|x| next_block(x, 0)).unwrap();
             durable += u32::from(d);
             assert!(s.pending() < MAX_DURABLE_INTERVAL);
         }
@@ -728,18 +796,43 @@ fn two_initial_syncs_share_the_durable_bound() {
     // A durable update resets the count every sync sees.
     let mut s = store.initial_sync();
     let mut t = store.initial_sync();
-    s.batch(|x| x.put_block(1_000, &block(1_000))).unwrap();
+    s.batch(|x| next_block(x, 0)).unwrap();
     assert_eq!(t.pending(), 1);
     store
         .update(|tx| tx.put_raw(TableId::Tickets, &[9; 32], b""))
         .unwrap();
     assert_eq!(s.pending(), 0);
     assert_eq!(t.pending(), 0);
-    let ((), d) = t.batch(|x| x.put_block(1_001, &block(1_001))).unwrap();
+    let ((), d) = t.batch(|x| next_block(x, 0)).unwrap();
     assert!(!d);
     s.finish().unwrap();
     assert_eq!(t.pending(), 0);
     t.finish().unwrap();
+}
+
+/// Connects a block above the tip (the genesis block on an empty chain):
+/// its hash is the height and `salt`, so threads with their own salts never
+/// connect the same block.
+fn next_block(x: &mut SyncBatch<'_, '_>, salt: u8) -> purse_store::Result<()> {
+    let (height, prev) = match x.tip()? {
+        Some(t) => (t.height + 1, t.hash),
+        None => (0, Hash32::default()),
+    };
+    let mut h = [salt; 32];
+    h[..4].copy_from_slice(&height.to_be_bytes());
+    let row = BlockRow {
+        hash: Hash32(h),
+        ..BlockRow::default()
+    };
+    let header = support::chain_header(height, &prev, salt);
+    x.connect_block(
+        height,
+        ChainBlock {
+            row: &row,
+            header: &header,
+            filter: None,
+        },
+    )
 }
 
 /// Initial syncs on several threads at once, with durable `Store::update`s
@@ -768,14 +861,6 @@ fn concurrent_syncs_keep_the_durable_bound() {
     const ROUNDS: u32 = 4;
     const THREADS: u32 = 8;
     const PER_THREAD: u32 = 1_000;
-    let block = |i: u32| BlockRow {
-        hash: Hash32({
-            let mut h = [0u8; 32];
-            h[..4].copy_from_slice(&i.to_be_bytes());
-            h
-        }),
-        ..BlockRow::default()
-    };
     let mut worst = 0u32;
     let mut durable_seen = 0u32;
     for round in 0..ROUNDS {
@@ -789,7 +874,6 @@ fn concurrent_syncs_keep_the_durable_bound() {
         std::thread::scope(|scope| {
             for t in 0..THREADS {
                 let (store, ticket, log, before_finish) = (&store, &ticket, &log, &before_finish);
-                let block = &block;
                 scope.spawn(move || {
                     let mut sync = store.initial_sync();
                     for i in 0..PER_THREAD {
@@ -809,7 +893,7 @@ fn concurrent_syncs_keep_the_durable_bound() {
                         } else {
                             sync.batch(|x| {
                                 let n = ticket.fetch_add(1, Ordering::SeqCst);
-                                x.put_block(height, &block(height))?;
+                                next_block(x, t as u8 + 1)?;
                                 Ok::<_, Error>(n)
                             })
                             .unwrap()
@@ -858,4 +942,372 @@ fn concurrent_syncs_keep_the_durable_bound() {
         MAX_DURABLE_INTERVAL - 1,
         "the bound was never reached"
     );
+}
+
+// A reorganisation cut at every storage operation.
+
+/// A block of the reorganisation tests: row, header, filter.
+type Blk = (BlockRow, HeaderBytes, Option<CFilterRow>);
+
+/// The main chain the reorganisation tests start from.
+const REORG_CHAIN: u32 = 400;
+
+/// `n` blocks from `from`, above `prev`, with hashes and contents drawn
+/// from `salt`. Every seventh has no filter; with `wallet`, every block at
+/// a height ending in 5 carries wallet state (a header batch may not move
+/// it).
+fn reorg_branch(from: u32, n: u32, prev: Hash32, salt: u64, wallet: bool) -> Vec<Blk> {
+    let mut rng = SplitMix64(0x7265_6f72_6700 ^ salt);
+    let mut prev = prev;
+    (from..from + n)
+        .map(|height| {
+            let mut hdr = [0u8; 180];
+            rng.fill(&mut hdr);
+            hdr[4..36].copy_from_slice(&prev.0);
+            hdr[128..132].copy_from_slice(&height.to_le_bytes());
+            let row = BlockRow {
+                hash: hash(&mut rng),
+                time: i64::from(height) * 300,
+                vote_bits: 1,
+                invalid: false,
+                wallet_txs: u32::from(wallet && height % 10 == 5),
+            };
+            let filter = (height % 7 != 3).then(|| {
+                let mut key = [0u8; 16];
+                rng.fill(&mut key);
+                CFilterRow {
+                    key,
+                    filter: sized(&mut rng, 150, 250),
+                }
+            });
+            prev = row.hash;
+            (row, HeaderBytes(hdr), filter)
+        })
+        .collect()
+}
+
+fn as_chain(v: &[Blk]) -> Vec<ChainBlock<'_>> {
+    v.iter()
+        .map(|(row, header, filter)| ChainBlock {
+            row,
+            header,
+            filter: filter.as_ref(),
+        })
+        .collect()
+}
+
+/// How the reorganisation under test commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReorgCommit {
+    /// In `Store::update`, with wallet rows written and deleted in the same
+    /// transaction, over blocks that carry wallet state.
+    Durable,
+    /// As a header batch of initial sync committed without durability,
+    /// then made durable by `InitialSync::finish`.
+    Relaxed,
+}
+
+/// The starting image of a reorganisation test and the reorganisation.
+struct ReorgCase {
+    /// A closed store: the main chain `a` (0 to 399), the side branch `b`
+    /// detached above the fork (it was connected once and reorganised
+    /// away), a few unrelated detached headers, and wallet rows.
+    base: Vec<u8>,
+    fork: u32,
+    /// The new branch above the fork: the detached side branch, connected
+    /// again with no filter passed (its detached filters come back), then
+    /// fresh blocks.
+    new: Vec<Blk>,
+    /// Whether each block of `new` has a filter after the reorganisation:
+    /// the side branch's detached one, or the fresh block's own.
+    new_filtered: Vec<bool>,
+    /// The main chain's blocks above the fork, which the reorganisation
+    /// detaches, with their filters.
+    old_branch: Vec<Blk>,
+    /// Wallet rows put and deleted in the durable reorganisation's
+    /// transaction.
+    wallet_puts: Vec<(Vec<u8>, Vec<u8>)>,
+    wallet_dels: Vec<Vec<u8>>,
+}
+
+fn reorg_case(depth: u32, commit: ReorgCommit) -> ReorgCase {
+    let wallet = commit == ReorgCommit::Durable;
+    let tip = REORG_CHAIN - 1;
+    let fork = tip - depth;
+    let a = reorg_branch(0, REORG_CHAIN, Hash32::default(), 1, wallet);
+    let side = reorg_branch(fork + 1, depth + 2, a[fork as usize].0.hash, 2, false);
+    let fresh = reorg_branch(
+        fork + depth + 3,
+        3,
+        side.last().expect("side branch").0.hash,
+        3,
+        wallet,
+    );
+    let mut rng = SplitMix64(0x7761_6c6c_6574 ^ u64::from(depth));
+    let old_wallet: Vec<(Vec<u8>, Vec<u8>)> = (0..200)
+        .map(|_| (rng.bytes(40), sized(&mut rng, 20, 80)))
+        .collect();
+    let b = PowerLoss::new(Vec::new(), true);
+    let store = OpenOptions::new()
+        .create_on_backend(Shared(b.clone()), |tx| {
+            for chunk in as_chain(&a).chunks(100) {
+                let first = tx.tip()?.map_or(0, |t| t.height + 1);
+                tx.connect_blocks(first, chunk)?;
+            }
+            for (k, v) in &old_wallet {
+                tx.put_raw(TableId::Credits, k, v)?;
+            }
+            Ok(())
+        })
+        .expect("create");
+    store
+        .update(|tx| {
+            // The side branch wins, then loses: its rows end detached.
+            tx.reorganize(fork, &as_chain(&side))?;
+            let back: Vec<Blk> = a[fork as usize + 1..]
+                .iter()
+                .map(|(r, h, _)| (*r, *h, None))
+                .collect();
+            tx.reorganize(fork, &as_chain(&back))?;
+            for i in 0u8..12 {
+                let mut hdr = [i; 180];
+                hdr[128..132].copy_from_slice(&(1_000 + u32::from(i)).to_le_bytes());
+                tx.insert_detached(&Hash32([0xd0 ^ i; 32]), &HeaderBytes(hdr), None)?;
+            }
+            Ok::<_, Error>(())
+        })
+        .expect("side branch");
+    store.close().expect("close");
+    let mut new: Vec<Blk> = side.iter().map(|(r, h, _)| (*r, *h, None)).collect();
+    let mut new_filtered: Vec<bool> = side.iter().map(|b| b.2.is_some()).collect();
+    new_filtered.extend(fresh.iter().map(|b| b.2.is_some()));
+    new.extend(fresh);
+    ReorgCase {
+        base: b.image(),
+        fork,
+        new,
+        new_filtered,
+        old_branch: a[fork as usize + 1..].to_vec(),
+        wallet_puts: (0..60)
+            .map(|_| (rng.bytes(40), sized(&mut rng, 20, 80)))
+            .collect(),
+        wallet_dels: old_wallet
+            .iter()
+            .step_by(3)
+            .map(|(k, _)| k.clone())
+            .collect(),
+    }
+}
+
+/// What a run of the reorganisation acknowledged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ReorgAck {
+    Nothing,
+    /// Committed without durability (a relaxed batch).
+    Committed,
+    /// Committed durably, or made durable by `finish`.
+    Durable,
+}
+
+/// Opens `backend`, runs the reorganisation, and closes the store,
+/// stopping at the first error.
+fn run_reorg(backend: &Arc<PowerLoss>, case: &ReorgCase, commit: ReorgCommit) -> ReorgAck {
+    let Ok(store) = OpenOptions::new().open_on_backend(Shared(backend.clone())) else {
+        return ReorgAck::Nothing;
+    };
+    let blocks = as_chain(&case.new);
+    let mut ack = ReorgAck::Nothing;
+    match commit {
+        ReorgCommit::Durable => {
+            let r = store.update(|tx| {
+                let gone = tx.reorganize(case.fork, &blocks)?;
+                assert_eq!(gone.len() as u32, REORG_CHAIN - 1 - case.fork);
+                for (k, v) in &case.wallet_puts {
+                    tx.put_raw(TableId::Credits, k, v)?;
+                }
+                for k in &case.wallet_dels {
+                    tx.delete_raw(TableId::Credits, k)?;
+                }
+                Ok::<_, Error>(())
+            });
+            if r.is_ok() {
+                ack = ReorgAck::Durable;
+            }
+        }
+        ReorgCommit::Relaxed => {
+            let mut sync = store
+                .initial_sync()
+                .with_interval(purse_store::MAX_DURABLE_INTERVAL)
+                .expect("interval");
+            let r = sync.batch(|sb| {
+                sb.reorganize(case.fork, &blocks)?;
+                let t = sb.tip()?.expect("a tip");
+                sb.set_processed_marker(&t.hash)
+            });
+            match r {
+                Ok(((), durable)) => {
+                    assert!(
+                        !durable,
+                        "the first batch after a durable commit is relaxed"
+                    );
+                    ack = ReorgAck::Committed;
+                    if sync.finish().is_ok() {
+                        ack = ReorgAck::Durable;
+                    }
+                }
+                Err(_) => drop(sync),
+            }
+        }
+    }
+    drop(store);
+    ack
+}
+
+/// What a reorganisation sweep saw.
+#[derive(Debug, Default)]
+struct ReorgReport {
+    trials: u64,
+    old: u64,
+    new: u64,
+}
+
+/// Cuts the reorganisation of `case` after every storage operation of the
+/// open, the commit and the close, with each kind of cut, and requires of
+/// every reopened image the old chain or the new, whole: its digest is the
+/// store's before or after the reorganisation, both consistency checks
+/// pass, and its chain is exactly the old or the new one, the hash index
+/// with it. A reorganisation acknowledged as durable is never lost.
+fn sweep_reorg(depth: u32, commit: ReorgCommit) -> ReorgReport {
+    let case = reorg_case(depth, commit);
+    let view_of = |b: &Arc<PowerLoss>| {
+        let store = OpenOptions::new()
+            .open_on_backend(Shared(b.clone()))
+            .expect("open");
+        let tx = store.read().expect("read");
+        tx.check_chain().expect("chain");
+        (digest(&tx), chain_view(&tx).expect("consistent"))
+    };
+    let (old_digest, old_view) = view_of(&PowerLoss::new(case.base.clone(), true));
+    let reference = PowerLoss::new(case.base.clone(), true);
+    assert_eq!(
+        run_reorg(&reference, &case, commit),
+        ReorgAck::Durable,
+        "the reference run"
+    );
+    let total = reference.ops();
+    let (new_digest, new_view) = view_of(&reference);
+    assert_ne!(old_view.main, new_view.main);
+    // The views say what moved: the old branch above the fork detached,
+    // the side branch back in the main chain with its filters.
+    for (row, _, filter) in &case.old_branch {
+        let hash = &row.hash.0;
+        assert!(old_view.height_of(hash).is_some());
+        assert!(
+            new_view.detached.contains(hash),
+            "an old block not detached"
+        );
+        assert_eq!(new_view.detached_filters.contains(hash), filter.is_some());
+        assert_eq!(new_view.height_of(hash), None);
+    }
+    for (i, (row, _, _)) in case.new.iter().enumerate() {
+        let height = case.fork + 1 + i as u32;
+        assert_eq!(new_view.height_of(&row.hash.0), Some(height));
+        assert!(!new_view.detached.contains(&row.hash.0));
+        assert_eq!(new_view.filters.contains(&height), case.new_filtered[i]);
+    }
+    let view_name = |v: &ChainView| {
+        if *v == old_view {
+            "old"
+        } else if *v == new_view {
+            "new"
+        } else {
+            "neither"
+        }
+    };
+    eprintln!(
+        "reorganisation at depth {depth}, {commit:?}: {total} storage operations from open to close"
+    );
+
+    let mut report = ReorgReport::default();
+    let step = sweep_step();
+    let mut failures: Vec<String> = Vec::new();
+    let mut n = 0u64;
+    while n <= total {
+        for cut in [Cut::Clean, Cut::Torn(0x746f_726e ^ n), Cut::Kept] {
+            report.trials += 1;
+            let b = PowerLoss::new(case.base.clone(), true);
+            b.power_fails_after(n);
+            let ack = run_reorg(&b, &case, commit);
+            let image = b.cut(cut);
+            let b2 = PowerLoss::new(image, true);
+            let store = match OpenOptions::new().open_on_backend(Shared(b2)) {
+                Ok(s) => s,
+                Err(e) => {
+                    failures.push(format!("cut after {n} ({cut:?}): reopen: {e}"));
+                    continue;
+                }
+            };
+            let tx = store.read().expect("read");
+            let got = digest(&tx);
+            let checked = tx.check_chain().map_err(|e| e.to_string());
+            let view = chain_view(&tx);
+            drop(tx);
+            drop(store);
+            let why = match (checked, view) {
+                (Err(e), _) => Some(format!("check_chain: {e}")),
+                (_, Err(e)) => Some(format!("chain tables: {e}")),
+                (Ok(()), Ok(v)) => {
+                    if got == old_digest && v == old_view {
+                        if ack == ReorgAck::Durable {
+                            Some("a durable reorganisation was lost".to_owned())
+                        } else {
+                            report.old += 1;
+                            None
+                        }
+                    } else if got == new_digest && v == new_view {
+                        report.new += 1;
+                        None
+                    } else {
+                        Some(format!(
+                            "a mixture: digest {} (old {}, new {}), chain {}",
+                            short(&got),
+                            short(&old_digest),
+                            short(&new_digest),
+                            view_name(&v)
+                        ))
+                    }
+                }
+            };
+            if let Some(why) = why {
+                failures.push(format!(
+                    "cut after {n} ({cut:?}, acknowledged {ack:?}): {why}"
+                ));
+            }
+        }
+        n += step;
+    }
+    eprintln!("depth {depth}, {commit:?}: {report:?}");
+    assert!(
+        failures.is_empty(),
+        "{} of {} trials failed; first: {}",
+        failures.len(),
+        report.trials,
+        failures[0]
+    );
+    assert!(report.old > 0 && report.new > 0, "{report:?}");
+    report
+}
+
+#[test]
+fn a_reorganisation_cut_anywhere_leaves_the_old_chain_or_the_new() {
+    // One block replaced at the tip (the common case), and forty, with the
+    // wallet's rows of the same transaction.
+    sweep_reorg(1, ReorgCommit::Durable);
+    sweep_reorg(40, ReorgCommit::Durable);
+}
+
+#[test]
+fn a_relaxed_reorganisation_cut_anywhere_leaves_the_old_chain_or_the_new() {
+    sweep_reorg(1, ReorgCommit::Relaxed);
+    sweep_reorg(4, ReorgCommit::Relaxed);
 }

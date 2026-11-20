@@ -3,8 +3,9 @@
 // the LICENSE file.
 
 //! Test support shared by the store's fault-injection, model and migration
-//! suites: a power-loss storage backend for redb 5 and a digest of every
-//! table.
+//! suites: a power-loss storage backend for redb 5, a digest of every
+//! table, and a consistency checker of the chain tables independent of the
+//! store's own (`chain`).
 //!
 //! Each test file that needs it says `mod support;`; not every file uses
 //! every item.
@@ -18,9 +19,10 @@
     reason = "test code: offsets into in-memory images whose sizes redb bounds"
 )]
 
+pub mod chain;
 pub mod powerloss;
 
-use purse_store::{MetaKey, ReadTx, TableId};
+use purse_store::{Hash32, HeaderBytes, MetaKey, ReadTx, TableId};
 use redb::{ReadableDatabase as _, ReadableTable as _, TableDefinition, TableHandle as _};
 use sha2::{Digest as _, Sha256};
 
@@ -93,4 +95,15 @@ pub fn raw_digest(db: &redb::Database) -> (StoreDigest, Option<u32>) {
 /// A short hex prefix of a digest, for messages.
 pub fn short(d: &StoreDigest) -> String {
     purse_testutil::hex(&d[..6])
+}
+
+/// A header the chain operations accept at `height` above the block
+/// `prev`: the two fields the store reads set (previous block at bytes 4
+/// to 36, height little-endian at 128 to 132), every other byte `salt`.
+pub fn chain_header(height: u32, prev: &Hash32, salt: u8) -> HeaderBytes {
+    let mut h = [salt; 180];
+    h[HeaderBytes::PREV_BLOCK_OFFSET..HeaderBytes::PREV_BLOCK_OFFSET + 32].copy_from_slice(&prev.0);
+    h[HeaderBytes::HEIGHT_OFFSET..HeaderBytes::HEIGHT_OFFSET + 4]
+        .copy_from_slice(&height.to_le_bytes());
+    HeaderBytes(h)
 }

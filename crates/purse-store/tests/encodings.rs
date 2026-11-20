@@ -573,3 +573,28 @@ fn balance_classes() {
     }
     assert_eq!(BalanceClass::from_u8(13), None);
 }
+
+/// The two header fields the chain operations read are at the offsets of
+/// dcrd's header serialization (`dcroxide-wire`, byte-compatible with
+/// dcrd's `BlockHeader`): on random headers, `HeaderBytes::height` and
+/// `HeaderBytes::prev_block` equal the decoded header's `height` and
+/// `prev_block`, and a header serialized from those fields reads back.
+#[test]
+fn header_fields_are_read_at_the_wire_offsets() {
+    let mut r = SplitMix64::from_env("purse-store header fields");
+    for _ in 0..ROUNDS {
+        let mut b = [0u8; 180];
+        r.fill(&mut b);
+        let (wire, n) = dcroxide_wire::BlockHeader::from_bytes(&b).expect("180 bytes decode");
+        assert_eq!(n, 180);
+        assert_eq!(wire.serialize(), b);
+        let h = HeaderBytes(b);
+        assert_eq!(h.height(), wire.height);
+        assert_eq!(h.prev_block().0, wire.prev_block.0);
+        let mut w = wire;
+        w.height = u32_of(&mut r);
+        let h = HeaderBytes(w.serialize());
+        assert_eq!(h.height(), w.height);
+        assert_eq!(h.prev_block().0, wire.prev_block.0);
+    }
+}

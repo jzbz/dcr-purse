@@ -16,11 +16,13 @@
 //!
 //! The rule is held by the types and by the store:
 //!
-//! - a [`SyncBatch`] writes only `headers`, `cfilters`, `blocks`,
-//!   `block_by_hash` and the tip and processed-marker rows of `meta`, and
-//!   in `blocks` only rows that carry no wallet state: it refuses to write
+//! - a [`SyncBatch`] writes only the chain tables ([`crate::chain`]:
+//!   `blocks`, `headers`, `cfilters`, `block_by_hash` and the two detached
+//!   tables) and the tip and processed-marker rows of `meta`, through the
+//!   chain operations alone, which keep the chain's invariants; and in
+//!   `blocks` only rows that carry no wallet state: it refuses to connect
 //!   a block row with wallet transactions or the stake-invalidation flag,
-//!   and to overwrite or remove one that has either (those changes are a
+//!   and to detach one that has either (those changes are a
 //!   client-visible write and go through
 //!   [`Store::update`](crate::Store::update)). So nothing a wallet
 //!   transaction, an address or a balance lives in can be committed
@@ -40,9 +42,12 @@
 //!   is 0, which, the count being exact, means the last commit of the
 //!   handle was durable and so covers every batch of this sync.
 
+use crate::chain::{Caller, ChainBlock};
 use crate::error::{Error, Result};
-use crate::keys::{Hash32, Height};
-use crate::schema::{BlockByHash, Blocks, CFilters, Headers, Table};
+use crate::keys::Hash32;
+use crate::schema::{
+    BlockByHash, Blocks, CFilters, CFiltersDetached, Headers, HeadersDetached, Table,
+};
 use crate::store::{CommitMode, Store};
 use crate::txn::WriteTx;
 use crate::values::{BlockRow, CFilterRow, HeaderBytes, Tip};
@@ -139,8 +144,8 @@ impl Drop for InitialSync<'_> {
     }
 }
 
-/// A write transaction of initial sync, restricted to the tables a
-/// header-and-filter batch writes. Reads of those tables see the batch's
+/// A write transaction of initial sync, restricted to the chain operations
+/// of a header-and-filter batch ([`crate::chain`]). Reads see the batch's
 /// own writes.
 ///
 /// It has no general `put`: a wallet row cannot be written without
@@ -160,87 +165,87 @@ pub struct SyncBatch<'a, 't> {
 }
 
 impl SyncBatch<'_, '_> {
-    /// Stores a block header under its hash.
-    pub fn put_header(&mut self, hash: &Hash32, header: &HeaderBytes) -> Result<()> {
-        self.tx.put::<Headers>(hash, header)
-    }
-
-    /// Stores a block's committed filter under its hash.
-    pub fn put_cfilter(&mut self, hash: &Hash32, filter: &CFilterRow) -> Result<()> {
-        self.tx.put::<CFilters>(hash, filter)
-    }
-
-    /// Records a main-chain block at `height`, with its hash index,
-    /// replacing a row that carries no wallet state (a header-only
-    /// reorganisation); the replaced block's hash index goes with it.
-    ///
-    /// Refused with an `Invalid` error, before anything is written, when
-    /// `row` or the row it would replace has wallet transactions or the
-    /// stake-invalidation flag: such a row is wallet state, written
-    /// durably through [`Store::update`](crate::Store::update).
-    pub fn put_block(&mut self, height: u32, row: &BlockRow) -> Result<()> {
-        if carries_wallet_state(row) {
-            return Err(Error::invalid(
-                "a block row with wallet transactions or invalidated is not a header batch's",
-            ));
-        }
-        if let Some(old) = self.tx.get::<Blocks>(&Height(height))? {
-            if carries_wallet_state(&old) {
-                return Err(Error::invalid(
-                    "a header batch cannot replace a block row with wallet transactions or invalidated",
-                ));
-            }
-            if old.hash != row.hash && self.block_height(&old.hash)? == Some(height) {
-                self.tx.delete::<BlockByHash>(&old.hash)?;
-            }
-        }
-        self.tx.put::<Blocks>(&Height(height), row)?;
-        self.tx.put::<BlockByHash>(&row.hash, &Height(height))
-    }
-
-    /// Removes the main-chain block at `height` and its hash index (a
-    /// header-only reorganisation). The header and filter stay, as
-    /// dcrwallet keeps detached headers (ADR-0003 Open point 5). Returns
-    /// the removed row.
-    ///
-    /// Refused with an `Invalid` error, before anything is removed, when
+    /// [`WriteTx::connect_block`]; also refused with kind `Invalid` when
     /// the row has wallet transactions or the stake-invalidation flag:
-    /// detaching such a block changes what a client sees and goes through
+    /// such a row is wallet state, written durably through
     /// [`Store::update`](crate::Store::update).
-    pub fn remove_block(&mut self, height: u32) -> Result<Option<BlockRow>> {
-        let Some(row) = self.tx.get::<Blocks>(&Height(height))? else {
-            return Ok(None);
-        };
-        if carries_wallet_state(&row) {
-            return Err(Error::invalid(
-                "a header batch cannot remove a block row with wallet transactions or invalidated",
-            ));
-        }
-        self.tx.delete::<Blocks>(&Height(height))?;
-        if self.block_height(&row.hash)? == Some(height) {
-            self.tx.delete::<BlockByHash>(&row.hash)?;
-        }
-        Ok(Some(row))
+    pub fn connect_block(&mut self, height: u32, block: ChainBlock<'_>) -> Result<()> {
+        self.tx
+            .connect_blocks_as(Caller::HeaderBatch, height, &[block])
     }
 
-    /// The header stored under `hash`.
+    /// [`WriteTx::connect_blocks`], refused as
+    /// [`SyncBatch::connect_block`] is.
+    pub fn connect_blocks(&mut self, first_height: u32, blocks: &[ChainBlock<'_>]) -> Result<()> {
+        self.tx
+            .connect_blocks_as(Caller::HeaderBatch, first_height, blocks)
+    }
+
+    /// [`WriteTx::promote_block`], refused as
+    /// [`SyncBatch::connect_block`] is.
+    pub fn promote_block(&mut self, height: u32, row: &BlockRow) -> Result<()> {
+        self.tx.promote_block_as(Caller::HeaderBatch, height, row)
+    }
+
+    /// [`WriteTx::disconnect_from`] (a header-only reorganisation); also
+    /// refused with kind `Invalid`, before anything is detached, when a
+    /// block it would detach has wallet transactions or the
+    /// stake-invalidation flag: detaching such a block changes what a
+    /// client sees and goes through [`Store::update`](crate::Store::update).
+    pub fn disconnect_from(&mut self, height: u32) -> Result<Vec<(u32, BlockRow)>> {
+        self.tx.disconnect_from_as(Caller::HeaderBatch, height)
+    }
+
+    /// [`WriteTx::reorganize`], refused as [`SyncBatch::connect_block`]
+    /// and [`SyncBatch::disconnect_from`] are.
+    pub fn reorganize(
+        &mut self,
+        fork_height: u32,
+        blocks: &[ChainBlock<'_>],
+    ) -> Result<Vec<(u32, BlockRow)>> {
+        self.tx
+            .reorganize_as(Caller::HeaderBatch, fork_height, blocks)
+    }
+
+    /// [`WriteTx::insert_detached`].
+    pub fn insert_detached(
+        &mut self,
+        hash: &Hash32,
+        header: &HeaderBytes,
+        filter: Option<&CFilterRow>,
+    ) -> Result<()> {
+        self.tx.insert_detached(hash, header, filter)
+    }
+
+    /// [`WriteTx::put_cfilter_at`].
+    pub fn put_cfilter_at(&mut self, height: u32, filter: &CFilterRow) -> Result<()> {
+        self.tx.put_cfilter_at(height, filter)
+    }
+
+    /// The header of the block `hash`, in the main chain or detached.
     pub fn header(&mut self, hash: &Hash32) -> Result<Option<HeaderBytes>> {
-        self.tx.get::<Headers>(hash)
+        self.tx.header(hash)
+    }
+
+    /// The main-chain header at `height`.
+    pub fn header_at(&mut self, height: u32) -> Result<Option<HeaderBytes>> {
+        self.tx.header_at(height)
+    }
+
+    /// The committed filter of the block `hash`, in the main chain or
+    /// detached.
+    pub fn cfilter(&mut self, hash: &Hash32) -> Result<Option<CFilterRow>> {
+        self.tx.cfilter(hash)
     }
 
     /// The main-chain block at `height`.
     pub fn block(&mut self, height: u32) -> Result<Option<BlockRow>> {
-        self.tx.get::<Blocks>(&Height(height))
+        self.tx.block(height)
     }
 
     /// The main-chain height of the block `hash`.
     pub fn block_height(&mut self, hash: &Hash32) -> Result<Option<u32>> {
-        Ok(self.tx.get::<BlockByHash>(hash)?.map(|h| h.0))
-    }
-
-    /// Records the main chain tip.
-    pub fn set_tip(&mut self, tip: &Tip) -> Result<()> {
-        self.tx.set_tip(tip)
+        self.tx.block_height(hash)
     }
 
     /// The main chain tip.
@@ -255,20 +260,15 @@ impl SyncBatch<'_, '_> {
     }
 }
 
-/// Whether a block row holds wallet state a header batch must not change
-/// without durability: wallet transactions mined in the block, or the
-/// stake invalidation of its regular tree.
-fn carries_wallet_state(row: &BlockRow) -> bool {
-    row.wallet_txs != 0 || row.invalid
-}
-
-// The tables above are exactly `schema::SYNC_TABLES`; this keeps the two in
-// step at compile time.
+// The tables the chain operations write are exactly `schema::SYNC_TABLES`;
+// this keeps the two in step at compile time.
 const _: () = {
     let ids = crate::schema::SYNC_TABLES;
-    assert!(ids.len() == 4);
+    assert!(ids.len() == 6);
     assert!(ids[0] as usize == Headers::ID as usize);
-    assert!(ids[1] as usize == CFilters::ID as usize);
-    assert!(ids[2] as usize == Blocks::ID as usize);
-    assert!(ids[3] as usize == BlockByHash::ID as usize);
+    assert!(ids[1] as usize == Blocks::ID as usize);
+    assert!(ids[2] as usize == BlockByHash::ID as usize);
+    assert!(ids[3] as usize == CFilters::ID as usize);
+    assert!(ids[4] as usize == HeadersDetached::ID as usize);
+    assert!(ids[5] as usize == CFiltersDetached::ID as usize);
 };

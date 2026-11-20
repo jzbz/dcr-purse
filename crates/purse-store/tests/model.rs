@@ -13,10 +13,26 @@
 //! counts, cursor walks); a read snapshot held across a commit; an initial
 //! sync of header-and-filter batches at some durable interval, finished,
 //! dropped, or cut by a power loss; a clean close and reopen; or a power
-//! loss between transactions. The model is a map per table. After every
-//! operation the store's whole contents must equal the model's; after a
-//! power loss they must equal the model as of some commit since the last
-//! durable one.
+//! loss between transactions. A batch runs the chain operations (blocks
+//! connected above the tip, detached from a height, a reorganisation,
+//! a detached block promoted, a detached header recorded, a missing
+//! filter added) on hashes drawn from a small set, so that blocks come
+//! back after a detach, and refusals (a main-chain block delivered again
+//! with its own header, given the next height or one far above it, and
+//! in a reorganisation that keeps it; its hash with a header that is not
+//! its own; the genesis block detached; nothing to promote; and a block
+//! row with wallet state connected or detached by a header batch) occur
+//! and must leave the batch usable with nothing written. The same chain
+//! operations also run durably in a write transaction of `Store::update`,
+//! committed or abandoned, where block rows with wallet state connect and
+//! detach freely; those rows then stand in the chain for later header
+//! batches to refuse. The model is a map per table, the chain operations written out
+//! on it as their documentation states them. After every operation the
+//! store's whole contents must equal the model's, and the chain tables
+//! must hold their invariants, by the store's own check
+//! (`ReadTx::check_chain`) and by the tests' independent one
+//! (`support::chain`, run on the model); after a power loss they must
+//! equal the model as of some commit since the last durable one.
 //!
 //! Most cases run on an in-memory image with the power-loss backend; one in
 //! eight runs on a file through `Store::open`, where a power loss cannot be
@@ -33,6 +49,7 @@
 
 mod support;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -41,10 +58,13 @@ use std::sync::Arc;
 
 use purse_errors::Kind;
 use purse_store::{
-    BlockRow, CFilterRow, Codec as _, Error, FORMAT_MAGIC, Hash32, HeaderBytes, Height, MetaKey,
-    OpenOptions, ReadTx, SCHEMA_VERSION, Store, TableId, Tip, WriteTx,
+    BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, ChainBlock, Codec,
+    Error, FORMAT_MAGIC, Hash32, HeaderBytes, Headers, HeadersDetached, Height, MetaKey,
+    OpenOptions, ReadTx, SCHEMA_VERSION, Store, SyncBatch, Table, TableId, Tip, WriteTx,
 };
 use purse_testutil::SplitMix64;
+use support::chain::chain_view_of;
+use support::chain_header;
 use support::powerloss::{Cut, PowerLoss, Shared};
 
 type Rows = BTreeMap<Vec<u8>, Vec<u8>>;
@@ -109,8 +129,29 @@ enum SyncEnd {
 #[derive(Clone, Debug)]
 struct SyncBlock {
     hash: u8,
-    height: u32,
-    filter_len: usize,
+    /// `None`: connected without a filter (a detached one is kept).
+    filter_len: Option<usize>,
+    /// The block row carries wallet state (wallet transactions), which a
+    /// header batch refuses to connect or detach.
+    wallet: bool,
+}
+
+/// One chain operation of a header batch.
+#[derive(Clone, Debug)]
+enum ChainOp {
+    /// Blocks connected above the tip.
+    Connect(Vec<SyncBlock>),
+    /// Every block at this height and above detached.
+    Disconnect(u32),
+    /// The blocks above `tip - depth` detached and `blocks` connected there.
+    Reorg { depth: u32, blocks: Vec<SyncBlock> },
+    /// The detached block of this hash promoted at the next height, its
+    /// row carrying wallet state when the flag is set.
+    Promote(u8, bool),
+    /// A detached header (and filter) recorded for this hash.
+    Detach { hash: u8, filter: bool },
+    /// The filter of the main-chain block at this height set.
+    Filter { height: u32, len: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -125,8 +166,14 @@ enum Op {
     Snapshot(Vec<Wr>),
     Sync {
         interval: u32,
-        batches: Vec<(Vec<u32>, Vec<SyncBlock>)>,
+        batches: Vec<Vec<ChainOp>>,
         end: SyncEnd,
+    },
+    /// Chain operations in a durable write transaction through
+    /// `Store::update`, committed or abandoned.
+    Chain {
+        ops: Vec<ChainOp>,
+        commit: bool,
     },
     Reopen,
     Crash,
@@ -200,13 +247,41 @@ fn write(rng: &mut SplitMix64) -> Wr {
     }
 }
 
+fn sync_block(rng: &mut SplitMix64) -> SyncBlock {
+    SyncBlock {
+        hash: rng.below(24) as u8,
+        filter_len: (rng.below(4) != 0).then(|| rng.below(300) as usize),
+        wallet: rng.below(6) == 0,
+    }
+}
+
+fn chain_op(rng: &mut SplitMix64) -> ChainOp {
+    match rng.below(12) {
+        0..=4 => ChainOp::Connect((0..1 + rng.below(4)).map(|_| sync_block(rng)).collect()),
+        5 => ChainOp::Disconnect(rng.below(24) as u32),
+        6 | 7 => ChainOp::Reorg {
+            depth: rng.below(5) as u32,
+            blocks: (0..rng.below(5)).map(|_| sync_block(rng)).collect(),
+        },
+        8 => ChainOp::Promote(rng.below(24) as u8, rng.below(6) == 0),
+        9 => ChainOp::Detach {
+            hash: rng.below(24) as u8,
+            filter: rng.below(2) == 0,
+        },
+        _ => ChainOp::Filter {
+            height: rng.below(24) as u32,
+            len: rng.below(100) as usize,
+        },
+    }
+}
+
 fn writes(rng: &mut SplitMix64) -> Vec<Wr> {
     let n = 1 + rng.below(12) as usize;
     (0..n).map(|_| write(rng)).collect()
 }
 
 fn op(rng: &mut SplitMix64) -> Op {
-    match rng.below(20) {
+    match rng.below(22) {
         0..=8 => Op::Update {
             writes: writes(rng),
             commit: rng.below(6) != 0,
@@ -216,17 +291,7 @@ fn op(rng: &mut SplitMix64) -> Op {
         13..=15 => {
             let n = 1 + rng.below(7) as usize;
             let batches = (0..n)
-                .map(|_| {
-                    let removes = (0..rng.below(3)).map(|_| rng.below(24) as u32).collect();
-                    let blocks = (0..1 + rng.below(4))
-                        .map(|_| SyncBlock {
-                            hash: rng.below(24) as u8,
-                            height: rng.below(24) as u32,
-                            filter_len: rng.below(300) as usize,
-                        })
-                        .collect();
-                    (removes, blocks)
-                })
+                .map(|_| (0..1 + rng.below(4)).map(|_| chain_op(rng)).collect())
                 .collect();
             let end = match rng.below(4) {
                 0 => SyncEnd::Drop,
@@ -240,7 +305,11 @@ fn op(rng: &mut SplitMix64) -> Op {
             }
         }
         16..=17 => Op::Reopen,
-        _ => Op::Crash,
+        18..=19 => Op::Crash,
+        _ => Op::Chain {
+            ops: (0..1 + rng.below(4)).map(|_| chain_op(rng)).collect(),
+            commit: rng.below(6) != 0,
+        },
     }
 }
 
@@ -652,96 +721,550 @@ fn compare(store: &Store, model: &State, after: &str) -> Res<()> {
     if &got != model {
         return Err(format!("after {after}: {}", diff(model, &got)));
     }
-    Ok(())
+    consistent(model, after)
 }
 
-fn sync_block_rows(b: &SyncBlock) -> (Hash32, HeaderBytes, CFilterRow, BlockRow) {
-    let hash = Hash32([b.hash; 32]);
-    let header = HeaderBytes([b.hash ^ 0x5a; 180]);
-    let filter = CFilterRow {
-        key: [b.hash; 16],
-        filter: vec![b.hash; b.filter_len],
-    };
-    let row = BlockRow {
-        hash,
-        time: i64::from(b.height),
-        vote_bits: u16::from(b.hash),
-        invalid: false,
-        wallet_txs: 0,
-    };
-    (hash, header, filter, row)
+/// The tests' own consistency check of the chain tables (`support::chain`)
+/// on a state the store was found to hold.
+fn consistent(state: &State, after: &str) -> Res<()> {
+    chain_view_of(|id| state.get(&id).cloned().unwrap_or_default())
+        .map(drop)
+        .map_err(|x| format!("after {after}: chain tables inconsistent: {x}"))
 }
 
-/// The height a model's `block_by_hash` gives `hash`.
-fn model_height(m: &State, hash: &Hash32) -> Option<Vec<u8>> {
-    m.get(&TableId::BlockByHash)
-        .and_then(|r| r.get(hash.0.as_slice()))
-        .cloned()
+// The chain operations on the model.
+
+fn hash_of(seed: u8) -> Hash32 {
+    Hash32([seed; 32])
 }
 
-/// One batch's effect on the model, as `SyncBatch`'s documentation states
-/// it: a removed or replaced block's hash index goes with it, when it
-/// points at that height.
-fn model_batch(m: &mut State, removes: &[u32], blocks: &[SyncBlock]) {
-    for &h in removes {
-        let k = Height(h).encode().to_vec();
-        if let Some(row) = m.get(&TableId::Blocks).and_then(|r| r.get(&k)).cloned() {
-            let row = BlockRow::decode(&row).expect("model block row");
-            del(m, TableId::Blocks, &k);
-            if model_height(m, &row.hash).as_deref() == Some(k.as_slice()) {
-                del(m, TableId::BlockByHash, &row.hash.0);
-            }
-        }
-    }
-    for b in blocks {
-        let k = Height(b.height).encode().to_vec();
-        let (hash, ..) = sync_block_rows(b);
-        if let Some(old) = m.get(&TableId::Blocks).and_then(|r| r.get(&k)).cloned() {
-            let old = BlockRow::decode(&old).expect("model block row");
-            if old.hash != hash && model_height(m, &old.hash).as_deref() == Some(k.as_slice()) {
-                del(m, TableId::BlockByHash, &old.hash.0);
-            }
-        }
-        // Each put of the batch sees the ones before it: apply it now.
-        model_put_block(m, b);
-    }
-    if let Some(b) = blocks.last() {
-        let (hash, ..) = sync_block_rows(b);
-        let t = Tip {
-            height: b.height,
-            hash,
-        };
-        put(
+fn model_get<T: Table>(m: &State, key: &T::Key) -> Option<T::Value> {
+    m.get(&T::ID)
+        .and_then(|r| r.get(key.encode().as_ref()))
+        .map(|v| T::Value::decode(v).expect("model row decodes"))
+}
+
+fn model_put<T: Table>(m: &mut State, key: &T::Key, value: &T::Value) {
+    put(
+        m,
+        T::ID,
+        key.encode().as_ref().to_vec(),
+        value.encode().as_ref().to_vec(),
+    );
+}
+
+fn model_del<T: Table>(m: &mut State, key: &T::Key) {
+    del(m, T::ID, key.encode().as_ref());
+}
+
+/// The model's tip: the last main-chain block.
+fn model_tip(m: &State) -> Option<(u32, Hash32)> {
+    m.get(&TableId::Blocks)
+        .and_then(|r| r.iter().next_back())
+        .map(|(k, v)| {
+            (
+                Height::decode(k).expect("height").0,
+                BlockRow::decode(v).expect("block row").hash,
+            )
+        })
+}
+
+fn set_model_tip(m: &mut State) {
+    match model_tip(m) {
+        Some((height, hash)) => put(
             m,
             TableId::Meta,
             MetaKey::Tip.name().to_vec(),
-            t.encode().to_vec(),
-        );
+            Tip { height, hash }.encode().to_vec(),
+        ),
+        None => del(m, TableId::Meta, MetaKey::Tip.name()),
     }
 }
 
-/// The rows one block of a batch puts.
-fn model_put_block(m: &mut State, b: &SyncBlock) {
-    let (hash, header, filter, row) = sync_block_rows(b);
-    put(m, TableId::Headers, hash.0.to_vec(), header.0.to_vec());
-    put(
-        m,
-        TableId::CFilters,
-        hash.0.to_vec(),
-        filter.encode().to_vec(),
-    );
-    put(
-        m,
-        TableId::Blocks,
-        Height(b.height).encode().to_vec(),
-        row.encode().to_vec(),
-    );
-    put(
-        m,
-        TableId::BlockByHash,
-        hash.0.to_vec(),
-        Height(b.height).encode().to_vec(),
-    );
+/// `WriteTx::disconnect_from`, as documented.
+fn model_disconnect_from(m: &mut State, height: u32) {
+    let Some((tip, _)) = model_tip(m) else { return };
+    if tip < height {
+        return;
+    }
+    for h in (height..=tip).rev() {
+        let key = Height(h);
+        let row = model_get::<Blocks>(m, &key).expect("main-chain row");
+        let header = model_get::<Headers>(m, &key);
+        let filter = model_get::<CFilters>(m, &key);
+        model_del::<Blocks>(m, &key);
+        model_del::<Headers>(m, &key);
+        model_del::<CFilters>(m, &key);
+        model_del::<BlockByHash>(m, &row.hash);
+        if let Some(header) = header {
+            model_put::<HeadersDetached>(m, &row.hash, &header);
+        }
+        if let Some(filter) = filter {
+            model_put::<CFiltersDetached>(m, &row.hash, &filter);
+        }
+    }
+    set_model_tip(m);
+}
+
+/// `WriteTx::connect_block`, as documented.
+fn model_connect(
+    m: &mut State,
+    height: u32,
+    row: &BlockRow,
+    header: &HeaderBytes,
+    filter: Option<&CFilterRow>,
+) {
+    let key = Height(height);
+    let detached = model_get::<CFiltersDetached>(m, &row.hash);
+    model_del::<HeadersDetached>(m, &row.hash);
+    model_del::<CFiltersDetached>(m, &row.hash);
+    model_put::<Blocks>(m, &key, row);
+    model_put::<Headers>(m, &key, header);
+    model_put::<BlockByHash>(m, &row.hash, &key);
+    if let Some(f) = filter.or(detached.as_ref()) {
+        model_put::<CFilters>(m, &key, f);
+    }
+    set_model_tip(m);
+}
+
+type OwnedBlock = (BlockRow, HeaderBytes, Option<CFilterRow>);
+
+/// The rows of `b` connected at `height` above `prev`.
+fn owned_block(b: &SyncBlock, height: u32, prev: &Hash32) -> OwnedBlock {
+    let row = BlockRow {
+        hash: hash_of(b.hash),
+        time: i64::from(height),
+        vote_bits: u16::from(b.hash),
+        invalid: false,
+        wallet_txs: u32::from(b.wallet),
+    };
+    let header = chain_header(height, prev, b.hash ^ 0x5a);
+    let filter = b.filter_len.map(|n| CFilterRow {
+        key: [b.hash; 16],
+        filter: vec![b.hash; n],
+    });
+    (row, header, filter)
+}
+
+fn as_chain(v: &[OwnedBlock]) -> Vec<ChainBlock<'_>> {
+    v.iter()
+        .map(|(row, header, filter)| ChainBlock {
+            row,
+            header,
+            filter: filter.as_ref(),
+        })
+        .collect()
+}
+
+/// The blocks of `blocks` that may connect above the model's height
+/// `keep` (nothing kept: `None`), each above the one before: those whose
+/// hash is neither kept in the main chain nor earlier in the list.
+fn resolve(m: &State, keep: Option<(u32, Hash32)>, blocks: &[SyncBlock]) -> Vec<OwnedBlock> {
+    let mut out: Vec<OwnedBlock> = Vec::new();
+    let mut height = keep.map_or(0, |(k, _)| k + 1);
+    let mut prev = keep.map_or(Hash32::default(), |(_, h)| h);
+    for b in blocks {
+        let hash = hash_of(b.hash);
+        let kept =
+            model_get::<BlockByHash>(m, &hash).is_some_and(|h| keep.is_some_and(|(k, _)| h.0 <= k));
+        if kept || out.iter().any(|o| o.0.hash == hash) {
+            continue;
+        }
+        let o = owned_block(b, height, &prev);
+        prev = hash;
+        height += 1;
+        out.push(o);
+    }
+    out
+}
+
+/// The counters of [`CHAIN`], by index.
+const CONNECTED: usize = 0;
+const DETACHED: usize = 1;
+const REORGS: usize = 2;
+const PROMOTED: usize = 3;
+const REFUSED: usize = 4;
+const DURABLE: usize = 5;
+const WALLET_REFUSED: usize = 6;
+const DURABLE_WALLET: usize = 7;
+const DELIVERED_AGAIN: usize = 8;
+
+thread_local! {
+    /// What the chain operations of a run did on this thread (blocks
+    /// connected, blocks detached, reorganisations, promotions, refusals,
+    /// chain operations committed durably, header-batch refusals of wallet
+    /// state, wallet-state blocks connected or detached durably, and
+    /// main-chain blocks delivered again), so that a run whose operations
+    /// were all skipped or refused does not pass for one that tested them.
+    static CHAIN: [Cell<u64>; 9] = const { [const { Cell::new(0) }; 9] };
+}
+
+fn count(i: usize, n: u64) {
+    CHAIN.with(|c| c[i].set(c[i].get() + n));
+}
+
+#[derive(Debug)]
+enum SyncErr {
+    Store(Error),
+    Mismatch(String),
+    /// A durable chain update abandoned on purpose.
+    Abandon,
+}
+
+impl From<Error> for SyncErr {
+    fn from(x: Error) -> Self {
+        SyncErr::Store(x)
+    }
+}
+
+/// A refusal the model predicts: the call must fail with `kind`, and the
+/// batch goes on.
+fn refused<T>(r: purse_store::Result<T>, kind: Kind, what: &str) -> Result<(), SyncErr> {
+    match r {
+        Err(x) if x.kind() == kind => {
+            count(REFUSED, 1);
+            Ok(())
+        }
+        Err(x) => Err(SyncErr::Mismatch(format!(
+            "{what}: expected {kind:?}, got {x}"
+        ))),
+        Ok(_) => Err(SyncErr::Mismatch(format!("{what}: expected a refusal"))),
+    }
+}
+
+/// The chain operations of a header batch ([`SyncBatch`], relaxed) and of
+/// a durable write transaction ([`WriteTx`]), so one model drives both.
+trait ChainTx {
+    /// A header batch, which refuses block rows with wallet state.
+    const RELAXED: bool;
+    fn connect_blocks(&mut self, h: u32, b: &[ChainBlock<'_>]) -> purse_store::Result<()>;
+    fn disconnect_from(&mut self, h: u32) -> purse_store::Result<Vec<(u32, BlockRow)>>;
+    fn reorganize(
+        &mut self,
+        fork: u32,
+        b: &[ChainBlock<'_>],
+    ) -> purse_store::Result<Vec<(u32, BlockRow)>>;
+    fn promote_block(&mut self, h: u32, row: &BlockRow) -> purse_store::Result<()>;
+    fn insert_detached(
+        &mut self,
+        hash: &Hash32,
+        header: &HeaderBytes,
+        filter: Option<&CFilterRow>,
+    ) -> purse_store::Result<()>;
+    fn put_cfilter_at(&mut self, h: u32, f: &CFilterRow) -> purse_store::Result<()>;
+}
+
+macro_rules! chain_tx {
+    ($t:ty, $relaxed:expr) => {
+        impl ChainTx for $t {
+            const RELAXED: bool = $relaxed;
+            fn connect_blocks(&mut self, h: u32, b: &[ChainBlock<'_>]) -> purse_store::Result<()> {
+                <$t>::connect_blocks(self, h, b)
+            }
+            fn disconnect_from(&mut self, h: u32) -> purse_store::Result<Vec<(u32, BlockRow)>> {
+                <$t>::disconnect_from(self, h)
+            }
+            fn reorganize(
+                &mut self,
+                fork: u32,
+                b: &[ChainBlock<'_>],
+            ) -> purse_store::Result<Vec<(u32, BlockRow)>> {
+                <$t>::reorganize(self, fork, b)
+            }
+            fn promote_block(&mut self, h: u32, row: &BlockRow) -> purse_store::Result<()> {
+                <$t>::promote_block(self, h, row)
+            }
+            fn insert_detached(
+                &mut self,
+                hash: &Hash32,
+                header: &HeaderBytes,
+                filter: Option<&CFilterRow>,
+            ) -> purse_store::Result<()> {
+                <$t>::insert_detached(self, hash, header, filter)
+            }
+            fn put_cfilter_at(&mut self, h: u32, f: &CFilterRow) -> purse_store::Result<()> {
+                <$t>::put_cfilter_at(self, h, f)
+            }
+        }
+    };
+}
+
+chain_tx!(SyncBatch<'_, '_>, true);
+chain_tx!(WriteTx<'_>, false);
+
+/// The model's main-chain rows at `from` and above, highest first: what a
+/// detach from `from` returns.
+fn model_rows_from(m: &State, from: u32) -> Vec<(u32, BlockRow)> {
+    let mut v: Vec<(u32, BlockRow)> = m
+        .get(&TableId::Blocks)
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| {
+            (
+                Height::decode(k).expect("height").0,
+                BlockRow::decode(v).expect("block row"),
+            )
+        })
+        .filter(|(h, _)| *h >= from)
+        .collect();
+    v.reverse();
+    v
+}
+
+fn has_wallet_state(row: &BlockRow) -> bool {
+    row.wallet_txs != 0 || row.invalid
+}
+
+/// A refusal of wallet state by a header batch: kind `Invalid`.
+fn wallet_refused<T>(r: purse_store::Result<T>, what: &str) -> Result<(), SyncErr> {
+    count(WALLET_REFUSED, 1);
+    refused(r, Kind::Invalid, what)
+}
+
+/// The detach the store reported is the model's, row for row.
+fn same_detach(
+    got: &[(u32, BlockRow)],
+    want: &[(u32, BlockRow)],
+    what: &str,
+) -> Result<(), SyncErr> {
+    if got != want {
+        return Err(SyncErr::Mismatch(format!(
+            "{what} detached {} rows, model {}: {got:?} against {want:?}",
+            got.len(),
+            want.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Offers the main-chain block `hash`, with its stored row and header, to
+/// `call`, which must refuse it as dcrwallet's `ExtendMainChain` refuses a
+/// block delivered again: kind `Exist`, or `Invalid` for the genesis
+/// block (a header stating height 0).
+fn probe_main_chain_block<C: ChainTx>(
+    b: &mut C,
+    m: &State,
+    hash: &Hash32,
+    call: impl FnOnce(&mut C, &[ChainBlock<'_>]) -> purse_store::Result<()>,
+) -> Result<(), SyncErr> {
+    let at = model_get::<BlockByHash>(m, hash).expect("indexed");
+    let row = model_get::<Blocks>(m, &at).expect("main-chain row");
+    let header = model_get::<Headers>(m, &at).expect("main-chain header");
+    let block = ChainBlock {
+        row: &row,
+        header: &header,
+        filter: None,
+    };
+    let kind = if at.0 == 0 {
+        Kind::Invalid
+    } else {
+        Kind::Exist
+    };
+    count(DELIVERED_AGAIN, 1);
+    refused(
+        call(b, &[block]),
+        kind,
+        "a main-chain block delivered again",
+    )
+}
+
+/// Runs one chain operation on the transaction and on the model.
+fn apply_chain_op<C: ChainTx>(b: &mut C, m: &mut State, op: &ChainOp) -> Result<(), SyncErr> {
+    let tip = model_tip(m);
+    match op {
+        ChainOp::Connect(blocks) => {
+            let next = tip.map_or(0, |(t, _)| t + 1);
+            if let Some(dup) = blocks
+                .iter()
+                .find(|x| model_get::<BlockByHash>(m, &hash_of(x.hash)).is_some())
+            {
+                // A main-chain block delivered again with its own row and
+                // header is refused first, whatever height is given (the
+                // next, or its own) and whatever wallet state its row
+                // carries: dcrwallet's `Exist`, or `Invalid` for the
+                // genesis block.
+                let given = if dup.hash % 2 == 0 { next } else { u32::MAX };
+                probe_main_chain_block(b, m, &hash_of(dup.hash), |b, c| {
+                    b.connect_blocks(given, c).map(drop)
+                })?;
+                // Its hash with a header of the next height, which is not
+                // its header: kind `Invalid`. (The probe carries no wallet
+                // state, so that a header batch refuses it for the hash.)
+                let mut o = owned_block(dup, next, &tip.map_or(Hash32::default(), |t| t.1));
+                o.0.wallet_txs = 0;
+                refused(
+                    b.connect_blocks(next, &as_chain(&[o])),
+                    Kind::Invalid,
+                    "connect a main-chain hash with another header",
+                )?;
+            }
+            let v = resolve(m, tip, blocks);
+            if v.is_empty() {
+                return Ok(());
+            }
+            let wallet = v.iter().filter(|o| has_wallet_state(&o.0)).count() as u64;
+            if C::RELAXED && wallet > 0 {
+                return wallet_refused(
+                    b.connect_blocks(next, &as_chain(&v)),
+                    "a header batch connects a block with wallet state",
+                );
+            }
+            b.connect_blocks(next, &as_chain(&v))?;
+            count(CONNECTED, v.len() as u64);
+            count(DURABLE_WALLET, wallet);
+            for (i, (row, header, filter)) in v.iter().enumerate() {
+                model_connect(m, next + i as u32, row, header, filter.as_ref());
+            }
+        }
+        ChainOp::Disconnect(h) => {
+            if *h == 0 {
+                return refused(
+                    b.disconnect_from(0),
+                    Kind::Invalid,
+                    "detach the genesis block",
+                );
+            }
+            let want = model_rows_from(m, *h);
+            let wallet = want.iter().filter(|(_, r)| has_wallet_state(r)).count() as u64;
+            if C::RELAXED && wallet > 0 {
+                return wallet_refused(
+                    b.disconnect_from(*h),
+                    "a header batch detaches a block with wallet state",
+                );
+            }
+            let got = b.disconnect_from(*h)?;
+            same_detach(&got, &want, &format!("disconnect_from({h})"))?;
+            count(DETACHED, got.len() as u64);
+            count(DURABLE_WALLET, wallet);
+            model_disconnect_from(m, *h);
+        }
+        ChainOp::Reorg { depth, blocks } => {
+            let Some((t, _)) = tip else {
+                return refused(
+                    b.reorganize(0, &[]),
+                    Kind::Invalid,
+                    "reorganise an empty chain",
+                );
+            };
+            let fork = t.saturating_sub(*depth);
+            let fork_hash = model_get::<Blocks>(m, &Height(fork))
+                .expect("fork row")
+                .hash;
+            // A block that stays, delivered again: refused as in a connect.
+            if let Some(dup) = blocks.iter().find(|x| {
+                model_get::<BlockByHash>(m, &hash_of(x.hash)).is_some_and(|h| h.0 <= fork)
+            }) {
+                probe_main_chain_block(b, m, &hash_of(dup.hash), |b, c| {
+                    b.reorganize(fork, c).map(drop)
+                })?;
+            }
+            let v = resolve(m, Some((fork, fork_hash)), blocks);
+            let want = model_rows_from(m, fork + 1);
+            let wallet = (want.iter().filter(|(_, r)| has_wallet_state(r)).count()
+                + v.iter().filter(|o| has_wallet_state(&o.0)).count())
+                as u64;
+            if C::RELAXED && wallet > 0 {
+                return wallet_refused(
+                    b.reorganize(fork, &as_chain(&v)),
+                    "a header batch reorganises over wallet state",
+                );
+            }
+            let got = b.reorganize(fork, &as_chain(&v))?;
+            if !got.is_empty() && !v.is_empty() {
+                count(REORGS, 1);
+            }
+            same_detach(&got, &want, &format!("reorganize({fork})"))?;
+            count(DURABLE_WALLET, wallet);
+            model_disconnect_from(m, fork + 1);
+            for (i, (row, header, filter)) in v.iter().enumerate() {
+                model_connect(m, fork + 1 + i as u32, row, header, filter.as_ref());
+            }
+        }
+        ChainOp::Promote(seed, wallet) => {
+            let next = tip.map_or(0, |(t, _)| t + 1);
+            let fits_tip = |hd: &HeaderBytes| {
+                hd.height() == next && (next == 0 || Some(hd.prev_block()) == tip.map(|t| t.1))
+            };
+            // A detached block that fits the tip, if there is one;
+            // otherwise the seed's, which may not.
+            let hash = m
+                .get(&TableId::HeadersDetached)
+                .into_iter()
+                .flatten()
+                .find(|(_, v)| fits_tip(&HeaderBytes::decode(v).expect("header")))
+                .map_or(hash_of(*seed), |(k, _)| Hash32::decode(k).expect("hash"));
+            let seed = &hash.0[0];
+            let row = BlockRow {
+                hash,
+                time: i64::from(next),
+                vote_bits: u16::from(*seed),
+                invalid: false,
+                wallet_txs: u32::from(*wallet),
+            };
+            if C::RELAXED && *wallet {
+                // Refused for the row's wallet state, or for no detached
+                // header that fits: kind `Invalid` either way.
+                return wallet_refused(
+                    b.promote_block(next, &row),
+                    "a header batch promotes a block with wallet state",
+                );
+            }
+            let fits = model_get::<HeadersDetached>(m, &hash).filter(fits_tip);
+            match fits {
+                Some(header) => {
+                    b.promote_block(next, &row)?;
+                    count(PROMOTED, 1);
+                    count(DURABLE_WALLET, u64::from(*wallet));
+                    model_connect(m, next, &row, &header, None);
+                }
+                None => refused(b.promote_block(next, &row), Kind::Invalid, "promote")?,
+            }
+        }
+        ChainOp::Detach { hash, filter } => {
+            let h = hash_of(*hash);
+            let header = chain_header(u32::from(*hash), &hash_of(hash ^ 1), hash ^ 0x33);
+            let f = filter.then(|| CFilterRow {
+                key: [*hash ^ 0x33; 16],
+                filter: vec![*hash; 7],
+            });
+            if model_get::<BlockByHash>(m, &h).is_some() {
+                return refused(
+                    b.insert_detached(&h, &header, f.as_ref()),
+                    Kind::Exist,
+                    "detach a main-chain block",
+                );
+            }
+            b.insert_detached(&h, &header, f.as_ref())?;
+            model_put::<HeadersDetached>(m, &h, &header);
+            if let Some(f) = f {
+                model_put::<CFiltersDetached>(m, &h, &f);
+            }
+        }
+        ChainOp::Filter { height, len } => {
+            let f = CFilterRow {
+                key: [0xf1; 16],
+                filter: vec![0xf1; *len],
+            };
+            if model_get::<Blocks>(m, &Height(*height)).is_none() {
+                return refused(
+                    b.put_cfilter_at(*height, &f),
+                    Kind::Invalid,
+                    "filter above the chain",
+                );
+            }
+            b.put_cfilter_at(*height, &f)?;
+            model_put::<CFilters>(m, &Height(*height), &f);
+        }
+    }
+    Ok(())
+}
+
+/// The chain tables hold their invariants.
+fn check_chain(store: &Store, after: &str) -> Res<()> {
+    store
+        .read()
+        .and_then(|tx| tx.check_chain())
+        .map_err(|x| format!("after {after}: {x}"))
 }
 
 fn run_op(h: &mut Harness, model: &mut State, op: &Op) -> Res<()> {
@@ -798,6 +1321,30 @@ fn run_op(h: &mut Harness, model: &mut State, op: &Op) -> Res<()> {
             batches,
             end,
         } => run_sync(h, model, *interval, batches, *end),
+        Op::Chain { ops, commit } => {
+            let mut pending = model.clone();
+            let r = h.store().update(|tx| {
+                for o in ops {
+                    apply_chain_op(tx, &mut pending, o)?;
+                }
+                if *commit {
+                    Ok(())
+                } else {
+                    Err(SyncErr::Abandon)
+                }
+            });
+            match r {
+                Ok(()) => {
+                    count(DURABLE, ops.len() as u64);
+                    *model = pending;
+                }
+                Err(SyncErr::Abandon) => {}
+                Err(SyncErr::Store(x)) => return Err(e(x)),
+                Err(SyncErr::Mismatch(m)) => return Err(m),
+            }
+            compare(h.store(), model, "chain update")?;
+            check_chain(h.store(), "chain update")
+        }
         Op::Reopen => {
             h.reopen()?;
             compare(h.store(), model, "reopen")
@@ -814,7 +1361,7 @@ fn run_sync(
     h: &mut Harness,
     model: &mut State,
     interval: u32,
-    batches: &[(Vec<u32>, Vec<SyncBlock>)],
+    batches: &[Vec<ChainOp>],
     end: SyncEnd,
 ) -> Res<()> {
     let end = match end {
@@ -827,33 +1374,24 @@ fn run_sync(
     {
         let store = h.store.as_ref().expect("store open");
         let mut sync = store.initial_sync().with_interval(interval).map_err(e)?;
-        for (i, (removes, blocks)) in batches.iter().enumerate() {
+        for (i, ops) in batches.iter().enumerate() {
             if end == SyncEnd::Crash(i) {
                 break;
             }
+            let mut pending = model.clone();
             let ((), durable) = sync
                 .batch(|b| {
-                    for &x in removes {
-                        b.remove_block(x)?;
+                    for op in ops {
+                        apply_chain_op(b, &mut pending, op)?;
                     }
-                    let mut last = None;
-                    for blk in blocks {
-                        let (hash, header, filter, row) = sync_block_rows(blk);
-                        b.put_header(&hash, &header)?;
-                        b.put_cfilter(&hash, &filter)?;
-                        b.put_block(blk.height, &row)?;
-                        last = Some(Tip {
-                            height: blk.height,
-                            hash,
-                        });
-                    }
-                    if let Some(t) = last {
-                        b.set_tip(&t)?;
-                    }
-                    Ok::<_, Error>(())
+                    Ok::<_, SyncErr>(())
                 })
-                .map_err(e)?;
-            model_batch(model, removes, blocks);
+                .map_err(|x| match x {
+                    SyncErr::Store(x) => e(x),
+                    SyncErr::Mismatch(m) => m,
+                    SyncErr::Abandon => "a header batch abandoned".to_owned(),
+                })?;
+            *model = pending;
             if durable {
                 since_durable.clear();
             }
@@ -889,9 +1427,11 @@ fn run_sync(
             ));
         };
         *model = since_durable.swap_remove(i);
-        return Ok(());
+        consistent(model, "a power loss in a sync")?;
+        return check_chain(h.store(), "a power loss in a sync");
     }
-    compare(h.store(), model, "sync")
+    compare(h.store(), model, "sync")?;
+    check_chain(h.store(), "sync")
 }
 
 /// Runs a sequence; `Err` describes the first divergence.
@@ -913,6 +1453,8 @@ fn op_name(op: &Op) -> &'static str {
         Op::Read(_) => "read",
         Op::Snapshot(_) => "snapshot",
         Op::Sync { .. } => "sync",
+        Op::Chain { commit: true, .. } => "chain update",
+        Op::Chain { commit: false, .. } => "abandoned chain update",
         Op::Reopen => "reopen",
         Op::Crash => "power loss",
     }
@@ -1027,6 +1569,24 @@ fn the_store_behaves_as_its_model() {
         }
     }
     eprintln!("model: {cases} sequences; operations run: {counts:?}");
+    let c: Vec<(&str, u64)> = [
+        "connected",
+        "detached",
+        "reorganisations",
+        "promoted",
+        "refused",
+        "durable chain operations",
+        "wallet state refused by a header batch",
+        "wallet-state blocks moved durably",
+        "main-chain blocks delivered again",
+    ]
+    .into_iter()
+    .zip(CHAIN.with(|c| c.each_ref().map(Cell::get)))
+    .collect();
+    eprintln!("chain operations: {c:?}");
+    for &(what, n) in &c {
+        assert!(n > 0, "no chain operation {what}: {c:?}");
+    }
 }
 
 /// The shrinker itself: a sequence with a planted divergence shrinks to the

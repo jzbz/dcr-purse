@@ -91,19 +91,33 @@ schema! {
     /// `addr_by_acct_sha`: [`AddrAcctShaKey`] → HASH160. Serves
     /// `ForEachAccountAddress` order.
     AddrByAcctSha = AddrByAcctSha, "addr_by_acct_sha", AddrAcctShaKey, Hash160;
-    /// `headers`: block hash → serialized header. Main-chain and detached
-    /// headers alike, as dcrwallet's `h` bucket, which `getblockheader`
-    /// reads and nothing prunes (ADR-0003 Open point 5).
-    Headers = Headers, "headers", Hash32, HeaderBytes;
+    /// `headers`: main-chain height → serialized header. Exactly the
+    /// heights of `blocks`. A header found by hash goes through
+    /// `block_by_hash`, then `headers_detached` (the chain methods,
+    /// [`crate::chain`]).
+    Headers = Headers, "headers", Height, HeaderBytes;
     /// `blocks`: height → [`BlockRow`], the main chain only. Serves
     /// `RangeBlocks`, `GetMainChainBlockHashForHeight`, `BlockInMainChain`.
     Blocks = Blocks, "blocks", Height, BlockRow;
-    /// `block_by_hash`: block hash → height, main-chain blocks. Serves
-    /// `GetBlockMetaForHash`.
+    /// `block_by_hash`: block hash → height, main-chain blocks: the
+    /// hash-to-height index of `blocks`, `headers` and `cfilters`. Serves
+    /// `GetBlockMetaForHash`, `BlockInMainChain`, and every main-chain
+    /// lookup by hash.
     BlockByHash = BlockByHash, "block_by_hash", Hash32, Height;
-    /// `cfilters`: block hash → [`CFilterRow`]. Serves
-    /// `GetMainChainCFilters`, `CFilterV2`.
-    CFilters = CFilters, "cfilters", Hash32, CFilterRow;
+    /// `cfilters`: main-chain height → [`CFilterRow`], at heights of
+    /// `blocks` (a block may lack its filter while `have_cfilters` is
+    /// unset). Serves `GetMainChainCFilters` as one range scan, and
+    /// `CFilterV2` with `block_by_hash` and `cfilters_detached`.
+    CFilters = CFilters, "cfilters", Height, CFilterRow;
+    /// `headers_detached`: block hash → serialized header, for blocks not
+    /// in the main chain: detached by a reorganisation, or recorded before
+    /// they are connected. dcrwallet's `h` bucket keeps such headers, which
+    /// `getblockheader` returns, and nothing prunes them (ADR-0003 Open
+    /// point 5). No hash is both here and in `block_by_hash`.
+    HeadersDetached = HeadersDetached, "headers_detached", Hash32, HeaderBytes;
+    /// `cfilters_detached`: block hash → [`CFilterRow`] of a block in
+    /// `headers_detached` (dcrwallet's `cf` bucket keeps them too).
+    CFiltersDetached = CFiltersDetached, "cfilters_detached", Hash32, CFilterRow;
     /// `tx_mined`: [`TxRecKey`] → [`TxMinedRow`]. Serves `TxDetails`, `Tx`,
     /// `ExistsTx` (the highest height of a hash).
     TxMined = TxMined, "tx_mined", TxRecKey, TxMinedRow;
@@ -170,10 +184,12 @@ pub const TABLE_COUNT: usize = TableId::ALL.len();
 
 /// The tables a header-and-filter batch of initial sync may write
 /// ([`crate::SyncBatch`]), besides the tip and processed-marker rows of
-/// `meta`.
-pub const SYNC_TABLES: [TableId; 4] = [
+/// `meta`: the chain tables of [`crate::chain`].
+pub const SYNC_TABLES: [TableId; 6] = [
     TableId::Headers,
-    TableId::CFilters,
     TableId::Blocks,
     TableId::BlockByHash,
+    TableId::CFilters,
+    TableId::HeadersDetached,
+    TableId::CFiltersDetached,
 ];

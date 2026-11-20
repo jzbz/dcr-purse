@@ -45,10 +45,19 @@ fn check_entry(key: &[u8], value: &[u8]) -> Result<()> {
         Err(Error::invalid("key required"))
     } else if key.len() > MAX_KEY_SIZE {
         Err(Error::invalid("key too large"))
-    } else if value.len() > MAX_VALUE_SIZE {
-        Err(Error::invalid("value too large"))
     } else {
-        Ok(())
+        check_value_len(Some(value.len()))
+    }
+}
+
+/// bbolt's value-size check on a `Put` alone, with its kind and text, for
+/// a value of `len` bytes (`None`: a length past `usize`). An operation
+/// that makes several writes calls it before the first, so that a value
+/// the put would refuse is refused before anything is written.
+pub(crate) fn check_value_len(len: Option<usize>) -> Result<()> {
+    match len {
+        Some(n) if n <= MAX_VALUE_SIZE => Ok(()),
+        _ => Err(Error::invalid("value too large")),
     }
 }
 
@@ -554,6 +563,15 @@ impl<'t> WriteTx<'t> {
         Ok(self.table_mut(T::ID)?.remove(k.as_ref())?.is_some())
     }
 
+    /// Removes `key` from table `T`, returning the value it held.
+    pub(crate) fn take<T: Table>(&mut self, key: &T::Key) -> Result<Option<T::Value>> {
+        let k = key.encode();
+        match self.table_mut(T::ID)?.remove(k.as_ref())? {
+            Some(g) => Ok(Some(decode(T::ID, g.value())?)),
+            None => Ok(None),
+        }
+    }
+
     /// Writes a raw entry. The bytes are not checked against the table's
     /// types; this is for migrations and tests. bbolt's limits apply as in
     /// [`WriteTx::put`].
@@ -641,7 +659,9 @@ impl<'t> WriteTx<'t> {
         self.put_raw(TableId::Meta, MetaKey::Version.name(), &v.to_be_bytes())
     }
 
-    /// Records the main chain tip.
+    /// Records the main chain tip. The chain methods ([`crate::chain`])
+    /// keep this row equal to the last main-chain block; writing it
+    /// directly is for migrations and tests.
     pub fn set_tip(&mut self, tip: &Tip) -> Result<()> {
         self.put_raw(TableId::Meta, MetaKey::Tip.name(), &tip.encode())
     }
@@ -672,4 +692,26 @@ impl<'a, 't> WriteReader<'a, 't> {
 
     typed_readers!();
     meta_readers!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The value check alone draws the line where [`WriteTx::put`] does,
+    /// with its text, so a chain operation's early refusal matches the
+    /// put's.
+    #[test]
+    fn the_value_check_alone_is_the_puts() {
+        assert!(check_value_len(Some(0)).is_ok());
+        assert!(check_value_len(Some(MAX_VALUE_SIZE)).is_ok());
+        for len in [MAX_VALUE_SIZE.checked_add(1), Some(usize::MAX), None] {
+            let e = check_value_len(len).unwrap_err();
+            assert_eq!(e.to_string(), "invalid operation: value too large");
+        }
+        assert_eq!(
+            check_entry(b"k", &[]).map_err(|e| e.to_string()),
+            check_value_len(Some(0)).map_err(|e| e.to_string())
+        );
+    }
 }

@@ -330,9 +330,37 @@ impl Codec for AddrRow {
     }
 }
 
-/// `headers` value: a serialized 180-byte block header.
+/// `headers` and `headers_detached` value: a serialized 180-byte block
+/// header.
+///
+/// The store reads two fields of it, at their offsets in Decred's wire
+/// serialization (all little-endian): the previous block's hash (bytes 4 to
+/// 36) and the height (bytes 128 to 132), which dcrwallet reads at the same
+/// offsets (`extractBlockHeaderParentHash`, `wallet/udb/txmined.go:545-548`,
+/// and `extractBlockHeaderHeight`, `:568-571`). It does not hash the
+/// header: a block's hash is the caller's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeaderBytes(pub [u8; 180]);
+
+impl HeaderBytes {
+    /// Offset of the previous block's hash.
+    pub const PREV_BLOCK_OFFSET: usize = 4;
+    /// Offset of the height, u32 little-endian.
+    pub const HEIGHT_OFFSET: usize = 128;
+
+    /// The height the header states.
+    pub fn height(&self) -> u32 {
+        let h = &self.0;
+        u32::from_le_bytes([h[128], h[129], h[130], h[131]])
+    }
+
+    /// The hash of the previous block, in internal byte order.
+    pub fn prev_block(&self) -> Hash32 {
+        let mut p = [0u8; 32];
+        p.copy_from_slice(&self.0[4..36]);
+        Hash32(p)
+    }
+}
 
 impl Codec for HeaderBytes {
     type Bytes = [u8; 180];
@@ -411,6 +439,14 @@ pub struct CFilterRow {
     pub key: [u8; 16],
     /// The serialized filter.
     pub filter: Vec<u8>,
+}
+
+impl CFilterRow {
+    /// The length of the row's encoding (`None`: past `usize`), which
+    /// bbolt's value limit is checked against.
+    pub(crate) fn encoded_len(&self) -> Option<usize> {
+        self.key.len().checked_add(self.filter.len())
+    }
 }
 
 impl Codec for CFilterRow {

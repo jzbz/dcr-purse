@@ -649,10 +649,12 @@ to allow it is Open point 4.
    | `addr_by_hash` | HASH160 | account, branch, index | `Manager.Address`, `AddrAccount` by script; ownership on ingest |
    | `addr_by_path` | account BE, branch, index BE | HASH160 | `SyncAccountToAddrIndex` without derivation; a BIP0044 account's addresses in derivation order |
    | `addr_by_acct_sha` | account **LE**, SHA-256(HASH160) | HASH160 | `ForEachAccountAddress` order (`addracctidx`) |
-   | `headers` | height (spike); block hash (Phase 2) | 180-byte header | `GetBlockHeader` |
+   | `headers` | height (spike); block hash (Phase 2) *(as built: height, the main chain's headers only; addendum "Chain tables keyed by height, as built")* | 180-byte header | `GetBlockHeader` |
    | `blocks` | height | hash, time, vote bits, invalid flag, wallet transactions | `RangeBlocks`, `GetMainChainBlockHashForHeight`, `BlockInMainChain` |
    | `block_by_hash` | hash | height | `GetBlockMetaForHash` |
-   | `cfilters` | height (spike); block hash (Phase 2) | key (16), filter | `GetMainChainCFilters`, `CFilterV2` |
+   | `cfilters` | height (spike); block hash (Phase 2) *(as built: height, the main chain's filters only; same addendum)* | key (16), filter | `GetMainChainCFilters`, `CFilterV2` |
+   | `headers_detached` *(added, same addendum)* | block hash | 180-byte header | `GetBlockHeader` of a block not in the main chain (Open point 5) |
+   | `cfilters_detached` *(added, same addendum)* | block hash | key (16), filter | `CFilterV2` of a block not in the main chain |
    | `tx_mined` | tx hash, height BE | position in block, received time, transaction | `TxDetails`, `Tx`, `ExistsTx` (highest height of a hash) |
    | `tx_unmined` | tx hash | received time, transaction | `UnminedTxs`, the unmined batch of `RangeTransactions` |
    | `unpublished` | tx hash | flag | `Unpublished`, `SetPublished` |
@@ -951,7 +953,8 @@ height keys and assume this layout. The schema in `purse-store` still keys
 them by hash; changing it adds tables to Decision item 2's list and changes
 `SyncBatch`, and waits on the owner. *Decided (project owner, 2026-11-19):
 height keys, in schema version 1, before Phase 3; addendum "Decisions of
-the project owner".*
+the project owner".* *Done (2026-11-20): built in schema version 1;
+addendum "Chain tables keyed by height, as built".*
 
 **Tables per commit (Open point 9).** Fifteen tables of 100,000 rows each
 (36-byte random keys, 60-byte values: the shape of credit and unspent
@@ -1072,6 +1075,8 @@ pointers added to it.
    addendum did not make, come with that change. Grounds: by hash, initial
    sync wrote 3.4 to 3.5 times the bytes and took 2.8 times as long with
    durable commits; a header looked up by hash costs a second lookup.
+   *Done (2026-11-20): addendum "Chain tables keyed by height, as built"
+   below.*
 2. **Tables are not merged** (Open point 9). Decision item 2's tables stay
    separate; revisited only if bytes written per commit come to matter in
    their own right.
@@ -1117,3 +1122,126 @@ pointers added to it.
 10. **`dcroxide-stake`'s storage gate** is scheduled to land in dcroxide,
     and the pin to reach it, before Phase 3 (ADR-0006 rule 5; the addendum
     to ADR-0006 of 2026-11-19 on the owner's scheduling).
+
+## Addendum, 2026-11-19 — Chain tables keyed by height, as built
+
+The project owner decided on 2026-11-19, after the Phase 2 measurement
+addendum above, that schema version 1 keys main-chain headers and
+committed filters by height, before Phase 3, and that the tables are not
+merged (the addendum "Decisions of the project owner", items 1 and 2). No store has been released and
+no wallet written at version 1, so version 1 itself changes and no
+migration from the hash layout exists. The checked-in version-1 fixture
+(`crates/purse-store/tests/data/schema-v1.redb`) was regenerated with the
+documented command (`write_current_schema_fixture` in
+`tests/migration.rs`, run twice, byte-identical) and its pinned SHA-256
+changed with it.
+
+**Layout.** Six chain tables (`purse_store::chain`, whose module
+documentation is the reference):
+
+| table | key | value |
+|---|---|---|
+| `blocks` | height (u32 BE) | block record (unchanged) |
+| `headers` | height | 180-byte header of the main-chain block |
+| `cfilters` | height | committed filter of the main-chain block, when it has one |
+| `block_by_hash` | block hash | height: the hash index of the three above |
+| `headers_detached` | block hash | header of a block not in the main chain |
+| `cfilters_detached` | block hash | its filter |
+
+Seven invariants hold between them: `blocks` holds the heights 0 to the
+tip without a gap; `headers` holds exactly the heights of `blocks`, each
+header stating its height and, above genesis, naming the block below;
+`cfilters` holds only heights of `blocks` (a block may lack its filter);
+`block_by_hash` is exactly the index of `blocks`; the `tip` row is the
+last block, absent with no chain; no detached row is of a block in
+`block_by_hash`; every detached filter has its detached header. The store
+reads two header fields (previous block at bytes 4 to 36, height
+little-endian at 128 to 132, checked against dcroxide-wire's
+serialization) and does not hash headers.
+
+**Operations.** The tables change only through typed operations of
+`WriteTx`, each checking everything it can refuse before it writes,
+bbolt's value limit on every filter it is given included (the one put
+limit a chain row can reach), so a refused call writes nothing and the
+transaction stays usable; an engine error part-way through the writes
+(kind `Io`) may leave some of them, and the caller abandons the
+transaction, as `Store::update` does on any error: connect
+blocks above the tip (or from genesis), promote a detached block from its
+stored header and filter, disconnect from a height (dcrwallet's
+`Rollback`; genesis is never detached), reorganise at a fork point (detach
+and connect in one call, a block of the detached branch allowed back),
+record a detached header and filter, add a main-chain block's missing
+filter. A main-chain block delivered again with its own header is
+refused with dcrwallet's kind `Exist` and text, checked as
+`ExtendMainChain` checks it: at the height the header states, before the
+height the caller gives and the parent (PARITY.md has the order and the
+two refusals dcrwallet lacks). A header stating height 0 above genesis,
+or 2^31 or more (a negative `int32` to dcrwallet), gets dcrwallet's
+`block 0 cannot be added` before that, so no operation puts a block above
+height 2^31 - 1. A detach moves each block's header and filter to the detached
+tables and removes its block row and index row in the transaction that
+detaches it; a connect takes a detached block's rows back. A
+reorganisation is therefore atomic with whatever else its transaction
+writes, the wallet's rows included. `SyncBatch` offers the same operations
+under relaxed durability and refuses to connect or detach a block row
+with wallet transactions or the invalidation flag; the 50-commit rule
+(Decision item 9) is unchanged. A lookup by hash goes through
+`block_by_hash` to the main-chain row, or to the detached table: two reads
+for a main-chain block where dcrwallet's `h` and `cf` buckets take one.
+The generic `put` and `delete` still reach these tables, for migrations
+and tests, unchecked; `ReadTx::check_chain` detects what they break.
+
+**Tests.** The model-based property test runs random connects,
+disconnects, reorganisations, promotions, detached inserts and missing
+filters, both in relaxed header batches and in durable `Store::update`
+transactions committed or abandoned, with block rows carrying wallet
+state that a header batch must refuse to move; after every operation the
+store's whole contents equal the model's and the chain tables pass both
+`check_chain` and a checker of the tests' own (`tests/support/chain.rs`),
+which reads the tables as raw rows and checks every correspondence in
+both directions (each height row has its index row and each index row its
+height row; heights contiguous from 0 to the tip). The power-loss rig
+cuts one reorganisation at every storage operation from the open to the
+close, clean, torn and with every write kept: one block replaced at the
+tip and forty, durably with wallet rows in the same transaction, and one
+and four as a relaxed batch made durable by `finish`, the new branch
+taking a detached branch back. Every reopened image holds the old chain
+or the new whole (the store's digest, both checks, and the chain's hashes
+by height, index, filters and detached rows exactly the old or the new),
+and a reorganisation acknowledged as durable is never lost. The
+workload-wide sweep, the migration sweeps (whose version-1 image now
+holds a reorganised chain), the newer-store refusal and the fixture test
+run both checks too. The refusal tests of `tests/store.rs` pin the order
+of the refusals by their text, a filter over bbolt's value limit refused
+before the first write (a 2 GiB filter allocated zeroed and never
+written, on 64-bit targets only), a header stating 2^31 or more refused
+with dcrwallet's text (live against `ExtendMainChain` through the
+`oprunner` oracle), and a tip written raw at height `u32::MAX`, above
+which nothing connects. Run on Linux only in this work.
+
+**Measured** (`tests/measure.rs`, the bench ledger's entry "the chain
+tables keyed by height, as built": three runs on the shared desktop of the
+Phase 2 addendum, load average between 7 and 25, Go not run). Through the
+chain operations the ingest of 1,050,000 blocks in durable 2,000-block
+commits writes exactly what the raw height layout writes, 4.06 GiB
+(9.21 MiB a commit; 84.4 KiB a tip commit), against 13.99 GiB keyed by
+hash, 3.45 times fewer bytes; it took 33.9 s (30.1–36.4) at the median
+against 103.9 s (97.9–134.8) keyed by hash, 3.1 times faster, and against
+37.5 s (33.0–53.1) for the raw height rows, so the operations' extra reads
+and checks cost no I/O and no time this session could resolve. As initial
+sync runs it, with relaxed batches, the same ingest writes 1.09 GiB in 29
+syncs and took 9.3 s (8.5–10.8). Warm, a header by height takes 0.73 µs,
+by hash 1.62 µs (two lookups; 1.00 µs keyed by hash), and 2,000
+consecutive filters 0.16 ms (1.98 ms keyed by hash). A durable
+reorganisation at the tip of the grown file writes 100.4 KiB in 26 writes
+at depth 1 and 184.4 KiB in 47 at depth 6, against 84.4 KiB in 22 for a
+one-block connect, and took 10.2 and 11.2 ms at the median, a commit's
+sync on that machine being about 10 ms.
+
+**Not done or not measured.** A sync cannot start at a checkpoint: the
+main chain is contiguous from height 0, as dcrwallet's always is. Cold
+reads, headers of a real chain, reorganisations deeper than 6 blocks on a
+grown file, and platforms other than Linux on x86_64 were not measured.
+The 2.8x initial-sync figure of the Phase 2 addendum was measured on raw
+rows; this addendum's 3.1x is through the operations as built, on the
+same machine under different load.

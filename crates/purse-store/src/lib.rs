@@ -28,10 +28,12 @@
 //! | [`AddrByHash`] | [`Hash160`] | [`AddrRow`] | `Manager.Address`, `AddrAccount` |
 //! | [`AddrByPath`] | [`AddrPathKey`] | [`Hash160`] | `SyncAccountToAddrIndex` without derivation |
 //! | [`AddrByAcctSha`] | [`AddrAcctShaKey`] (account **LE**) | [`Hash160`] | `ForEachAccountAddress` order |
-//! | [`Headers`] | block [`Hash32`] | [`HeaderBytes`] | `GetBlockHeader`, detached headers included |
+//! | [`Headers`] | [`Height`] | [`HeaderBytes`] | `GetBlockHeader` of a main-chain block |
 //! | [`Blocks`] | [`Height`] | [`BlockRow`] | `RangeBlocks`, `GetMainChainBlockHashForHeight` |
-//! | [`BlockByHash`] | block [`Hash32`] | [`Height`] | `GetBlockMetaForHash` |
-//! | [`CFilters`] | block [`Hash32`] | [`CFilterRow`] | `GetMainChainCFilters`, `CFilterV2` |
+//! | [`BlockByHash`] | block [`Hash32`] | [`Height`] | `GetBlockMetaForHash`, `BlockInMainChain`; every main-chain lookup by hash |
+//! | [`CFilters`] | [`Height`] | [`CFilterRow`] | `GetMainChainCFilters`, `CFilterV2` of a main-chain block |
+//! | [`HeadersDetached`] | block [`Hash32`] | [`HeaderBytes`] | `GetBlockHeader` of a block not in the main chain |
+//! | [`CFiltersDetached`] | block [`Hash32`] | [`CFilterRow`] | `CFilterV2` of a block not in the main chain |
 //! | [`TxMined`] | [`TxRecKey`] | [`TxMinedRow`] | `TxDetails`, `Tx`, `ExistsTx` |
 //! | [`TxUnmined`] | tx [`Hash32`] | [`TxUnminedRow`] | `UnminedTxs` |
 //! | [`Unpublished`] | tx [`Hash32`] | [`UnpublishedFlag`] | `Unpublished`, `SetPublished` |
@@ -52,12 +54,13 @@
 //! exactly the key sets of dcrwallet's `u`, `mc`, `m` and `mi`, in its key
 //! bytes, and [`ReadCursor`] reproduces bbolt's cursor, so order that
 //! reaches a client, input selection's included, is dcrwallet's (ADR-0003
-//! Decision item 3; spec 04 §5.1). Headers and filters are keyed by block
-//! hash, detached ones kept (ADR-0003 Open point 5). Whether main-chain
-//! rows move to height keys is ADR-0014 Open point 6: the measurement on a
-//! grown file is in ADR-0003's addendum of 2026-11-19 (by height, a
-//! 2,000-block batch writes about a third of the bytes), and the move waits
-//! on the owner's decision.
+//! Decision item 3; spec 04 §5.1). Main-chain headers and filters are
+//! keyed by height beside `blocks`, and detached ones by hash in their own
+//! tables, which nothing prunes (ADR-0003 Open point 5; ADR-0014 Open point
+//! 6, decided for height keys on 2026-11-19 after the measurement in
+//! ADR-0003's Phase 2 addendum). The chain tables change only through the
+//! chain operations, which keep their invariants and move a reorganised
+//! block's rows between the two layouts in one transaction: [`chain`].
 //!
 //! dcrwallet's `KeyN` of `u` is [`ReadTx::unspent_count`], the length redb
 //! keeps in the table's root; there is no counter row to maintain.
@@ -87,9 +90,9 @@
 //! [`Store::read`] and [`Store::view`] give snapshots that never wait;
 //! [`Store::update`] runs one write transaction at a time and commits it
 //! with `Durability::Immediate`. The only relaxed commits are those of
-//! [`InitialSync`], whose [`SyncBatch`] can write nothing but headers,
-//! filters, main-chain block rows without wallet state, the tip and the
-//! rescan marker, with a durable commit at least every
+//! [`InitialSync`], whose [`SyncBatch`] can do nothing but the chain
+//! operations on block rows without wallet state, and advance the rescan
+//! marker, with a durable commit at least every
 //! [`MAX_DURABLE_INTERVAL`] commits counted over every sync of the handle
 //! (ADR-0003 Decision item 9; ADR-0014 Open point 2). The API is
 //! synchronous and takes no context (ADR-0008).
@@ -161,6 +164,7 @@
 //! condition has (spec 01 §8.1); the text of an engine error is redb's
 //! (ADR-0011 ET-006). Errors convert into [`purse_errors::Error`].
 
+pub mod chain;
 mod codec;
 mod cursor;
 mod error;
@@ -172,6 +176,7 @@ mod txn;
 mod values;
 pub mod wallet;
 
+pub use chain::{ChainBlock, GENESIS_AGAIN_TEXT, IN_MAIN_CHAIN_TEXT};
 pub use codec::{Codec, DecodeDetail, DecodeError};
 pub use cursor::{RawCursor, ReadCursor, TypedCursor, WriteCursor};
 pub use error::{Error, MISSING_FILE_TEXT, NEWER_VERSION_TEXT, NOT_INITIALIZED_TEXT, Result};
@@ -182,10 +187,10 @@ pub use keys::{
 };
 pub use schema::{
     AccountNames, Accounts, AcctHistory, AddrByAcctSha, AddrByHash, AddrByPath, BalanceHeights,
-    Balances, BlockByHash, Blocks, CFilters, Commitments, CommitmentsUnspent, Credits,
-    CreditsInvalidated, Debits, DebitsInvalidated, Headers, History, Meta, SYNC_TABLES,
-    TABLE_COUNT, Table, TableId, Tickets, TxMined, TxUnmined, UnminedCredits, UnminedInputs,
-    Unpublished, Unspent, Wallet,
+    Balances, BlockByHash, Blocks, CFilters, CFiltersDetached, Commitments, CommitmentsUnspent,
+    Credits, CreditsInvalidated, Debits, DebitsInvalidated, Headers, HeadersDetached, History,
+    Meta, SYNC_TABLES, TABLE_COUNT, Table, TableId, Tickets, TxMined, TxUnmined, UnminedCredits,
+    UnminedInputs, Unpublished, Unspent, Wallet,
 };
 pub use store::{FORMAT_MAGIC, MIGRATIONS, Migration, OpenOptions, SCHEMA_VERSION, Schema, Store};
 pub use sync::{InitialSync, MAX_DURABLE_INTERVAL, SyncBatch};

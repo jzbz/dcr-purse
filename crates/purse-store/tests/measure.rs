@@ -21,26 +21,46 @@
 //! depend on the machine and its load. Results go to
 //! `PURSE_STORE_BENCH_DIR/*.txt` and to standard error.
 //!
-//! **Headers and filters (`headers_and_filters_by_height_or_hash`).** Three
-//! layouts of the four header-and-filter tables, each grown to `N` blocks
+//! **Headers and filters (`headers_and_filters_by_height_or_hash`).** Five
+//! ways of writing the header-and-filter tables, each grown to `N` blocks
 //! (`PURSE_STORE_BENCH_BLOCKS`, default 1,050,000, about mainnet's height
 //! when the parity pin's chaincfg was cut) in batches of 2,000 blocks, one
 //! commit per batch, with a 180-byte header and a committed filter of 170 to
 //! 369 bytes (270 on average, ADR-0003's assumption) per block:
 //!
-//! - `hash`: the current schema. `headers` and `cfilters` keyed by block
-//!   hash; `blocks` by height; `block_by_hash`.
+//! - `hash`: the schema as first built, before height keys. `headers` and
+//!   `cfilters` keyed by block hash; `blocks` by height; `block_by_hash`.
 //! - `height`: `headers` and `cfilters` keyed by height (u32 BE), `blocks`
-//!   by height, `block_by_hash`. Detached headers would go to a separate
-//!   table keyed by hash, empty here.
+//!   by height, `block_by_hash`: the layout schema version 1 now has
+//!   (`purse_store::chain`), written here as raw rows rather than through
+//!   the chain operations, so without their reads and checks. The detached
+//!   tables, keyed by hash, stay empty here.
 //! - `merged` (Open point 9): one table keyed by height whose value is the
 //!   block row, the header and the filter, and `block_by_hash`: two tables
 //!   a commit instead of four.
+//! - `chain`: the height layout as built, written through the chain
+//!   operations (`WriteTx::connect_blocks`, each batch a durable
+//!   `Store::update`), with their reads and checks, and read through the
+//!   typed readers (`ReadTx::header_at`, `ReadTx::header`,
+//!   `ReadTx::cfilters_in`). The headers are the same bytes as the other
+//!   layouts' with the two fields the operations check (height, previous
+//!   block) set, so the sizes are the same.
+//! - `chain-relaxed`: `chain` with the ingest as initial sync makes it,
+//!   each batch an `InitialSync::batch` (`SyncBatch::connect_blocks`) at
+//!   the default interval, one durable commit in 50, and
+//!   `InitialSync::finish` at the end; the tip commits after it are durable
+//!   `Store::update`s, as after a real sync.
+//!
+//! `PURSE_STORE_BENCH_LAYOUTS` (comma-separated names) runs only those.
 //!
 //! On each grown file: the cost of the last 50 batches; 200 single-block
 //! commits at the tip (steady state after sync); and warm reads: a header
 //! by height, a header by hash, and runs of 2,000 consecutive filters by
-//! height (`GetMainChainCFilters`' shape during a rescan).
+//! height (`GetMainChainCFilters`' shape during a rescan). On the two
+//! `chain` files, also durable reorganisations at the tip: 100 commits per
+//! depth (1 and 6 blocks), alternating between two branches, so that half
+//! detach the main chain's blocks to the detached tables and half bring
+//! them back from there.
 //!
 //! **Tables per commit (`commit_cost_by_tables_touched`).** Fifteen tables
 //! grown to 100,000 rows each (36-byte random keys, 60-byte values, a
@@ -62,7 +82,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use purse_store::{
-    BlockRow, CFilterRow, Codec as _, Error, Height, OpenOptions, Store, TableId, Tip,
+    BlockRow, CFilterRow, ChainBlock, Codec as _, Error, Hash32, HeaderBytes, Height, InitialSync,
+    OpenOptions, Store, TableId, Tip,
 };
 use purse_testutil::SplitMix64;
 use redb::backends::FileBackend;
@@ -198,6 +219,8 @@ enum Layout {
     Hash,
     Height,
     Merged,
+    Chain,
+    ChainRelaxed,
 }
 
 impl Layout {
@@ -206,7 +229,14 @@ impl Layout {
             Layout::Hash => "hash",
             Layout::Height => "height",
             Layout::Merged => "merged",
+            Layout::Chain => "chain",
+            Layout::ChainRelaxed => "chain-relaxed",
         }
+    }
+
+    /// Written and read through the chain operations and typed readers.
+    fn typed(self) -> bool {
+        matches!(self, Layout::Chain | Layout::ChainRelaxed)
     }
 }
 
@@ -252,6 +282,44 @@ fn block(height: u32) -> Block {
     }
 }
 
+/// A block's typed rows for the chain operations.
+type Typed = (BlockRow, HeaderBytes, CFilterRow);
+
+/// The typed rows of `blocks`, consecutive heights, each header stating
+/// its height and naming the block before it as its previous block.
+fn typed(blocks: &[Block]) -> Vec<Typed> {
+    let mut prev = match blocks.first() {
+        Some(b) if b.height > 0 => block(b.height - 1).hash,
+        _ => [0; 32],
+    };
+    blocks
+        .iter()
+        .map(|b| {
+            let mut header = b.header;
+            header[HeaderBytes::PREV_BLOCK_OFFSET..HeaderBytes::PREV_BLOCK_OFFSET + 32]
+                .copy_from_slice(&prev);
+            header[HeaderBytes::HEIGHT_OFFSET..HeaderBytes::HEIGHT_OFFSET + 4]
+                .copy_from_slice(&b.height.to_le_bytes());
+            prev = b.hash;
+            (
+                BlockRow::decode(&b.row).expect("row"),
+                HeaderBytes(header),
+                CFilterRow::decode(&b.filter).expect("filter"),
+            )
+        })
+        .collect()
+}
+
+fn as_chain(v: &[Typed]) -> Vec<ChainBlock<'_>> {
+    v.iter()
+        .map(|(row, header, filter)| ChainBlock {
+            row,
+            header,
+            filter: Some(filter),
+        })
+        .collect()
+}
+
 fn put_block(
     tx: &mut purse_store::WriteTx<'_>,
     layout: Layout,
@@ -276,6 +344,7 @@ fn put_block(
             v.extend_from_slice(&b.filter);
             tx.put_raw(TableId::Blocks, &hk, &v)?;
         }
+        Layout::Chain | Layout::ChainRelaxed => unreachable!("written by connect_blocks"),
     }
     tx.put_raw(TableId::BlockByHash, &b.hash, &hk)?;
     tx.set_tip(&Tip {
@@ -284,24 +353,49 @@ fn put_block(
     })
 }
 
-/// Commits `blocks` in one durable transaction; its time and I/O.
-fn commit_blocks(store: &Store, c: &Counting, layout: Layout, blocks: &[Block]) -> (Duration, Io) {
+/// Commits `blocks` in one transaction, durable unless `sync` is given
+/// (a relaxed initial-sync batch); its time and I/O.
+fn commit_blocks(
+    store: &Store,
+    c: &Counting,
+    layout: Layout,
+    blocks: &[Block],
+    sync: Option<&mut InitialSync<'_>>,
+) -> (Duration, Io) {
+    let rows = if layout.typed() {
+        typed(blocks)
+    } else {
+        Vec::new()
+    };
+    let first = blocks.first().map_or(0, |b| b.height);
     let before = c.io();
     let t = Instant::now();
-    store
-        .update(|tx| {
-            for b in blocks {
-                put_block(tx, layout, b)?;
-            }
-            Ok::<_, Error>(())
-        })
-        .expect("commit");
+    match sync {
+        Some(s) => {
+            s.batch(|b| b.connect_blocks(first, &as_chain(&rows)))
+                .expect("batch");
+        }
+        None => store
+            .update(|tx| {
+                if layout.typed() {
+                    return tx.connect_blocks(first, &as_chain(&rows));
+                }
+                for b in blocks {
+                    put_block(tx, layout, b)?;
+                }
+                Ok::<_, Error>(())
+            })
+            .expect("commit"),
+    }
     (t.elapsed(), c.io().since(before))
 }
 
 fn header_by_height(tx: &purse_store::ReadTx, layout: Layout, h: u32) -> Vec<u8> {
     let hk = Height(h).encode();
     match layout {
+        Layout::Chain | Layout::ChainRelaxed => {
+            tx.header_at(h).unwrap().expect("header").0.to_vec()
+        }
         Layout::Hash => {
             let row = tx.get_raw(TableId::Blocks, &hk).unwrap().expect("block");
             tx.get_raw(TableId::Headers, &row[..32])
@@ -318,6 +412,12 @@ fn header_by_height(tx: &purse_store::ReadTx, layout: Layout, h: u32) -> Vec<u8>
 
 fn header_by_hash(tx: &purse_store::ReadTx, layout: Layout, hash: &[u8; 32]) -> Vec<u8> {
     match layout {
+        Layout::Chain | Layout::ChainRelaxed => tx
+            .header(&Hash32(*hash))
+            .unwrap()
+            .expect("header")
+            .0
+            .to_vec(),
         Layout::Hash => tx.get_raw(TableId::Headers, hash).unwrap().expect("header"),
         Layout::Height => {
             let hk = tx
@@ -351,6 +451,11 @@ fn filter_run(tx: &purse_store::ReadTx, layout: Layout, from: u32, n: u32) -> us
     };
     let mut total = 0;
     match layout {
+        Layout::Chain | Layout::ChainRelaxed => {
+            for e in tx.cfilters_in(from..from + n).unwrap() {
+                total += e.unwrap().1.encode().len();
+            }
+        }
         Layout::Hash => {
             for e in range(TableId::Blocks) {
                 let (_, row) = e.unwrap();
@@ -382,15 +487,17 @@ fn measure_layout(layout: Layout, n: u32, out: &mut String) {
     let started = Instant::now();
     let mut batch_times = Vec::new();
     let mut batch_io = Vec::new();
+    let mut sync = (layout == Layout::ChainRelaxed).then(|| store.initial_sync());
     let mut h = 0;
     while h < n {
         let end = (h + BATCH).min(n);
         let blocks: Vec<Block> = (h..end).map(block).collect();
-        let (t, io) = commit_blocks(&store, &c, layout, &blocks);
+        let (t, io) = commit_blocks(&store, &c, layout, &blocks, sync.as_mut());
         batch_times.push(t);
         batch_io.push(io);
         h = end;
     }
+    sync.map(InitialSync::finish).transpose().expect("finish");
     let grow = started.elapsed();
     let grow_io = c.io();
     let grown_len = std::fs::metadata(&path).unwrap().len();
@@ -403,13 +510,18 @@ fn measure_layout(layout: Layout, n: u32, out: &mut String) {
     let mut tip_times = Vec::new();
     let mut tip_io = Io::default();
     for i in 0..200 {
-        let (t, io) = commit_blocks(&store, &c, layout, &[block(n + i)]);
+        let (t, io) = commit_blocks(&store, &c, layout, &[block(n + i)], None);
         tip_times.push(t);
         tip_io.bytes += io.bytes;
         tip_io.writes += io.writes;
         tip_io.syncs += io.syncs;
     }
     let top = n + 200;
+    let reorgs = if layout.typed() {
+        reorganisations(&store, &c, top)
+    } else {
+        String::new()
+    };
 
     // Warm reads.
     let tx = store.read().unwrap();
@@ -458,7 +570,7 @@ fn measure_layout(layout: Layout, n: u32, out: &mut String) {
          \x20 last 50 batches: p50 {:.1} ms, p90 {:.1} ms, {:.2} MiB written per batch\n\
          \x20 200 tip commits of one block: p50 {:.2} ms, p90 {:.2} ms, {:.1} KiB and {:.1} writes per commit\n\
          \x20 warm reads: header by height {:.2} us, header by hash {:.2} us, 2,000 filters by height {:.2} ms ({} KiB)\n\
-         \x20 file after close: {:.0} MiB",
+         \x20 file after close: {:.0} MiB{reorgs}",
         layout.name(),
         batch_times.len(),
         grow.as_secs_f64(),
@@ -483,6 +595,84 @@ fn measure_layout(layout: Layout, n: u32, out: &mut String) {
     let _ = std::fs::remove_file(&path);
 }
 
+/// Durable reorganisations at the tip of a grown `chain` file whose tip is
+/// at `top - 1`: for each depth, 100 commits alternating between the main
+/// chain's last blocks and a branch of as many, each commit detaching the
+/// one and connecting the other (the main chain's blocks come back from the
+/// detached tables with their filters). The main chain ends as it began,
+/// each depth's side branch detached.
+fn reorganisations(store: &Store, c: &Counting, top: u32) -> String {
+    let tip = top - 1;
+    let mut out = String::new();
+    // Each depth leaves its side branch detached.
+    let mut detached = 0;
+    for depth in [1u32, 6] {
+        detached += u64::from(depth);
+        let fork = tip - depth;
+        let main: Vec<Typed> = typed(&(fork + 1..=tip).map(block).collect::<Vec<_>>());
+        let mut rng = SplitMix64(0x6272_616e_6368 ^ u64::from(depth));
+        let mut prev = block(fork).hash;
+        let side: Vec<Typed> = main
+            .iter()
+            .map(|b| {
+                let mut hash = [0u8; 32];
+                rng.fill(&mut hash);
+                let mut header = b.1;
+                header.0[HeaderBytes::PREV_BLOCK_OFFSET..HeaderBytes::PREV_BLOCK_OFFSET + 32]
+                    .copy_from_slice(&prev);
+                prev = hash;
+                let row = BlockRow {
+                    hash: Hash32(hash),
+                    ..b.0
+                };
+                (row, header, b.2.clone())
+            })
+            .collect();
+        // Back to the main chain: no filter passed, the detached one returns.
+        let back: Vec<ChainBlock<'_>> = main
+            .iter()
+            .map(|(row, header, _)| ChainBlock {
+                row,
+                header,
+                filter: None,
+            })
+            .collect();
+        let to_side = as_chain(&side);
+        let mut times = Vec::new();
+        let mut io = Io::default();
+        for i in 0..100 {
+            let blocks = if i % 2 == 0 { &to_side } else { &back };
+            let before = c.io();
+            let t = Instant::now();
+            store
+                .update(|tx| tx.reorganize(fork, blocks).map(drop))
+                .expect("reorganize");
+            times.push(t.elapsed());
+            let d = c.io().since(before);
+            io.bytes += d.bytes;
+            io.writes += d.writes;
+        }
+        let tx = store.read().unwrap();
+        assert_eq!(
+            tx.tip().unwrap().map(|t| t.hash.0),
+            Some(block(tip).hash),
+            "the main chain is back"
+        );
+        assert_eq!(tx.len(TableId::HeadersDetached).unwrap(), detached);
+        assert_eq!(tx.len(TableId::CFiltersDetached).unwrap(), detached);
+        tx.check_chain().expect("chain");
+        let _ = write!(
+            out,
+            "\n\x20 100 reorganisations of depth {depth}: p50 {:.2} ms, p90 {:.2} ms, {:.1} KiB and {:.1} writes per commit",
+            ms(median(&mut times.clone())),
+            ms(pct(&mut times, 90)),
+            io.bytes as f64 / 100.0 / 1024.0,
+            io.writes as f64 / 100.0,
+        );
+    }
+    out
+}
+
 #[test]
 #[ignore = "a measurement: release build, minutes, about 3 GiB of disk"]
 fn headers_and_filters_by_height_or_hash() {
@@ -494,7 +684,20 @@ fn headers_and_filters_by_height_or_hash() {
         "purse-store headers-and-filters measurement, redb {}\n",
         purse_store::REDB_VERSION
     );
-    for layout in [Layout::Hash, Layout::Height, Layout::Merged] {
+    let only = std::env::var("PURSE_STORE_BENCH_LAYOUTS").ok();
+    for layout in [
+        Layout::Hash,
+        Layout::Height,
+        Layout::Merged,
+        Layout::Chain,
+        Layout::ChainRelaxed,
+    ] {
+        if only
+            .as_deref()
+            .is_some_and(|o| !o.split(',').any(|x| x == layout.name()))
+        {
+            continue;
+        }
         measure_layout(layout, n, &mut out);
     }
     write_out("headers-and-filters.txt", &out);

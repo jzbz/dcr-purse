@@ -1789,10 +1789,12 @@ second-to-last); after `Prev` returns nil it is on the first element (a followin
 **Q26. `Copy` output always has the newer meta on page 0**, whatever the parity of
 `txid` (`tx.go:382-405`). Still a valid file.
 
-**Q27. Go-runtime dependence.** New-file page size is `os.Getpagesize()`; all
-integers are host-endian; execution-trace regions `db.View`, `db.ReadTx`,
-`db.Update`, `db.ReadWriteTx` exist only in Go traces (`interface.go:204`, `:211`,
-`:231`, `:238`) and have no counterpart.
+**Q27. Go-runtime dependence.** New-file page size is `os.Getpagesize()`, and
+with it the page layout, so which cursor defects under mutation a bucket can
+reach (QK-0747, QK-0749 and QK-0750 need several leaves) depends on the machine
+that created the file; all integers are host-endian; execution-trace regions
+`db.View`, `db.ReadTx`, `db.Update`, `db.ReadWriteTx` exist only in Go traces
+(`interface.go:204`, `:211`, `:231`, `:238`) and have no counterpart.
 
 **Q28. Short garbage files give different errors by length.** `1..2048` bytes →
 `invalid database` (kind `IO`); `2049` bytes up to one byte short of two OS pages

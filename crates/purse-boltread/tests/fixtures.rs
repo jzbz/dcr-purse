@@ -272,7 +272,9 @@ fn open_rejects_non_databases() {
         Err(Error::Invalid)
     ));
     // 2049..8191 bytes: the meta-1 probe can read, bbolt falls back to the
-    // OS page size and finds the file too small.
+    // OS page size and finds the file too small. The reader falls back to
+    // 4096 on every host; bbolt on a host with 16 KiB pages would find the
+    // 8192-byte file too small as well (FALLBACK_PAGE_SIZE in src/db.rs).
     assert!(matches!(
         common::open_bytes(vec![0; 5000]),
         Err(Error::FileTooSmall { .. })

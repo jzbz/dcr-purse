@@ -12,17 +12,35 @@
 //
 // Commands:
 //
-//	run {path, entries, other?, writable, ops}
-//	    Creates a database at path (which must not exist) with
-//	    walletdb.Create("bdb", path), and in one committed transaction
-//	    the top-level buckets "c" holding entries and "o" holding other
-//	    (each a list of [key, value] in hex). Then runs ops in a second
-//	    transaction, read-write when writable is true (and committed),
-//	    read-only otherwise, against one cursor on "c" created at the
-//	    start of that transaction. Returns {results, final?}: one result
-//	    per op that ran, and for a writable script the contents of "c" and
-//	    "o" read back in a third, read-only transaction. The file is
-//	    removed before the command returns.
+//	run {path, page_size, entries, other?, writable, ops}
+//	    Creates an empty database at path (which must not exist) with
+//	    bbolt's Options.PageSize set to page_size, then opens it with
+//	    walletdb.Open("bdb", path) and creates, in one committed
+//	    transaction, the top-level buckets "c" holding entries and "o"
+//	    holding other (each a list of [key, value] in hex). Then runs ops
+//	    in a second transaction, read-write when writable is true (and
+//	    committed), read-only otherwise, against one cursor on "c" created
+//	    at the start of that transaction. Returns {results, final?,
+//	    layout}: one result per op that ran; for a writable script the
+//	    contents of "c" and "o" read back in a third, read-only
+//	    transaction; and the shape of "c" as the setup transaction
+//	    committed it, {page_size, os_page_size, leaf_pages, branch_pages,
+//	    depth} (bbolt's BucketStats; leaf_pages is 0 for a bucket stored
+//	    inline in its parent). The file is removed before the command
+//	    returns.
+//
+// Why the page size is set. dcrwallet's driver opens with bolt.Open(path,
+// 0600, nil) (wallet/internal/bdb/db.go:321), so a database it creates
+// gets bbolt's default page size, os.Getpagesize(): 4096 bytes on x86-64
+// Linux and Windows, 16384 on Apple silicon. How many keys a leaf holds,
+// and so which cursor defects of bbolt a script reaches (QK-0747,
+// QK-0749, QK-0750 need a bucket of several leaves), follows from it. The
+// oracle therefore chooses the page size instead of taking the host's, so
+// a script meets the same layout on every host. Only the empty file and the
+// read-only layout query use bbolt directly; the setup and the script run
+// through the driver: bbolt reads the page size of an existing file from
+// its meta page (bbolt db.go:271-279), so the driver's bolt.Open gets the
+// chosen size without being given it.
 //
 // Each op is {op, k?, v?, hi?, rev?}, keys and values in hex:
 //
@@ -60,10 +78,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	werrors "decred.org/dcrwallet/v5/errors"
 	"decred.org/dcrwallet/v5/wallet/walletdb"
 	"github.com/jzbz/dcr-purse/tools/oracle/internal/linejson"
+	bolt "go.etcd.io/bbolt"
 
 	_ "decred.org/dcrwallet/v5/wallet/drivers/bdb"
 )
@@ -89,6 +109,7 @@ type op struct {
 
 type runArgs struct {
 	Path     string      `json:"path"`
+	PageSize int         `json:"page_size"`
 	Entries  [][2]string `json:"entries"`
 	Other    [][2]string `json:"other"`
 	Writable bool        `json:"writable"`
@@ -98,6 +119,46 @@ type runArgs struct {
 type runResult struct {
 	Results []map[string]any       `json:"results"`
 	Final   map[string][][2]string `json:"final,omitempty"`
+	Layout  layout                 `json:"layout"`
+}
+
+// layout is the shape of bucket "c" after the setup transaction.
+type layout struct {
+	PageSize    int `json:"page_size"`
+	OSPageSize  int `json:"os_page_size"`
+	LeafPages   int `json:"leaf_pages"`
+	BranchPages int `json:"branch_pages"`
+	Depth       int `json:"depth"`
+}
+
+// create makes an empty bbolt database at path with the given page size.
+func create(path string, pageSize int) error {
+	db, err := bolt.Open(path, 0600, &bolt.Options{PageSize: pageSize, Timeout: 2 * time.Second})
+	if err != nil {
+		return err
+	}
+	return db.Close()
+}
+
+// shape reads the layout of bucket "c" with bbolt directly (walletdb has
+// no statistics), read-only, while no other handle holds the file.
+func shape(path string) (layout, error) {
+	db, err := bolt.Open(path, 0600, &bolt.Options{ReadOnly: true, Timeout: 2 * time.Second})
+	if err != nil {
+		return layout{}, err
+	}
+	defer db.Close()
+	l := layout{PageSize: db.Info().PageSize, OSPageSize: os.Getpagesize()}
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketC)
+		if b == nil {
+			return errors.New(`no bucket "c"`)
+		}
+		st := b.Stats()
+		l.LeafPages, l.BranchPages, l.Depth = st.LeafPageN, st.BranchPageN, st.Depth
+		return nil
+	})
+	return l, err
 }
 
 // errPanicked stops a script after an op panicked, rolling its
@@ -337,17 +398,21 @@ func cmdRun(raw json.RawMessage) (any, error) {
 	if a.Path == "" {
 		return nil, errors.New("missing path")
 	}
+	if a.PageSize <= 0 {
+		return nil, errors.New("missing page_size")
+	}
 	if _, err := os.Stat(a.Path); err == nil {
 		return nil, fmt.Errorf("%s exists", a.Path)
 	}
+	defer os.Remove(a.Path)
+	if err := create(a.Path, a.PageSize); err != nil {
+		return nil, fmt.Errorf("create: %w", err)
+	}
 	ctx := context.Background()
-	db, err := walletdb.Create("bdb", a.Path)
+	db, err := walletdb.Open("bdb", a.Path)
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(a.Path)
-	defer db.Close()
-
 	err = walletdb.Update(ctx, db, func(tx walletdb.ReadWriteTx) error {
 		c, err := tx.CreateTopLevelBucket(bucketC)
 		if err != nil {
@@ -362,9 +427,20 @@ func cmdRun(raw json.RawMessage) (any, error) {
 		}
 		return load(o, a.Other)
 	})
+	if cerr := db.Close(); err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return nil, fmt.Errorf("setup: %w", err)
 	}
+	lay, err := shape(a.Path)
+	if err != nil {
+		return nil, fmt.Errorf("layout: %w", err)
+	}
+	if db, err = walletdb.Open("bdb", a.Path); err != nil {
+		return nil, err
+	}
+	defer db.Close()
 
 	s := &script{}
 	var runErr error
@@ -381,7 +457,7 @@ func cmdRun(raw json.RawMessage) (any, error) {
 			return s.run(a.Ops)
 		})
 	}
-	out := runResult{Results: s.results}
+	out := runResult{Results: s.results, Layout: lay}
 	if out.Results == nil {
 		out.Results = []map[string]any{}
 	}

@@ -8,6 +8,16 @@
 //! and against the frozen vectors that oracle wrote
 //! (`tests/data/cursor_vectors.jsonl`).
 //!
+//! bbolt's page layout, and with it which cursor defects a script
+//! reaches, depends on its page size, and a database dcrwallet creates
+//! takes the host's (4096 bytes on x86-64 Linux and Windows, 16384 on
+//! Apple silicon). The oracle sets the page size instead, so every host
+//! runs the same layout: 4096 bytes ([`PAGE_SIZE`]) for every script, and
+//! 16 and 64 KiB as well for the named cases, a random corpus and the
+//! scripts that need several leaves. The
+//! oracle reports the layout it built, and the tests assert that those
+//! scripts had several leaves.
+//!
 //! A script is a key set for a table `c`, one for a table `o`, and a list
 //! of operations run in one transaction against one cursor on `c`:
 //! cursor moves, cursor deletes, puts, deletes and gets on `c`, writes to
@@ -55,14 +65,20 @@
 //! (QK-0750), and so does a reverse range without an upper bound there,
 //! which starts with `Last`. Every oracle call has a time limit, so such a
 //! script fails naming QK-0750 instead of hanging the test; no generator
-//! here reaches it (a multi-leaf table holds about 140 keys or more, and
+//! here reaches it (a multi-leaf table holds about 140 keys or more at
+//! 4 KiB pages, and
 //! no generated script deletes them all before a `Last`). The divergences
 //! outside the rule are pinned by named scripts that hold the exact ops
 //! where Go and the store differ (bolt#620, `KeyN` in a write transaction,
 //! a `Next` after `Next` ran off the end of a leaf not yet written in the
 //! transaction, QK-0747, QK-0749) or where bbolt panics (a cursor `Delete` never
 //! positioned, QK-0748), in the live run and in the frozen vectors, and
-//! the hang by a test of its own.
+//! the hang by a test of its own. The multi-leaf ones are run again at 16
+//! and 64 KiB pages, as they are and with their keys scaled to the page
+//! size: as they are their bucket is one leaf and bbolt agrees with the
+//! store; scaled, they differ as at 4 KiB. The named cases, a random
+//! corpus of its own seed, edge scripts and the other divergences run at
+//! those sizes too, under the same rule.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -226,9 +242,10 @@ impl Script {
         }
     }
 
-    fn request(&self, path: &Path) -> Value {
+    fn request(&self, path: &Path, page_size: u32) -> Value {
         json!({
             "path": path,
+            "page_size": page_size,
             "entries": pairs_json(&self.entries),
             "other": pairs_json(&self.other),
             "writable": self.writable,
@@ -479,9 +496,30 @@ fn oracle_db_path() -> PathBuf {
     path
 }
 
+/// The bbolt page size the scripts run at unless a test names another.
+///
+/// dcrwallet's driver opens its database with `bolt.Open(path, 0600, nil)`,
+/// so the database takes bbolt's default, the host's page size: 4096 bytes
+/// on x86-64 Linux and Windows, 16384 on Apple silicon. How many keys a
+/// leaf holds follows from it, and so whether a script reaches the
+/// multi-leaf defects (QK-0747, QK-0749, QK-0750). The oracle sets the page
+/// size instead (`tools/oracle/cmd/boltcursor`), so every host runs the
+/// same bbolt layout; 4096 is the size of the common hosts and of the frozen
+/// vectors. `multileaf_defects_at_16_kib_pages` and
+/// `multileaf_defects_at_64_kib_pages` run the multi-leaf scripts, the
+/// named cases and a random corpus at the larger sizes.
+const PAGE_SIZE: u32 = 4096;
+
+/// Runs `s` in the oracle at [`PAGE_SIZE`].
 fn run_oracle(oracle: &mut Oracle, s: &Script) -> Value {
-    oracle
-        .call_within("run", s.request(&oracle_db_path()), ORACLE_LIMIT)
+    run_oracle_at(oracle, s, PAGE_SIZE)
+}
+
+/// Runs `s` in the oracle with bbolt pages of `page_size` bytes, and
+/// checks that the database had that page size.
+fn run_oracle_at(oracle: &mut Oracle, s: &Script, page_size: u32) -> Value {
+    let go = oracle
+        .call_within("run", s.request(&oracle_db_path(), page_size), ORACLE_LIMIT)
         .unwrap_or_else(|| {
             panic!(
                 "{}: bbolt did not answer within {ORACLE_LIMIT:?}; a Last (or an unbounded \
@@ -490,7 +528,23 @@ fn run_oracle(oracle: &mut Oracle, s: &Script) -> Value {
                 s.name,
                 s.to_json()
             )
-        })
+        });
+    assert_eq!(
+        go["layout"]["page_size"].as_u64(),
+        Some(u64::from(page_size)),
+        "{}: the oracle's page size: {}",
+        s.name,
+        go["layout"]
+    );
+    go
+}
+
+/// The number of leaf pages of `c` after the setup transaction, from the
+/// oracle's answer (0 for a bucket stored inline in its parent).
+fn leaf_pages(go: &Value) -> u64 {
+    go["layout"]["leaf_pages"]
+        .as_u64()
+        .expect("layout.leaf_pages")
 }
 
 // ---------------------------------------------------------------------
@@ -1261,11 +1315,105 @@ fn kv(keys: &[Vec<u8>]) -> Vec<RawEntry> {
 }
 
 /// 400 two-byte big-endian keys with one-byte values: about 7.6 KiB of
-/// leaf elements, which bbolt spreads over several 4 KiB leaves.
+/// leaf elements, which bbolt spreads over three 4 KiB leaves (keys 0 to
+/// 105, 106 to 211, 212 to 399), and which fit one leaf of 16 KiB.
 fn wide() -> Vec<RawEntry> {
-    (0u16..400)
+    wide_n(400)
+}
+
+/// `n` two-byte big-endian keys with one-byte values, the keys 0 to n - 1.
+fn wide_n(n: u16) -> Vec<RawEntry> {
+    (0..n)
         .map(|i| (i.to_be_bytes().to_vec(), vec![i as u8]))
         .collect()
+}
+
+/// How many times larger than 4096 bytes `page_size` is: the factor by
+/// which the multi-leaf scripts scale their keys so that each leaf
+/// boundary falls near where the 4 KiB layout puts it. bbolt cuts a leaf
+/// larger than a page into pieces of half a page (`DefaultFillPercent`),
+/// 19 bytes an element here: 106 keys a piece at 4 KiB, 430 at 16 KiB
+/// (4 x 106 = 424), 1723 at 64 KiB (16 x 106 = 1696), the last piece
+/// taking the rest once it fits a page. The tests check the leaf count the
+/// oracle reports rather than rely on this arithmetic.
+fn scale_of(page_size: u32) -> u16 {
+    assert!(
+        page_size >= 4096 && page_size.is_power_of_two(),
+        "{page_size}"
+    );
+    u16::try_from(page_size / 4096).expect("page size up to 256 MiB")
+}
+
+/// The scripts of [`divergence_cases`] that need `c` to span several
+/// leaves (QK-0747, QK-0749), with their keys and deletions multiplied by
+/// `f`: at a page size of `f` x 4 KiB their buckets of 400 x `f` keys span
+/// three leaves, and they differ from the store where the 4 KiB scripts do.
+/// `f` = 1 gives the scripts of [`divergence_cases`] themselves; a larger
+/// `f` adds `_x<f>` to each name.
+fn multileaf_divergences(f: u16) -> Vec<(Script, Vec<usize>)> {
+    use Op::*;
+    let k = |i: u16| i.to_be_bytes().to_vec();
+    let name = |base: &str| {
+        if f == 1 {
+            base.to_owned()
+        } else {
+            format!("{base}_x{f}")
+        }
+    };
+    let wide = wide_n(400 * f);
+    // Keys 100 to 299 deleted (x f): the middle leaf is empty, and the
+    // last leaf's keys below 300 are gone.
+    let mut empty_a_leaf: Vec<Op> = (100 * f..300 * f).map(|i| Del(k(i))).collect();
+    let at = empty_a_leaf.len();
+    empty_a_leaf.extend([Seek(k(300 * f)), Prev, Prev]);
+    // Every key from 200 (x f) on deleted: the leaves after the one holding
+    // the last key left, 200 x f - 1, are empty in-memory nodes.
+    let empty_the_tail = || -> Vec<Op> { (200 * f..400 * f).map(|i| Del(k(i))).collect() };
+    let tail = empty_the_tail().len();
+    let last_left = k(200 * f - 1);
+    let mut prev_after_next = empty_the_tail();
+    prev_after_next.extend([Seek(last_left.clone()), Next, Prev, Prev]);
+    let mut delete_after_next = empty_the_tail();
+    delete_after_next.extend([Seek(last_left.clone()), Next, Delete, Get(last_left)]);
+    vec![
+        // QK-0747: bbolt's Prev that steps into a leaf emptied earlier in
+        // the transaction returns nil; the store returns the key below.
+        (
+            named(
+                &name("div_qk0747_prev_into_an_emptied_leaf_is_nil"),
+                wide.clone(),
+                true,
+                empty_a_leaf,
+            ),
+            vec![at + 1, at + 2],
+        ),
+        // QK-0749: after a Next that ran off the end over leaves emptied in
+        // the transaction, bbolt's cursor stands on the last, empty leaf:
+        // Prev returns the entry it ran off from again (then the one below
+        // it), where the store returns the key below (then the next).
+        (
+            named(
+                &name("div_qk0749_prev_after_next_over_emptied_leaves_repeats"),
+                wide.clone(),
+                true,
+                prev_after_next,
+            ),
+            vec![tail + 2, tail + 3],
+        ),
+        // QK-0749: the same position, and bbolt's cursor Delete removes
+        // nothing (it deletes the empty leaf's nil key), where the store's
+        // removes the entry the cursor ran off from; the Get after it shows
+        // the difference.
+        (
+            named(
+                &name("div_qk0749_delete_after_next_over_emptied_leaves_removes_nothing"),
+                wide,
+                true,
+                delete_after_next,
+            ),
+            vec![tail + 3],
+        ),
+    ]
 }
 
 fn named(name: &str, entries: Vec<RawEntry>, writable: bool, ops: Vec<Op>) -> Script {
@@ -1659,24 +1807,8 @@ fn divergence_cases() -> Vec<(Script, Vec<usize>)> {
         b"d".to_vec(),
         b"e".to_vec(),
     ]);
-    let wide = wide();
-    let mut empty_a_leaf: Vec<Op> = (100u16..300)
-        .map(|i| Del(i.to_be_bytes().to_vec()))
-        .collect();
-    let at = empty_a_leaf.len();
-    empty_a_leaf.extend([Seek(vec![0x01, 0x2c]), Prev, Prev]);
-    // Every key after 0x00c7 deleted: the leaves after 0x00c7's are empty
-    // in-memory nodes.
-    let empty_the_tail = || -> Vec<Op> {
-        (200u16..400)
-            .map(|i| Del(i.to_be_bytes().to_vec()))
-            .collect()
-    };
-    let tail = empty_the_tail().len();
-    let mut prev_after_next = empty_the_tail();
-    prev_after_next.extend([Seek(vec![0x00, 0xc7]), Next, Prev, Prev]);
-    let mut delete_after_next = empty_the_tail();
-    delete_after_next.extend([Seek(vec![0x00, 0xc7]), Next, Delete, Get(vec![0x00, 0xc7])]);
+    let [qk0747, qk0749_prev, qk0749_delete]: [(Script, Vec<usize>); 3] =
+        multileaf_divergences(1).try_into().expect("three scripts");
     vec![
         // bolt#620 (QK-0004): after a write to the bucket earlier in the
         // transaction the leaf is a live node, and a cursor Delete then
@@ -1715,30 +1847,9 @@ fn divergence_cases() -> Vec<(Script, Vec<usize>)> {
             ),
             vec![2],
         ),
-        // QK-0747: bbolt's Prev that steps into a leaf emptied earlier in
-        // the transaction returns nil; the store returns the key below.
-        (
-            named(
-                "div_qk0747_prev_into_an_emptied_leaf_is_nil",
-                wide.clone(),
-                true,
-                empty_a_leaf,
-            ),
-            vec![at + 1, at + 2],
-        ),
-        // QK-0749: after a Next that ran off the end over leaves emptied in
-        // the transaction, bbolt's cursor stands on the last, empty leaf:
-        // Prev returns the entry it ran off from again (then the one below
-        // it), where the store returns the key below (then the next).
-        (
-            named(
-                "div_qk0749_prev_after_next_over_emptied_leaves_repeats",
-                wide.clone(),
-                true,
-                prev_after_next,
-            ),
-            vec![tail + 2, tail + 3],
-        ),
+        // QK-0747 and QK-0749 (multileaf_divergences).
+        qk0747,
+        qk0749_prev,
         // After Next ran off the end of a leaf not yet written in the
         // transaction, bbolt's cursor reads the leaf's committed copy, so a
         // Put above the last entry is not the next Next's answer (spec 01
@@ -1753,19 +1864,8 @@ fn divergence_cases() -> Vec<(Script, Vec<usize>)> {
             ),
             vec![3],
         ),
-        // QK-0749: the same position, and bbolt's cursor Delete removes
-        // nothing (it deletes the empty leaf's nil key), where the store's
-        // removes the entry the cursor ran off from; the Get after it shows
-        // the difference.
-        (
-            named(
-                "div_qk0749_delete_after_next_over_emptied_leaves_removes_nothing",
-                wide,
-                true,
-                delete_after_next,
-            ),
-            vec![tail + 3],
-        ),
+        // QK-0749 (multileaf_divergences).
+        qk0749_delete,
     ]
 }
 
@@ -1903,22 +2003,48 @@ fn cursors_match_bbolt() {
     let mut tally = Tally::default();
     let named = named_cases();
     let random = corpus("cursor-conformance", None, 400, true);
-    for s in named.iter().chain(&random) {
+    let mut os_page_size = None;
+    for s in &named {
         let go = run_oracle(&mut oracle, s);
         check_script(s, &go, &mut tally);
+        os_page_size = go["layout"]["os_page_size"].as_u64();
     }
+    // Counted over the random corpus alone.
+    let mut multileaf = 0;
+    for s in &random {
+        let go = run_oracle(&mut oracle, s);
+        check_script(s, &go, &mut tally);
+        multileaf += usize::from(leaf_pages(&go) > 1);
+    }
+    // The scripts that need several leaves must have had them: a page
+    // size the oracle did not apply would otherwise pass or fail them for
+    // the wrong reason.
+    let spans: BTreeSet<String> = multileaf_divergences(1)
+        .into_iter()
+        .map(|(s, _)| s.name)
+        .collect();
     for (s, want) in divergence_cases() {
         let go = run_oracle(&mut oracle, &s);
+        if spans.contains(&s.name) {
+            assert!(leaf_pages(&go) > 1, "{}: {}", s.name, go["layout"]);
+        }
         check_divergence(&s, &want, &go);
     }
     for (s, at, want_c) in panic_cases() {
         let go = run_oracle(&mut oracle, &s);
         check_panic(&s, at, &want_c, &go);
     }
-    eprintln!("{tally:?}");
+    eprintln!(
+        "{tally:?}\n{multileaf} random scripts over several leaves at {PAGE_SIZE}-byte \
+         pages (this host's page size, which dcrwallet would use: {os_page_size:?})"
+    );
     assert!(tally.compared > 10 * tally.skipped, "{tally:?}");
     assert!(tally.deletes_compared > 100, "{tally:?}");
     assert!(tally.steps_after_delete > 100, "{tally:?}");
+    assert!(
+        multileaf > 50,
+        "{multileaf} random scripts over several leaves"
+    );
 }
 
 /// Scripts that run off the ends of the table and write around them
@@ -1977,17 +2103,23 @@ fn bbolt_last_on_an_emptied_multileaf_bucket_never_returns() {
     let Some(mut oracle) = oracle_or_skip("boltcursor") else {
         return;
     };
-    let delete_all = || -> Vec<Op> {
-        (0u16..400)
-            .map(|i| Op::Del(i.to_be_bytes().to_vec()))
-            .collect()
-    };
+    check_last_on_an_emptied_bucket(&mut oracle, PAGE_SIZE, 400, true);
+}
+
+/// Runs QK-0750's scripts at `page_size` on a bucket of `n` keys
+/// ([`wide_n`]), every one deleted before the moves: a control (`First`,
+/// `Seek`, `Prev`, `Count`), which Go answers as the store does, then
+/// `Last`. When `hangs`, the bucket must span several leaves and bbolt's
+/// `Last` must not answer; the oracle cannot be used afterwards. Otherwise
+/// the bucket must be one leaf (or inline in its parent, which bbolt does
+/// with a bucket under a quarter of a page) and bbolt's `Last` must return
+/// nil, as the store's does.
+fn check_last_on_an_emptied_bucket(oracle: &mut Oracle, page_size: u32, n: u16, hangs: bool) {
     let with = |name: &str, tail: Vec<Op>| {
-        let mut ops = delete_all();
+        let mut ops: Vec<Op> = (0..n).map(|i| Op::Del(i.to_be_bytes().to_vec())).collect();
         ops.extend(tail);
-        named(name, wide(), true, ops)
+        named(&format!("{name}_{n}_at_{page_size}"), wide_n(n), true, ops)
     };
-    // The controls: Go answers them at once, and as the store does.
     let control = with(
         "qk0750_control",
         vec![
@@ -1998,27 +2130,128 @@ fn bbolt_last_on_an_emptied_multileaf_bucket_never_returns() {
             Op::Count,
         ],
     );
-    let go = oracle
-        .call_within("run", control.request(&oracle_db_path()), ORACLE_LIMIT)
-        .expect("bbolt answers First, Seek and Prev on the emptied bucket");
-    let n = control.ops.len();
-    let ours = run_write(&control);
-    for i in 0..n - 1 {
-        assert_eq!(ours.results[i], go["results"][i], "op {i}");
+    let go = run_oracle_at(oracle, &control, page_size);
+    let leaves = leaf_pages(&go);
+    if hangs {
+        assert!(leaves > 1, "{}: {}", control.name, go["layout"]);
+    } else {
+        assert!(leaves <= 1, "{}: {}", control.name, go["layout"]);
     }
-    // Last: the store stands on nothing; bbolt never answers.
-    let hang = with("qk0750_last", vec![Op::Last]);
-    let ours = run_write(&hang);
-    assert_eq!(ours.results[400], json!({"k": null, "v": null}));
+    let ours = run_write(&control);
+    for i in 0..control.ops.len() - 1 {
+        assert_eq!(
+            ours.results[i], go["results"][i],
+            "{}: op {i}",
+            control.name
+        );
+    }
+    // Last: the store stands on nothing; bbolt never answers when the
+    // emptied bucket spans several leaves.
+    let last = with("qk0750_last", vec![Op::Last]);
+    let ours = run_write(&last);
+    let at = usize::from(n);
+    assert_eq!(ours.results[at], json!({"k": null, "v": null}));
     let answer = oracle.call_within(
         "run",
-        hang.request(&oracle_db_path()),
+        last.request(&oracle_db_path(), page_size),
         Duration::from_secs(10),
     );
-    assert!(
-        answer.is_none(),
-        "bbolt answered Last on an emptied multi-leaf bucket (QK-0750 fixed?): {answer:?}"
-    );
+    if hangs {
+        assert!(
+            answer.is_none(),
+            "bbolt answered Last on an emptied multi-leaf bucket (QK-0750 fixed?): {answer:?}"
+        );
+    } else {
+        let answer = answer.expect("bbolt answers Last on an emptied one-leaf bucket");
+        assert_eq!(answer["results"][at], ours.results[at], "{}", last.name);
+    }
+}
+
+/// The multi-leaf defects at 16 KiB pages, the page size dcrwallet's
+/// database gets on Apple silicon ([`multileaf_defects_at`]).
+#[test]
+fn multileaf_defects_at_16_kib_pages() {
+    multileaf_defects_at(16384);
+}
+
+/// The multi-leaf defects at 64 KiB pages, the page size of Linux kernels
+/// built with 64 KiB pages ([`multileaf_defects_at`]).
+#[test]
+fn multileaf_defects_at_64_kib_pages() {
+    multileaf_defects_at(65536);
+}
+
+/// QK-0747, QK-0749 and QK-0750 follow bbolt's page size, which a
+/// dcrwallet database takes from the host that created it. At
+/// `page_size`, the 4 KiB scripts' bucket of 400 keys is one leaf (at
+/// 64 KiB, inline in its parent: under a quarter of a page), and Go
+/// answers every op of them as the store does, `Last` included; the same
+/// scripts with their keys scaled by `page_size` / 4096
+/// ([`multileaf_divergences`]) span several leaves and differ where the
+/// 4 KiB scripts do, and `Last` on the emptied bucket never returns. The
+/// Go panics ([`panic_cases`], QK-0748 among them) need no second leaf and
+/// show at every page size. The rest of the differential holds at
+/// `page_size` as at 4 KiB ([`corpus_matches_at`]).
+fn multileaf_defects_at(page_size: u32) {
+    let Some(mut oracle) = oracle_or_skip("boltcursor") else {
+        return;
+    };
+    for (s, at, want_c) in panic_cases() {
+        let go = run_oracle_at(&mut oracle, &s, page_size);
+        check_panic(&s, at, &want_c, &go);
+    }
+    for (s, _) in multileaf_divergences(1) {
+        let go = run_oracle_at(&mut oracle, &s, page_size);
+        assert!(leaf_pages(&go) <= 1, "{}: {}", s.name, go["layout"]);
+        check_divergence(&s, &[], &go);
+    }
+    check_last_on_an_emptied_bucket(&mut oracle, page_size, 400, false);
+    corpus_matches_at(&mut oracle, page_size);
+    let f = scale_of(page_size);
+    for (s, want) in multileaf_divergences(f) {
+        let go = run_oracle_at(&mut oracle, &s, page_size);
+        assert!(leaf_pages(&go) > 1, "{}: {}", s.name, go["layout"]);
+        check_divergence(&s, &want, &go);
+    }
+    // Last, since the hang leaves the oracle unusable.
+    check_last_on_an_emptied_bucket(&mut oracle, page_size, 400 * f, true);
+}
+
+/// The general differential at `page_size`, the layout a dcrwallet
+/// database created on a host with that page size has: every named case,
+/// a random corpus of its own seed, scripts off the ends of the table
+/// ([`edge_script`]) and the divergences that need no second leaf, checked
+/// as `cursors_match_bbolt` and `moves_off_the_ends_match_bbolt` check
+/// them at [`PAGE_SIZE`].
+fn corpus_matches_at(oracle: &mut Oracle, page_size: u32) {
+    let mut tally = Tally::default();
+    let random = corpus(&format!("cursor-conformance-{page_size}"), None, 400, true);
+    for s in named_cases().iter().chain(&random) {
+        let go = run_oracle_at(oracle, s, page_size);
+        check_script(s, &go, &mut tally);
+    }
+    let mut r = SplitMix64::from_env(&format!("cursor-edges-{page_size}"));
+    let mut edges = Tally::default();
+    for i in 0..100 {
+        let s = edge_script(&mut r, format!("edge-{i}"));
+        let go = run_oracle_at(oracle, &s, page_size);
+        check_script(&s, &go, &mut edges);
+    }
+    let spans: BTreeSet<String> = multileaf_divergences(1)
+        .into_iter()
+        .map(|(s, _)| s.name)
+        .collect();
+    for (s, want) in divergence_cases() {
+        if !spans.contains(&s.name) {
+            let go = run_oracle_at(oracle, &s, page_size);
+            check_divergence(&s, &want, &go);
+        }
+    }
+    eprintln!("{page_size}-byte pages: {tally:?}\nedges: {edges:?}");
+    assert!(tally.compared > 10 * tally.skipped, "{tally:?}");
+    assert!(tally.deletes_compared > 100, "{tally:?}");
+    assert!(tally.steps_after_delete > 100, "{tally:?}");
+    assert!(edges.compared > edges.skipped, "{edges:?}");
 }
 
 /// The rule leaves out what follows a `next` that ran off the end in a
@@ -2270,6 +2503,9 @@ fn regenerate_frozen_vectors() {
         if let Some(f) = go.get("final").filter(|f| !f.is_null()) {
             go["final"] = digests(f);
         }
+        // The layout is checked where it matters (`cursors_match_bbolt`);
+        // the vectors hold the answers only.
+        go.as_object_mut().expect("an object").remove("layout");
         writeln!(body, "{}", json!({"script": s.to_json(), "go": go})).expect("write to String");
     }
     let mut text = String::new();
@@ -2278,6 +2514,11 @@ fn regenerate_frozen_vectors() {
          # tools/oracle/cmd/boltcursor: bbolt v1.3.12 reached through dcrwallet's walletdb\n\
          # interface and bdb driver at the parity pin.\n",
     );
+    writeln!(
+        text,
+        "# Every script ran with {PAGE_SIZE}-byte bbolt pages, whatever the host's page size."
+    )
+    .expect("write to String");
     writeln!(text, "# Built with {go_version}.").expect("write to String");
     writeln!(text, "# dcrwallet commit: {DCRWALLET_PARITY_COMMIT}").expect("write to String");
     text.push_str(

@@ -59,9 +59,14 @@ pub const DEFAULT_MAX_PAGE_BYTES: usize = 256 << 20;
 const META_CAPTURE: u64 = 64 << 10;
 
 /// The page size bbolt falls back to when neither meta page validates but
-/// one could be read: the OS page size of the host (4096 on the x86-64 and
-/// Linux hosts the oracle runs on). A file that reaches this fallback fails
-/// to open either way; only which error it reports depends on the value.
+/// one could be read: the OS page size of the host, 4096 on x86-64 and on
+/// most arm64 Linux, 16384 on Apple silicon. The reader takes 4096 on every
+/// host. A file that reaches this fallback fails to open either way; only
+/// which error it reports depends on the value: one of at least 8 KiB but
+/// under twice the host's page size is too small to bbolt on a host with
+/// larger pages, and invalid here. No comparison with Go reaches such a
+/// file (the damaged files compared are 256 KiB long, or keep a valid
+/// meta 0), so the tests agree with bbolt on every host.
 const FALLBACK_PAGE_SIZE: u32 = 4096;
 
 /// How the probe in bbolt's `getPageSize` reads meta 0: one 4 KiB buffer.

@@ -12,8 +12,9 @@ in [dcr-purse-project-brief.md](docs/dcr-purse-project-brief.md), the 25
 specifications it rests on are in [docs/specs](docs/specs/README.md),
 [PARITY.md](docs/PARITY.md) maps every dcrwallet package to its crate and
 status, [QUIRKS.md](docs/QUIRKS.md) lists the upstream behaviours that are
-reproduced or deliberately not, and [bench-ledger.md](docs/bench-ledger.md)
-records the performance measurements.
+reproduced or deliberately not, [bench-ledger.md](docs/bench-ledger.md)
+records the performance measurements, and [UPSTREAM.md](docs/UPSTREAM.md)
+holds dated notes on what dcrwallet has done past the pin.
 
 **Status: early. This is not a wallet yet, and nothing here should hold
 funds.** The first libraries exist, the wallet's store among them with no
@@ -160,6 +161,61 @@ sizes, which the test suite does. The CI gate is the same driver with
 `--gate crates/purse-bench/gate-baseline.tsv`: it fails when a ratio of
 Rust's time to Go's is more than twice its baseline. The workloads and
 their criteria are listed in `crates/purse-bench/src/lib.rs`.
+
+## Moving the pin
+
+The pin moves under [ADR-0016](docs/adr/0016-upstream-tracking.md): until
+dcrwallet tags v2.2.0, to master's head when dcrwallet tags a point
+release, when master fixes a defect on ADR-0017's list or a
+security-relevant one, when a phase about to start needs a change master
+made, or on the owner's word; from v2.2.0, to every release tag of the
+newest line. A move is one change, made by an engineer and signed by the
+owner, following the checklist of ADR-0016 item 5. The acceptance releases
+that move with it (dcrd and its `dcrctl`, vspd, Decrediton) are recorded in
+the table at the head of [PARITY.md](docs/PARITY.md).
+
+`tools/pinmove` is the tooling for it, a Go module of its own that reads a
+dcrwallet clone and never writes to it
+([its README](tools/pinmove/README.md)):
+
+```sh
+git clone https://github.com/decred/dcrwallet.git ../dcrwallet
+cd tools/pinmove
+go run . report    -upstream ../../../dcrwallet -to origin/master -o report.md
+go run . batteries -upstream ../../../dcrwallet -to origin/master
+go run . cite      -upstream ../../../dcrwallet -to origin/master      # list; -w rewrites
+```
+
+`report` is the review list a move starts from: the upstream commits in
+the range, the files and lines changed, every `path:line` citation in this
+README, the Markdown files under `docs/` and the comments of the Rust and
+Go files under `crates/`, `fuzz/` and `tools/oracle` (the oracle's copies
+of upstream source left out) that resolves to an upstream file, classified
+as unchanged, shifted, touched (to re-read) or gone, the QUIRKS entries
+citing changed files, the `go.mod` delta (replace directives included),
+the frozen files and oracle copies to regenerate, and the text naming the
+old pin. A line citation of a name that is a file both upstream and here
+(dcrwallet's `README.md`, `go.mod`) is classified against the upstream
+file and listed, never rewritten.
+Citations that resolve to no one upstream file (a bare name several files
+share, a `:N` after prose) are counted but not classified; `pinmove
+survey` lists them.
+`batteries` lists every frozen file under `crates/*/tests/data`, how it
+names the pin and which regenerator a range requires, by the packages each
+oracle command links. `cite -w` rewrites the shifted citations in the
+specs, QUIRKS.md, PARITY.md, SKEW.md, the brief and this README, except
+those whose enclosing declaration differs at the new revision, lists the
+rest, the citations in code comments among them, which are corrected by
+hand, and leaves a `pinmove-cited-at` comment in each document it covers
+so that a second run skips it; ADRs keep the citations of the pin in force
+on their date and are never rewritten. `cite` runs at ADR-0016 item 5.8,
+after item 5.3 has bumped `DCRWALLET_PARITY_COMMIT`, which `-from`
+defaults to, so it is given the old pin as `-from`; it refuses an empty
+range, and `report` flags one. Once a month the workflow `upstream.yml`
+runs the report against dcrwallet's master and newest release tag and
+publishes it as a job artifact; what it shows is written into the dated
+read-ahead notes of [UPSTREAM.md](docs/UPSTREAM.md), which are not parity
+claims.
 
 ## Conventions
 

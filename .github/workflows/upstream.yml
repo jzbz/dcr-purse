@@ -1,0 +1,93 @@
+name: Upstream read-ahead
+
+# ADR-0016, answer 3: once a month, tools/pinmove reports what dcrwallet's
+# master and its newest release tag would do to this repository if the
+# parity pin moved to them, and publishes the reports as a job artifact.
+# The reports are read-ahead material for docs/UPSTREAM.md, not parity
+# claims.  The job never fails the build: every step that reads upstream
+# continues on error, and so does the job.
+
+on:
+  schedule:
+    # 06:17 UTC on the third of each month.
+    - cron: "17 6 3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: tools/pinmove report against dcrwallet master and newest tag
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      # The reports do not depend on the reference Go (GO_VERSION in
+      # ci.yml, which the skew test holds to REFERENCE_GO); the tool's own
+      # go.mod names the release it needs, so no second GO_VERSION is kept
+      # here to drift unchecked.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/pinmove/go.mod
+          # The batteries section lists packages with go list in
+          # tools/oracle, which downloads that module's requirements.
+          cache-dependency-path: tools/oracle/go.sum
+      - name: Clone dcrwallet
+        continue-on-error: true
+        run: |
+          UPSTREAM="$RUNNER_TEMP/dcrwallet"
+          OUT="$RUNNER_TEMP/pinmove-report"
+          echo "UPSTREAM=$UPSTREAM" >> "$GITHUB_ENV"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          mkdir -p "$OUT"
+          git clone --quiet https://github.com/decred/dcrwallet.git "$UPSTREAM"
+          # The newest final release: release candidates (release-v1.7.0-rc3
+          # sorts above release-v1.7.0 under -v:refname) and other suffixed
+          # tags are left out.
+          tag=$(git -C "$UPSTREAM" tag --list 'release-v*' --sort=-v:refname | grep -E '^release-v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          {
+            echo "dcrwallet master: $(git -C "$UPSTREAM" rev-parse origin/master)"
+            echo "newest release tag: $tag ($(git -C "$UPSTREAM" rev-parse "$tag^{commit}"))"
+          } > "$OUT/revisions.txt"
+      - name: Report against master
+        continue-on-error: true
+        working-directory: tools/pinmove
+        run: |
+          go run . report -upstream "$UPSTREAM" -to origin/master -o "$OUT/report-master.md" -json "$OUT/report-master.json"
+          go run . batteries -upstream "$UPSTREAM" -to origin/master -o "$OUT/batteries-master.md"
+          # cite refuses an empty range (master at the pin itself); its
+          # message then goes into the file in place of the list.
+          go run . cite -upstream "$UPSTREAM" -to origin/master > "$OUT/cite-master.md" 2>&1 || true
+      - name: Report against the newest release tag
+        continue-on-error: true
+        working-directory: tools/pinmove
+        run: |
+          go run . report -upstream "$UPSTREAM" -to "$TAG" -o "$OUT/report-tag.md" -json "$OUT/report-tag.json"
+          go run . batteries -upstream "$UPSTREAM" -to "$TAG" -o "$OUT/batteries-tag.md"
+      - name: Summary
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "## Upstream read-ahead"
+            echo
+            cat "$OUT/revisions.txt" 2>/dev/null | sed 's/^/- /'
+            for f in report-master report-tag; do
+              if [ -f "$OUT/$f.md" ]; then
+                echo
+                echo "### $f"
+                echo
+                sed -n '3,20p' "$OUT/$f.md"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        continue-on-error: true
+        with:
+          name: pinmove-report
+          path: ${{ runner.temp }}/pinmove-report
+          if-no-files-found: warn
+          retention-days: 90

@@ -515,7 +515,11 @@ depends on how a defect reaches upstream. Nothing of "Work created" is
 built by the acceptance: `tools/pinmove` and its tests, the pin check in
 `purse-testutil`, `docs/UPSTREAM.md`, the pins table in PARITY.md, the
 frozen-file rule of answer 8 and the scheduled job of answer 3 are each a
-later change, all before the first move.
+later change, all before the first move. *Done (2026-11-20):
+`tools/pinmove` and its tests, `docs/UPSTREAM.md`, the pins table in
+PARITY.md and the scheduled job (`.github/workflows/upstream.yml`); the
+pin check in `purse-testutil` and the frozen-file rule of answer 8 are
+still to come.*
 
 ## What was not tested
 

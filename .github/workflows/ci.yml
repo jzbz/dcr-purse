@@ -81,6 +81,24 @@ jobs:
       - run: go test ./...
         working-directory: tools/oracle
 
+  pinmove:
+    name: go vet and go test (tools/pinmove)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # Standard library only: no go.sum to key a cache on.
+          cache: false
+      - run: go vet ./...
+        working-directory: tools/pinmove
+      - run: test -z "$(gofmt -l .)"
+        working-directory: tools/pinmove
+      # The tests build small git repositories in temporary directories.
+      - run: go test ./...
+        working-directory: tools/pinmove
+
   flint:
     name: FLINT differential (purse-mixsolver)
     # The reference root solver is Go over the C library FLINT.  FLINT comes

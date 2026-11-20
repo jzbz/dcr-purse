@@ -2,6 +2,26 @@
 
 Maps every dcrwallet package, and every linked dependency the port has to supply, to its planned dcr-purse crate, its specification and its status. Parity pin: dcrwallet master `54b85b33` (2.2.0-pre). dcroxide revision: `f4b3d2e`, moved from `5c6742f` on 2026-11-19 over dcroxide's `5ce3046` (Rust 1.100.0) and `f4b3d2e` (redb 5.0.0 in `dcroxide-database`), neither touching a crate dcr-purse links ([SKEW.md](SKEW.md), ADR-0006 rule 2). The project name `dcr-purse` and the crate prefix `purse-` are final (project owner, 2026-11-18; ADR-0005).
 
+**Pins and acceptance releases** (ADR-0016, Decision item 4): what the claims below are made against, and how each moves.
+
+| Pin | Now | Moves |
+|---|---|---|
+| dcrwallet (the parity pin) | master `54b85b33` (2.2.0-pre); never moved | under ADR-0016 items 1, 2 and 5 (`DCRWALLET_PARITY_COMMIT` in `purse-testutil`, the oracle's `go.mod`) |
+| dcrd modules dcrwallet links | the versions dcrwallet's `go.mod` requires at the pin ([SKEW.md](SKEW.md)) | with dcrwallet's `go.mod`, never on their own |
+| dcroxide revision | `f4b3d2e` | ADR-0006 rule 2; not tied to the dcrwallet pin |
+| Reference Go | go1.27.4 | by its own deliberate bump (`REFERENCE_GO`, CI's `GO_VERSION`) |
+
+| Acceptance release | Release | Recorded |
+|---|---|---|
+| dcrd | — | — |
+| `dcrctl` (ships with dcrd) | — | — |
+| vspd | — | — |
+| Decrediton | — | — |
+
+The acceptance scenarios run against these releases of dcrwallet's peers and clients. Rule: the newest release of each at the time of the move; before dcrwallet v2.2 that is dcrd's newest release, from v2.2 the releases of the same cycle. dcroxide-backed scenarios also run dcroxide at its revision above, whose own dcrd pin is then a second dcrd in the matrix (brief §7, Layer 7). The rows are empty because Phase 0's acceptance work, which picks the releases, has not been done: nothing in them is chosen yet. For reference only, the rule would today give dcrd `release-v2.1.7` (JSON-RPC API 8.3.0, the version dcrwallet requires; ADR-0016, Context); spec 23 leaves vspd's release open, and Decrediton's, vspd's and `dcrctl`'s release cadences have not been examined.
+
+Each pin move adds a section to this ledger titled by its range (`54b85b33..<new> (N commits)`) that ports or accounts for every upstream commit in it (ADR-0016 item 5.11); there has been no move. What dcrwallet does past the pin is read ahead in [UPSTREAM.md](UPSTREAM.md), which makes no parity claim.
+
 Status values: **not started**, **in progress**, **ported** (implemented, upstream tests ported), **pinned** (differential coverage against the Go oracle in CI), **n/a** (deliberately not ported, with the reason). `sntrup4591761`, `purse-txauthor` and `purse-store` move to pinned only after fuzz soaks of each, and `purse-txauthor` after a fuzz target of its own, which it does not have yet (project owner, 2026-11-19). *The target, `fuzz/fuzz_targets/txauthor.rs`, exists since 2026-11-20; none of the three has been soaked.*
 
 The first libraries are implemented: `errors`, `pgpwordlist` and `walletseed`, dcrd's `hdkeychain`, and the read path of bbolt (a test utility only, not shipped in the wallet: ADR-0013). `purse-snacl`, `purse-dcrutil`, `purse-mixsolver`, `sntrup4591761` and `purse-store` are in progress. `purse-txrules` (`wallet/txsizes`, `wallet/txrules`) and `purse-txauthor` (`wallet/txauthor`) are ported, with their differentials and frozen vectors run so far on x86-64 Linux only. Everything else is not started. The rows marked "pinned" below have their upstream tests ported and a differential against the Go oracle that CI runs on Linux (x86-64 and arm64), macOS and Windows, with frozen Go-generated vectors beside it. What holds each parity clause of the Phase 1 exit, test by test, is recorded in [PHASE1-EXIT.md](PHASE1-EXIT.md).

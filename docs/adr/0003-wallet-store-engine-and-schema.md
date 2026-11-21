@@ -7,7 +7,12 @@
   (project owner, 2026-11-19); each open point is marked. Later the same
   day the owner decided main-chain headers and filters keyed by height,
   tables not merged, and the correction ADR-0018 asks for on backup and
-  compaction (addendum "Decisions of the project owner", at the end).
+  compaction (addendum of 2026-11-19 "Decisions of the project owner").
+- **Settled, 2026-11-21 (project owner):** the open points R1 to R4 of
+  the addendum "The remaining records, as built" and M1 to M3 of the
+  addendum "`purse-store` against dcrwallet on the same workload", each as
+  recommended; the store's file name is `wallet.redb` (ADR-0018); Phase 2
+  is closed. See "Addendum, 2026-11-21" at the end.
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -1106,7 +1111,8 @@ pointers added to it.
    path from its caller, so the name is still to be chosen. *2026-11-20:
    proposed as `wallet.redb` (`purse_store::STORE_FILE_NAME`), awaiting
    the owner: ADR-0018, addendum "The `purse-store` part, as built", Open
-   point BK1.*
+   point BK1.* *Decided 2026-11-21 (project owner): the name is
+   `wallet.redb` (ADR-0018, addendum of 2026-11-21, item 1).*
 6. **Integrity check on open.** Whether the wallet opens its own store
    with redb's integrity check (`purse-store`'s
    `OpenOptions::check_integrity`, off by default) is decided in Phase 3.
@@ -1121,7 +1127,10 @@ pointers added to it.
    reproduced: accepted.
 9. **Tests.** The model-based property test runs 48 sequences by default
    (`PURSE_STORE_MODEL_CASES`), with a large count in a nightly job, which
-   CI does not have yet. The `store_open` fuzz target runs in CI without
+   CI does not have yet. *2026-11-21: a sweep of the cursor conformance
+   test over seeds is to join that job when it exists (addendum of
+   2026-11-21, item 5); the job still does not exist.* The `store_open`
+   fuzz target runs in CI without
    debug assertions, as the wallet ships, because redb 5.0.0's debug
    assertions fire on some damaged files; it is run once by hand with
    them. Fuzz soaks of the store (with those of `sntrup4591761` and
@@ -1376,7 +1385,8 @@ Differences from dcrwallet's layout, none of which a client can observe:
   answered with the empty host by the layer above (the differential's
   interpreter does so, and `purse-udb` will). The one udb-level path
   where the counter and the last key could differ is `SetVSPHost` called
-  with an id out of order, which has no caller at the pin (Open point R2).
+  with an id out of order, which has no caller at the pin (Open point R2;
+  *accepted 2026-11-21 by the project owner, addendum of that date*).
 - The public-key and host values drop their length prefixes (the length
   is the rest of the value).
 - A treasury vote of 0 is refused by the value type, being dcrwallet's
@@ -1446,11 +1456,15 @@ imported scripts, which belong to the transaction store (Phase 3). No
 frozen vectors were checked in for the records differential. The logical
 export (ADR-0001) of these records is `purse-udb`'s, not built.
 
-**Open points**, each for the owner, with a recommendation:
+**Open points**, each for the owner, with a recommendation: *All four
+decided as recommended (project owner, 2026-11-21); each is marked, and
+the addendum of that date records them.*
 
 - R1. *Accept the twelve tables, their layouts and operations as built in
-  schema version 1.* Recommended: accept.
-- R2. *No `vsphostindex` counter row and no seeded host 0.* A port of
+  schema version 1.* **Decided as recommended (project owner,
+  2026-11-21).** Recommended: accept.
+- R2. *No `vsphostindex` counter row and no seeded host 0.* **Decided as
+  recommended (project owner, 2026-11-21).** A port of
   dcrwallet's udb-level `SetVSPHost`, which no wallet code calls outside
   `SetVSPTicket`, could write an id out of order, after which dcrwallet's
   counter and the last key would give different next ids. Recommended:
@@ -1458,11 +1472,13 @@ export (ADR-0001) of these records is `purse-udb`'s, not built.
   `add_vsp_host`, and its operation-script generator does not draw them
   alone.
 - R3. *The `vsp_fee_status` index* (one more row written per ticket
-  change, against a walk of every VSP ticket per query). Recommended:
+  change, against a walk of every VSP ticket per query). **Decided as
+  recommended (project owner, 2026-11-21).** Recommended:
   keep it; the cost was not measured and is one small row in a commit
   that writes the ticket anyway.
 - R4. *The multisig stake-tree flag after a spend and unspend*
-  (QK-0054, candidate). The store can hold either outcome. Recommended:
+  (QK-0054, candidate). **Decided as recommended (project owner,
+  2026-11-21).** The store can hold either outcome. Recommended:
   decide in Phase 3 with an oracle run of `redeemmultisigouts`, under
   ADR-0012 Rule 1 (the tree reaches a client in that result).
 
@@ -1501,6 +1517,8 @@ lookups, `MarkUsed`, the gap-limit sync, account lookups and
 `AccountProperties` are `purse-udb`'s own code. What the figures measure
 is therefore the schema, the store and the address manager as built. The
 transaction store's code must be measured again when Phase 3 writes it.
+*Decided 2026-11-21 (project owner): it is measured again as part of
+Phase 3's exit (Open point M3).*
 
 **The same data.** A generator in the test builds a simnet history from a
 fixed seed: 40,000 blocks, the last 300 at the tip, 100,075 wallet
@@ -1543,7 +1561,10 @@ test binary was a release build. The whole test was pinned with `taskset
 bench ledger's d1, a shared desktop, lightly loaded during these sessions
 (one-minute load average 1.08 at the first one's start, 2.10 at the
 third's end); nothing was pinned away from the measured cores. The figures
-are wall-clock times on a shared machine, not a dedicated one.
+are wall-clock times on a shared machine, not a dedicated one. *What
+counts as ADR-0014's dedicated machine was decided on 2026-11-21: the
+shared desktop counts only with nothing else running (ADR-0014, addendum
+of that date), which these sessions were not.*
 
 **Correction, same day.** A first run of this measurement, three sessions
 earlier on 2026-11-20, timed different work for the ranges on the two
@@ -1630,22 +1651,114 @@ reorganisation paths, and input selection, which need the transaction
 store; the transaction store's own code (Phase 3); memory; bytes written
 on the Rust side; Windows, macOS and other file systems.
 
-**Open points**, each for the owner, with a recommendation:
+**Open points**, each for the owner, with a recommendation: *All three
+decided as recommended (project owner, 2026-11-21); each is marked, and
+the addendum of that date records them.*
 
 - M1. *N for ADR-0014's row for Phases 2 and 3* ("≥N times faster on
   balance, range queries (N from ADR-0003)"), which no record has set.
-  Recommended: N = 1,000 for a balance query and N = 1.5 for a range
+  **Decided as recommended (project owner, 2026-11-21).** Recommended:
+  N = 1,000 for a balance query and N = 1.5 for a range
   query, against the measured 36,800x and 1.86x on a 100,000-transaction
   wallet, both of which hold at every size the spike measured. The row's
   "no slower than Go on ADR-0003's workload" holds on every figure above.
-- M2. *A run on a dedicated machine.* ADR-0014 §4 decides exit criteria
-  and wall-clock figures there, and this entry is from the shared
+- M2. *A run on a dedicated machine.* **Decided as recommended (project
+  owner, 2026-11-21); when and where the run is made waits for the
+  owner's word (ADR-0014, addendum of 2026-11-21).** ADR-0014 §4 decides
+  exit criteria and wall-clock figures there, and this entry is from the shared
   desktop. Recommended: run the same command there before Phase 3's exit,
   together with the Phase 1 run that is still owed. The several-fold rows
   are far outside the noise seen here. The commit rows, which are bound by
   the machine's sync time, are the ones a dedicated run could move.
-- M3. *Measure again when Phase 3 writes the transaction store*, with
+- M3. *Measure again when Phase 3 writes the transaction store*,
+  **decided as recommended (project owner, 2026-11-21)**, with
   the same test calling `purse-udb`'s transaction-store functions instead
   of its own composition, and with stake, unmined and reorganisation
   operations added to the workload. Recommended: yes, as part of Phase
   3's exit.
+
+## Addendum, 2026-11-21 — R1 to R4 and M1 to M3 accepted, and Phase 2 closed (project owner)
+
+On 2026-11-21 the project owner accepted the open points of the two
+addenda of 2026-11-20 above as recommended, decided the backup's open
+points (ADR-0018, addendum of 2026-11-21), and closed Phase 2 on those
+terms. The text above stays as written, apart from the dated pointers
+added to it.
+
+1. **The remaining records, R1 to R4.**
+   - R1: the twelve tables, their layouts and their operations are
+     accepted as built in schema version 1.
+   - R2: no `vsphostindex` counter row and no seeded host 0. When
+     `purse-udb` ports the VSP records (a later slice of that crate), it
+     is to reach `SetVSPHost` and `SetVSPPubKey` only through
+     `add_vsp_host`, and its operation-script generator is not to draw
+     them alone. Neither the port nor that generator is written yet;
+     today only `purse-store`'s records differential leaves the two
+     operations undrawn.
+   - R3: the `vsp_fee_status` index is kept. Its cost was not measured.
+   - R4: the multisig stake-tree flag after a spend and unspend
+     (QK-0054) is decided in Phase 3 with an oracle run of
+     `redeemmultisigouts`, under ADR-0012 Rule 1. QK-0054's disposition
+     stays open until that run.
+2. **The measurement, M1 to M3.**
+   - M1: ADR-0014's row for Phases 2 and 3 reads N = 1,000 for a balance
+     query and N = 1.5 for a range query (ADR-0014, addendum of
+     2026-11-21). The figures of the addendum above (36,800x and 1.86x at
+     their lowest) are from the shared desktop while other work ran on it
+     (lightly loaded), so they are not the exit run ADR-0014 §4 asks
+     for.
+   - M2: the same command is run on a dedicated machine before Phase 3's
+     exit, together with the Phase 1 run still owed. What counts as the
+     dedicated machine was decided the same day, and no timed run of
+     record is started until the owner says when and where (ADR-0014,
+     addendum of 2026-11-21). The run has not been made.
+   - M3: the store is measured again when Phase 3 writes the transaction
+     store, as part of Phase 3's exit, with the same test calling
+     `purse-udb`'s transaction-store functions instead of its own
+     composition, and with stake, unmined and reorganisation operations
+     added to the workload.
+3. **The store's file name** is `wallet.redb` (ADR-0018 Open point BK1);
+   item 5 of the addendum of 2026-11-19 "Decisions of the project owner"
+   carries the dated pointer.
+4. **Phase 2 is closed.** Every clause of the brief's Phase 2 exit is
+   held by tests that pass, and the last by the measurement above, as
+   `docs/PHASE2-EXIT.md` records. What that record lists as left, and
+   what the addenda it cites (the two above of 2026-11-20 and ADR-0018's
+   of the same date) leave to later phases, stays listed as left, carried
+   to the phase named: the multisig records' differential against
+   dcrwallet's udb and R4's oracle run (Phase 3,
+   with the transaction records); the transaction tables' check in
+   verify (ADR-0018 BK4, Phase 3); input selection itself, whose draws
+   Phase 2 checks only as the set of outputs dcrwallet may choose
+   (Phase 3); the dedicated-machine run (M2, before
+   Phase 3's exit, when the owner says); the measurement with the
+   transaction store (M3, Phase 3's exit); the large model run and the
+   seed sweep below (the nightly job of item 9, which does not exist); the
+   fuzz soaks (before the store's PARITY row moves to pinned, item 9); the
+   backup's JSON-RPC method (Phase 7), its tool and `restore` (Phase 8)
+   and the user documentation (Phase 13). The items it lists as not
+   covered without a phase (a sweep of real process kills, cuts of a
+   backup's rename and directory syncs, real file systems under power
+   loss, other bbolt page sizes, a real migration, which needs a released
+   schema version, and a redb file-format migration, which is not built;
+   in the measurement, input selection, coinbase and stake-invalidation
+   paths, cold reads, the 1m size, memory, store open, backup and
+   recovery times) stay listed as not covered.
+5. **The cursor conformance test's guards.** The guards loosened in the
+   change that added these records (`MIN_COMPARED_PER_SKIPPED` from ten
+   to six, four for the per-record-table corpus where it was five, and
+   the floor of multi-leaf random scripts from 50 to 35) are accepted
+   (`docs/PHASE2-EXIT.md`, clause 3). The same change's other fix to the
+   test, accepting a Go panic on an uncompared last operation, is a
+   correction `docs/PHASE2-EXIT.md` describes; the owner's decision does
+   not name it. The fix's report recommended a
+   sweep of the test over seeds in the nightly job item 9 asks for, once
+   that job exists. Neither the job nor the sweep exists: the sweep is
+   still to do.
+
+**Places amended with this addendum:** the Status line, item 5 and item
+9 of the addendum of 2026-11-19 "Decisions of the project owner", and
+the two addenda of 2026-11-20, by dated pointers; ADR-0014 (its
+addendum of the same date); ADR-0018 (its addendum of the same date); `docs/QUIRKS.md`
+(QK-0047 and QK-0054); `docs/PHASE2-EXIT.md`; the brief's Phase 2
+status; the README; the ADR index.

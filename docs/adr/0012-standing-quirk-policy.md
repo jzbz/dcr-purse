@@ -18,6 +18,10 @@
   is not a security-relevant candidate under ADR-0017, and the first half
   of QK-0035 is reproduced, not a Rule 7 case. See "Addendum, 2026-11-20"
   at the end.
+- **Decided, 2026-11-21 (project owner):** the digit search of the wiped
+  base58 codecs, which decode private strings, is to be replaced with a
+  constant-time lookup under Rule 6; scheduled at low priority, not yet
+  done. See "Addendum, 2026-11-21" at the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -178,7 +182,9 @@ reply that quotes a secret, which reverses QK-0729. Arithmetic on secret
 values is constant time whatever Go does (dcroxide ADR-0017): no output
 changes, so it is no divergence. Variable time stays only on values a
 holder of public data can compute, with the residual exposure documented
-(`crates/purse-hdkeychain/src/lib.rs:73-91`).
+(`crates/purse-hdkeychain/src/lib.rs:73-91`). *2026-11-21: the
+base58 codecs' digit search is covered and its replacement scheduled,
+addendum of that date.*
 
 **Rule 7 — Funds.** It triggers on an outcome W1 forbids: a key, address
 or output not derived or not recognised; a spend unrecorded or wrongly
@@ -521,3 +527,40 @@ above stays as written, apart from the dated pointers added to it.
 **Places amended with this addendum:** the Status line and "Not settled"
 above, by dated pointers; `docs/QUIRKS.md` (QK-0035); `docs/PARITY.md`
 (`purse-udb`); ADR-0017 (its addendum of the same date); the ADR index.
+
+## Addendum, 2026-11-21 — The digit search of the wiped base58 codecs
+
+Decided by the project owner on 2026-11-21, as set out at the end; no
+code changes with this record.
+The review of the dcroxide pin move of 2026-11-21 (`docs/SKEW.md`,
+2026-11-21 section, which does not mention it) noted a possible timing
+question that no record held.
+
+`purse-hdkeychain` and `purse-dcrutil` decode extended keys and WIF
+strings with codecs of their own, over fixed buffers that are wiped,
+because `dcroxide-base58` wipes neither its working limbs nor what it
+returns (`crates/purse-hdkeychain/src/base58.rs`,
+`crates/purse-dcrutil/src/base58.rs`). Each finds a character's digit
+with a linear search of the alphabet (`digit_of`,
+`ALPHABET.iter().position`), which stops at the match, so its time grows with the digit's value. When
+the string is an extended private key or a WIF private key, those digits
+are the private key's. decred/base58 v1.0.6, which dcrwallet links, looks
+each character up in a 256-entry table (`b58[r]`), and `dcroxide-base58`
+has done the same since `48f5b5e`; a table lookup by a secret index is a
+data-dependent memory access too, but not a loop whose length follows the
+digit. `purse-hdkeychain`'s crate documentation ("Timing") says
+that the extended-key codec "branches on its digits, as Go's does" and
+makes no constant-time claim for it.
+
+Not examined: which callers pass private strings to these decoders and
+what a timing observer could measure of them; no timing of the codecs
+was taken, on either side.
+
+**Decided (project owner, 2026-11-21):** the replacement of the digit
+search is scheduled, at low priority. The search is to be replaced with a
+lookup that reads all 58 entries and selects the match in constant time,
+which changes no output and so is no divergence; a separate code change,
+with the codecs' existing equivalence tests against `dcroxide-base58` and
+a dudect-style check of its own. It is to land before anything that
+parses private strings ships. The change is not made, and nothing of the
+"Not examined" paragraph above has been examined since.

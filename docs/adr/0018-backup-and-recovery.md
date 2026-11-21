@@ -6,6 +6,10 @@
   repository facts and measurements under Context are not outcomes of it;
   ADR-0003's Decision item 8 and its Open point 6, both accepted, are the
   starting point, and ADR-0003 gains the addendum of Open point 9.
+- **Settled, 2026-11-21 (project owner):** the open points BK1 to BK6 of
+  the addendum "The `purse-store` part, as built", each as recommended:
+  the store's file name is `wallet.redb`. `libc` stays a direct, Unix-only
+  dependency of `purse-store`. See "Addendum, 2026-11-21" at the end.
 - **Date:** 2026-11-19
 
 ## Context
@@ -532,6 +536,10 @@ Accepted as proposed, every open point as recommended. The answers:
 6. *The store's file name:* fixed in Phase 2 with the schema, a name other
    than `wallet.db`. `purse-store` as committed takes the path from its
    caller, so the name is still to be chosen (a follow-up of Phase 2).
+   *2026-11-20: proposed as `wallet.redb` (`purse_store::STORE_FILE_NAME`;
+   addendum "The `purse-store` part, as built", Open point BK1).* *Decided
+   2026-11-21 (project owner): the name is `wallet.redb` (addendum of
+   2026-11-21, item 1).*
 7. *Windows:* measured on the Windows CI runner in Phase 8 and what is
    guaranteed there recorded; until then the documentation says a backup
    is complete once the call has returned.
@@ -653,6 +661,9 @@ name, the rename and the directory syncs remain, and each can still fail.
 The final name is checked again just before the rename, but the rename
 itself (`std::fs::rename`) replaces a file created under that name between
 the check and the rename, on Unix and on Windows alike; Open point BK3.
+*Decided 2026-11-21 (project owner): the rename with the second check is
+kept in 1.0, and the window is to be recorded in the user documentation
+(addendum of that date, item 3).*
 
 **File modes.** A backup holds everything the store holds, keys included,
 so on Unix the backup file is created with mode 0600 and every directory
@@ -668,7 +679,9 @@ its owner gave it: the backup does not change permissions it did not
 create. On Windows the files and directories get the default access
 control of their parent, as Go's `os.OpenFile` gives dcrwallet's there.
 `purse_store::FILE_MODE` and `DIR_MODE` name the two modes. Open point
-BK6.
+BK6. *Accepted 2026-11-21 (project owner), with Phase 8's `restore` to
+create the restored store 0600 the same way (addendum of that date,
+item 6).*
 
 **Decision item 4, the library's part.** `check_backup_name` refuses, each
 with a text of dcr-purse's own (kind `Invalid`), an empty name, one with a
@@ -687,7 +700,8 @@ as console handles; Go's `isReservedBaseName`
 (`internal/filepathlite/path_windows.go`) reserves the same apart from
 `COM0` and `LPT0`, and the console names only as a whole base name, so
 refusing `CONOUT$.txt` is stricter than Go and costs nothing. A name it
-accepts is exactly one plain path component. Open point BK2. The mapping
+accepts is exactly one plain path component. Open point BK2. *Accepted
+2026-11-21 (project owner; addendum of that date, item 2).* The mapping
 of these refusals to
 JSON-RPC's invalid-parameter code, the absolute path in the reply, the
 log line, and `help` staying silent are Phase 7's.
@@ -704,7 +718,9 @@ verify is not a regular file`, kind `Invalid`), on every platform. The
 type is checked by path before the open (Windows cannot open a directory
 as a file, and would otherwise report an I/O error) and again on the open
 handle, which is authoritative; on Unix the open carries `O_NONBLOCK`
-(the `libc` crate's constant, already in the graph through redb), because
+(the `libc` crate's constant, already in the graph through redb; *kept
+as a direct, Unix-only dependency of `purse-store` by the project owner,
+2026-11-21, addendum of that date, item 7*), because
 a plain read-only open of a FIFO with no writer waits for one forever and
 the path can change between the check and the open. The copy's name
 begins `.verify-`, a prefix reserved to verification in the scratch
@@ -741,7 +757,9 @@ checks alone, as item 5 says. `verify_backup_on_backend` runs the same
 checks on a storage backend, for the fuzz target. Two limits of what
 "the store's consistency check (ADR-0003 item 4)" can mean today: the
 store has no check yet of the transaction tables' indexes and balances,
-which come with the transaction store in Phase 3 (Open point BK4); and for
+which come with the transaction store in Phase 3 (Open point BK4;
+*decided 2026-11-21: `verify_backup` runs that check when Phase 3 builds
+it, addendum of that date, item 4*); and for
 a store of an older schema version the consistency checks are skipped
 and the result says so (`consistency_checked: false`), because `restore`
 migrates before it checks, and no older version exists yet, so that path
@@ -750,7 +768,9 @@ is not exercised. `restore` itself, the tool and its messages are Phase
 
 **Open point 6, the file name.** `purse_store::STORE_FILE_NAME` is
 `wallet.redb`, a name other than `wallet.db` as the owner decided; the
-name itself is proposed here and not decided (Open point BK1). The store's
+name itself is proposed here and not decided (Open point BK1). *Decided
+2026-11-21 (project owner): the name is `wallet.redb` (addendum of that
+date, item 1).* The store's
 functions take their path from the caller and never add the name; the
 tests of `purse-udb` that create a wallet's store use the constant, and
 ADR-0005 Decision item 2 carries a dated pointer to this addendum.
@@ -883,9 +903,11 @@ the copy and its removal), which the tests above hold.
 - The verify path for an older schema version (none exists).
 
 **Open points**, each for the owner, with a recommendation; none is
-decided:
+decided: *All six decided as recommended (project owner, 2026-11-21); each
+is marked, and the addendum of that date records them.*
 
-- BK1. *The store's file name: `wallet.redb`.* Other than `wallet.db`, as
+- BK1. *The store's file name: `wallet.redb`.* **Decided as recommended
+  (project owner, 2026-11-21).** Other than `wallet.db`, as
   decided; it says what the file is, and `purse-udb`'s tests already used
   it. Recommended: accept. Changing it is one constant before a release.
 - BK2. *The name refusals beyond Decision item 4's list* (control
@@ -894,9 +916,11 @@ decided:
   bytes), refused on every platform so that a name means
   the same file everywhere and never reaches outside the directory on
   Windows. Recommended: accept, Phase 7 answering them with the same
-  invalid-parameter code as the others.
+  invalid-parameter code as the others. **Decided as recommended (project
+  owner, 2026-11-21).**
 - BK3. *The rename replaces a file created under the final name between the
-  last check and the rename.* Only something writing into `backups/`
+  last check and the rename.* **Decided as recommended (project owner,
+  2026-11-21).** Only something writing into `backups/`
   itself, during the microseconds between the two calls, can race it,
   but then the backup overwrites that file, which item 3 says never
   happens. The alternative publishes with a hard link from `.partial/`
@@ -905,7 +929,8 @@ decided:
   hard links, so it needs the rename as a fallback. Recommended: keep the
   rename with the second check in 1.0 and record the window in the user
   documentation; revisit if Phase 7's tests or users show the race.
-- BK4. *The transaction tables' consistency check in verify.* The store
+- BK4. *The transaction tables' consistency check in verify.* **Decided
+  as recommended (project owner, 2026-11-21).** The store
   checks its chain and record tables; the indexes and balances of the
   transaction tables (ADR-0003 Decision item 4) have no check in
   `purse-store` yet. Recommended: when the transaction store builds that
@@ -913,10 +938,62 @@ decided:
   documentation says until then what verify does not check.
 - BK5. *The record's caller-stated fields*: the network as the data
   directory names it, the version string of ADR-0005 item 9, the time in
-  Unix nanoseconds. Recommended: accept.
-- BK6. *File modes on Unix*: 0600 for the store, a backup and verify's
+  Unix nanoseconds. Recommended: accept. **Decided as recommended
+  (project owner, 2026-11-21).**
+- BK6. *File modes on Unix*: **Decided as recommended (project owner,
+  2026-11-21).** 0600 for the store, a backup and verify's
   copy, 0700 for every directory the store creates, existing directories
   left as they are; dcrwallet's modes, spec 01's parity constants. The
   alternative of copying the live store's mode onto a backup would carry a
   mode loosened by hand onto every backup. Recommended: accept, and have
   Phase 8's `restore` create the restored store 0600 the same way.
+
+## Addendum, 2026-11-21 — Decisions of the project owner: BK1 to BK6, and `libc`
+
+On 2026-11-21 the project owner accepted the six open points of the
+addendum "The `purse-store` part, as built" as recommended, and decided
+one point about `purse-store`'s dependencies. The text above stays as
+written, apart from the dated pointers added to it.
+
+1. **BK1, the file name.** The store's file name is `wallet.redb`
+   (`purse_store::STORE_FILE_NAME`), as built. This is the name the
+   owner's answer to Open point 6 left to be fixed in Phase 2 with the
+   schema (item 6 of "Decision by the project owner (2026-11-19)" above,
+   and ADR-0003, addendum of 2026-11-19 "Decisions of the project owner",
+   item 5; both
+   carry a dated pointer); ADR-0005 Decision item 2 carries one too.
+2. **BK2, the portable-name refusals.** The refusals beyond Decision
+   item 4's list stay, on every platform, and Phase 7 answers them with
+   the same invalid-parameter code as the others.
+3. **BK3, the rename.** The rename with the second check of the name is
+   kept in 1.0, and the window between that check and the rename is to be
+   recorded in the user documentation; it is revisited if Phase 7's tests
+   or users show the race. The user documentation is Phase 13's and not
+   written, so that record is still to do.
+4. **BK4, the transaction tables in verify.** When the transaction store
+   builds the check of the transaction tables' indexes and balances in
+   Phase 3, `verify_backup` runs it too, and until then the tool's
+   documentation says what verify does not check. Neither exists yet: the
+   check is Phase 3's and the tool Phase 8's.
+5. **BK5, the record's caller-stated fields.** The network as the data
+   directory names it, the version string of ADR-0005 item 9 and the time
+   in Unix nanoseconds stay as built.
+6. **BK6, the Unix file modes.** 0600 for the store, a backup and
+   verify's copy, 0700 for every directory the store creates, and
+   existing directories left as they are, stay as built; Phase 8's
+   `restore` is to create the restored store 0600 the same way.
+7. **`libc` stays.** `purse-store` keeps `libc` as a direct dependency on
+   Unix only, for `O_NONBLOCK` in `verify_backup` (its manifest gives the
+   reason). The owner was told that it is the Rust bindings crate, that it
+   compiles no C, and that it was already in the lock file through redb
+   and getrandom, and decided to keep it.
+
+**What follows.** Nothing in `purse-store`'s code changes. The
+documentation of `purse_store::STORE_FILE_NAME`, which called the name
+proposed and awaiting the owner, now states it as decided (a comment
+only). Item 6 of "Decision by the project owner (2026-11-19)" above gains
+a dated pointer. ADR-0003 gains an addendum of the same date, and the
+dated pointer in item 5 of its addendum of 2026-11-19 "Decisions of the
+project owner";
+`docs/PHASE2-EXIT.md`, the brief (Phase 2 and D15), the README and the
+ADR index say the same.

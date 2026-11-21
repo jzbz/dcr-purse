@@ -6,14 +6,21 @@
   **Accepted** (project owner, 2026-11-19): "let's reverse that, faster is
   more important". Open points 1 to 12 were all decided as recommended
   (project owner, 2026-11-19); each is marked. Every number is a starting
-  value, fixed from measurements; items 13 to 22 are not yet established.
+  value, fixed from measurements; items 13 to 22 are not yet established
+  *(item 22's query results were measured on 2026-11-20 on the shared
+  desktop and N was set from them on 2026-11-21; the run of record is
+  still owed: the dated note under item 22)*.
   The owner's decisions on the Phase 1 speed row and the first
-  measurements' findings (2026-11-19) are the addendum at the end.
+  measurements' findings (2026-11-19) are the addendum of that date, "The
+  Phase 1 speed row and the first ledger entry".
   *Phase 1's speed row was measured again on 2026-11-20 at the dcroxide
   pin `2074168`: the addendum of that date. The pin moved to `48f5b5e` on
   2026-11-21, which changes `dcroxide-base58`'s conversion and not its
   outputs (`docs/SKEW.md`, 2026-11-21 section); the row has no
-  measurement of record at that pin.*
+  measurement of record at that pin.* *On 2026-11-21 the owner set N
+  for the row of Phases 2 and 3 and decided what counts as the dedicated
+  machine; no timed run of record is started until the owner says when
+  and where: the addendum of that date.*
 - **Date:** 2026-11-19
 
 ## Context
@@ -263,7 +270,10 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   same workload"; bench ledger, entry of that date). No figure was slower
   than Go. A balance was 36,800 to 102,500 times faster, and a range over
   blocks 1.86 to 2.05 times. N is not set yet (ADR-0003 Open point M1), and
-  the dedicated-machine run is owed (its Open point M2).*
+  the dedicated-machine run is owed (its Open point M2).* *Decided
+  2026-11-21 (project owner): N = 1,000 for a balance query and N = 1.5
+  for a range query; the dedicated-machine run before Phase 3's exit,
+  when and where the owner says (addendum of that date).*
 
   Phase 5 runs both sides on a mainnet-scale scripted backend; served from
   memory it gates local work, and the wire gains are gated at Phase 10.
@@ -271,7 +281,8 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   passes, filters decoded, commits, fsyncs, bytes written), request counts
   by bounds, and micro ratios at a 2x regression. The 15%-warn and 25%-fail
   ratio gates, exit criteria and wall-clock runs are on a dedicated
-  machine, at each phase exit and weekly, each a ledger row.
+  machine, at each phase exit and weekly, each a ledger row. *What counts
+  as the dedicated machine: addendum of 2026-11-21, item 2.*
 
 ### 5. Amendments to the brief (1, 2, 3 and 5 made; 4 made for Phases 1, 5 and 10, and 6 for §8, with the harness; the rest of 4 and 6 follow)
 
@@ -392,7 +403,11 @@ drops under pipelining: the interop gate; (19) redb commit cost in a grown
 file by hash and by height: Phase 2, with ADR-0003 Open point 9's table
 merging; (20) Go's anonymous-memory baseline: `RssAnon` from [S]'s samples;
 (21) real restore pass counts F: Layer 6's corpus; (22) ADR-0003's query
-results, which Phase 2–3's N needs.
+results, which Phase 2–3's N needs. *(22) measured 2026-11-20 on the
+shared desktop while other work ran on it (ADR-0003, addendum
+"`purse-store` against dcrwallet on the same workload"); N set from those
+figures on 2026-11-21 (addendum of that date, item 1); the run of record
+on the dedicated machine (item 2 of that addendum) has not been made.*
 
 ## Addendum, 2026-11-19 — The Phase 1 speed row and the first ledger entry
 
@@ -416,7 +431,9 @@ it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
    dcroxide change (about half of Rust's time is dcroxide-crypto's
    portable BLAKE-256). *2026-11-20: 1.01 over three more sessions
    (0.99 to 1.02 by session); still to be settled on a dedicated machine
-   (addendum of 2026-11-20).*
+   (addendum of 2026-11-20).* *2026-11-21: what counts as the dedicated
+   machine is decided, and the run waits for the owner's word on when and
+   where (addendum of 2026-11-21, item 2).*
 3. **secretbox at about 3 times Go's time** (2.9 to 4.0; the `poly1305`
    crate's AVX2 backend calls its intrinsics out of line) is accepted for
    now. It was recommended that the RustCrypto project be told later;
@@ -471,7 +488,9 @@ at most 1.00, missed in two of the three sessions by the driver's verdict;
 no base58 or BLAKE-256 code changed on either side since the first entry.
 Under item 2 of the addendum of 2026-11-19 it is settled by a measurement
 on a dedicated machine first, which is also to confirm the rest of the row
-(item 4, "Exit criteria"); no such machine has measured it yet.
+(item 4, "Exit criteria"); no such machine has measured it yet. *What
+counts as the dedicated machine was decided on 2026-11-21 (addendum of
+that date, item 2); the run has not been made.*
 
 The CI gate's baselines for the three secret paths
 (`crates/purse-bench/gate-baseline.tsv`) are lowered to the entry's
@@ -480,3 +499,34 @@ times Go's time on them instead of about 3.2; one local run of the gate's
 command passed with them. Not run on GitHub's runners.
 
 This addendum records a measurement; it decides nothing.
+
+## Addendum, 2026-11-21 — Decisions of the project owner: N for Phases 2 and 3, and the dedicated machine
+
+On 2026-11-21 the project owner accepted ADR-0003's Open points M1 to M3
+as recommended (ADR-0003, addendum of that date) and decided what counts
+as the dedicated machine item 4 names. The text above stays as written,
+apart from the dated pointers added to it.
+
+1. **N for the row of Phases 2 and 3** (item 4, "Exit criteria"; ADR-0003
+   Open point M1). The row's "≥N times faster on balance, range queries
+   (N from ADR-0003)" reads N = 1,000 for a balance query and N = 1.5 for
+   a range query. "No slower than Go on ADR-0003's workload" is
+   unchanged. The figures recorded so far (ADR-0003, addendum
+   "`purse-store` against dcrwallet on the same workload": 36,800x and
+   1.86x at their lowest) are from the shared desktop while other work
+   ran on it (lightly loaded) and are not the run of record. That run is the one of item 2, before Phase 3's
+   exit (ADR-0003 Open point M2), together with the Phase 1 run still
+   owed; the store is measured again with Phase 3's transaction store as
+   part of Phase 3's exit (Open point M3).
+2. **What counts as the dedicated machine.** A run on the shared desktop
+   on which the measurements so far were taken (the bench ledger's
+   machine d1) counts as the dedicated-machine run when nothing else is
+   running on it; the run may instead be made on another machine. No timed run of record is started until the owner
+   says when and where. None has been made, so:
+   - Phase 1's speed clause stays open on base58check decode
+     (`docs/PHASE1-EXIT.md`, "Speed"; item 2 of the addendum of
+     2026-11-19). Phase 1 is not closed, and no timing figure is recorded
+     by this addendum.
+   - The row of Phases 2 and 3 is not yet measured on such a run.
+
+This addendum records decisions; it measures nothing.

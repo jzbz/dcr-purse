@@ -36,11 +36,11 @@ pub const FORMAT_MAGIC: &[u8] = b"dcr-purse wallet store";
 /// directory by mistake finds no database to open (ADR-0003, addendum of
 /// 2026-11-19 "Decisions of the project owner", item 5; ADR-0018 Open point
 /// 6; ADR-0005, "Options considered", option (d)). The name itself,
-/// `wallet.redb`, is the one this constant proposes and awaits the owner
-/// (ADR-0018, addendum "The `purse-store` part, as built", open point
-/// BK1). The store's own
-/// functions take a path from their caller and never add this name
-/// themselves; the wallet loader, `restore` and the documentation use it.
+/// `wallet.redb`, was decided by the project owner on 2026-11-21 (ADR-0018,
+/// addendum "The `purse-store` part, as built", open point BK1, and the
+/// addendum of 2026-11-21). The store's own functions take a path from
+/// their caller and never add this name themselves; the wallet loader,
+/// `restore` and the documentation use it.
 pub const STORE_FILE_NAME: &str = "wallet.redb";
 
 /// The mode of every file the store creates on Unix (the store, a backup,

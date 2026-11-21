@@ -330,7 +330,7 @@ Spec: [03](specs/03-txstore-formats.md). Source: wallet/udb/txdb.go:162; wallet/
 
 The variable rootVSPHostIndex sits in the wtxmgr root-key block but is only ever read/written inside the top-level `vsphost` bucket as a be32 counter. Implement it there.
 
-`purse-store` keeps no counter row: hosts are never deleted and each new id is the highest plus one, so the last key of `vsp_hosts` serves (`WriteTx::add_vsp_host`; ADR-0003, addendum "The remaining records, as built", Open point R2).
+`purse-store` keeps no counter row: hosts are never deleted and each new id is the highest plus one, so the last key of `vsp_hosts` serves (`WriteTx::add_vsp_host`; ADR-0003, addendum "The remaining records, as built", Open point R2, accepted as recommended by the project owner on 2026-11-21: when `purse-udb` ports the VSP records, it is to reach `SetVSPHost` and `SetVSPPubKey` only through `add_vsp_host`, and its operation-script generator is not to draw them alone; neither is written yet).
 
 ## QK-0048 — Unchecked slicing panics on inconsistent rows
 
@@ -374,7 +374,7 @@ Spec: [03](specs/03-txstore-formats.md). Source: wallet/udb/txdb.go:1896-1910
 
 setMultisigOutSpent assigns v[22]=0x01 and setMultisigOutUnSpent assigns v[22]=0x00, discarding bit 1 (stake tree). After either, the output reads back as regular tree.
 
-The tree reaches a client: `redeemmultisigouts` passes each listed output's tree on to the redemption (internal/rpc/jsonrpc/methods.go:4196-4204). `purse-store`'s multisig row keeps the stake-tree flag apart from the spent flag, so either outcome can be written; the disposition is for Phase 3 (ADR-0003, addendum "The remaining records, as built", Open point R4).
+The tree reaches a client: `redeemmultisigouts` passes each listed output's tree on to the redemption (internal/rpc/jsonrpc/methods.go:4196-4204). `purse-store`'s multisig row keeps the stake-tree flag apart from the spent flag, so either outcome can be written; the disposition is for Phase 3 (ADR-0003, addendum "The remaining records, as built", Open point R4). *Decided 2026-11-21 (project owner, as recommended; ADR-0003, addendum of that date): the disposition is made in Phase 3 with an oracle run of `redeemmultisigouts`, under ADR-0012 Rule 1; until then it stays open.*
 
 ## QK-0055 — setMultisigOutUnSpent zeroes only 31 of 32 spender-hash bytes
 

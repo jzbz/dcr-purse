@@ -10,6 +10,10 @@ dcroxide pin: `2074168`. The record was written at `a5cdb88` plus the
 uncommitted changes that add the remaining records, the backup path and
 the measurement.
 
+*Closed by the project owner on 2026-11-21, on the terms under "Verdict"
+below: every exit clause is held by tests that pass, and what this record
+lists as left stays listed as left, carried to the phases named.*
+
 All counts below are for the default sizes the normal test suite
 (`PURSE_REQUIRE_ORACLE=1 cargo test --workspace`, as CI runs it on Linux,
 macOS and Windows) uses, unless stated otherwise. They were read from one
@@ -126,7 +130,8 @@ refused.
 
 **Not covered:** the large nightly run ADR-0003's owner decision item 9
 asks for. CI has no nightly job yet, so the property test has only ever run
-at its default size and at the sizes of hand runs.
+at its default size and at the sizes of hand runs. *Still so at the close
+(2026-11-21); carried to the nightly job when it exists.*
 
 ## 3. Cursor conformance against bbolt
 
@@ -183,6 +188,17 @@ runs; seeds 151 to 190 were run only after it). The guards' new values
 come from the same seeds they were then tested on; a seed beyond them
 could still fall below one, though the margins above make that unlikely
 rather than impossible.
+
+*Accepted (project owner, 2026-11-21, with the other recommendations;
+ADR-0003, addendum of that date, item 5):* the loosened guards, that is
+the three values above (`MIN_COMPARED_PER_SKIPPED` six, four for the
+per-record-table corpus, and the floor of 35 multi-leaf scripts). The
+second fix, accepting a panic on an uncompared last operation, is a
+correction of the test that `ef15691` made and this clause describes; the
+owner's decision does not name it. The fix's report
+recommended a sweep of these tests over seeds in the nightly job ADR-0003's
+owner decision item 9 asks for, once that job exists. Neither exists; the
+sweep is still to do.
 
 **Not covered:** bbolt's own page sizes other than 4, 16 and 64 KiB. Input
 selection's random draws are checked against dcrwallet as the set of
@@ -269,9 +285,16 @@ the export comparison and the query answers are held in CI.
   recovery times.
 - ADR-0014's row for Phases 2 and 3: "≥N times faster on balance, range
   queries (N from ADR-0003)", and no record has set N. "No slower than Go"
-  holds on every figure measured.
+  holds on every figure measured. *N set on 2026-11-21: 1,000 for a
+  balance query, 1.5 for a range query (ADR-0014, addendum of that date).*
 
-These are the addendum's Open points M1 to M3.
+These are the addendum's Open points M1 to M3. *Decided as recommended
+(project owner, 2026-11-21; ADR-0003, addendum of that date): N as above;
+the dedicated-machine run before Phase 3's exit, together with the Phase 1
+run still owed, started only when the owner says when and where (what
+counts as the dedicated machine: ADR-0014, addendum of 2026-11-21); the
+store measured again with Phase 3's transaction store as part of Phase 3's
+exit. None of these runs has been made.*
 
 ## What else the Phase 2 section lists
 
@@ -280,9 +303,9 @@ These are the addendum's Open points M1 to M3.
 | The schema for the wallet's hot paths, with order that reaches a client kept | built (ADR-0003 Decision items 2 to 4 and its addenda) |
 | Versioning, migrations, refusal of a newer store, a fixture per released version | built (clause 4); no version released yet |
 | Main-chain headers and filters by height, detached ones by hash; tables not merged | built (ADR-0003, addendum "Chain tables keyed by height, as built") |
-| The records ADR-0003 Decision item 2 has Phase 2 add (multisig, voting accounts, VSP, agenda and treasury, spec 05's aux buckets; imported keys and scripts) | built in schema version 1 (ADR-0003, addendum "The remaining records, as built"). Open points R1 to R4 await the owner. The multisig records are checked against bbolt's order only, not against dcrwallet's udb (Phase 3) |
-| The snapshot copy, backup record and verify path of ADR-0018 | built as library functions (ADR-0018, addendum "The `purse-store` part, as built"). Open points BK1 to BK6 await the owner. The JSON-RPC method and the tool are Phases 7 and 8 |
-| The store's file name, other than `wallet.db`, "fixed here" | **proposed, not fixed:** `wallet.redb` (`purse_store::STORE_FILE_NAME`), ADR-0018, addendum "The `purse-store` part, as built", Open point BK1, awaiting the owner |
+| The records ADR-0003 Decision item 2 has Phase 2 add (multisig, voting accounts, VSP, agenda and treasury, spec 05's aux buckets; imported keys and scripts) | built in schema version 1 (ADR-0003, addendum "The remaining records, as built"). Open points R1 to R4 await the owner. *R1 to R4 decided as recommended (project owner, 2026-11-21; R4: QK-0054 decided in Phase 3 with an oracle run).* The multisig records are checked against bbolt's order only, not against dcrwallet's udb (Phase 3) |
+| The snapshot copy, backup record and verify path of ADR-0018 | built as library functions (ADR-0018, addendum "The `purse-store` part, as built"). Open points BK1 to BK6 await the owner. *BK1 to BK6 decided as recommended (project owner, 2026-11-21; ADR-0018, addendum of that date).* The JSON-RPC method and the tool are Phases 7 and 8 |
+| The store's file name, other than `wallet.db`, "fixed here" | **proposed, not fixed:** `wallet.redb` (`purse_store::STORE_FILE_NAME`), ADR-0018, addendum "The `purse-store` part, as built", Open point BK1, awaiting the owner. *Fixed 2026-11-21 (project owner): `wallet.redb` (ADR-0018, addendum of that date, item 1).* |
 | `purse-boltread` | a test utility since 2026-11-18 (ADR-0013); not a Phase 2 gate |
 
 ## Verdict
@@ -294,10 +317,54 @@ are open:
 
 1. The store's file name: proposed as `wallet.redb`, not yet fixed by the
    owner (ADR-0018, addendum "The `purse-store` part, as built", BK1).
+   *Fixed 2026-11-21: below.*
 2. The open points the owner has not decided: R1 to R4 (the records), BK1
    to BK6 (the backup), M1 to M3 (N for ADR-0014's row, a dedicated-machine
-   run, measuring again with Phase 3's transaction store).
+   run, measuring again with Phase 3's transaction store). *Decided
+   2026-11-21: below.*
 3. The test runs not done: a dedicated-machine run, a fuzz soak of the
    store's targets, and the nightly model run. None is part of the exit
    sentence. ADR-0003's owner decision item 9 ties the fuzz soak to the
-   store's PARITY row moving to pinned.
+   store's PARITY row moving to pinned. *Still not done at the close;
+   carried forward: below.*
+
+**Closed (project owner, 2026-11-21).** The owner accepted every open
+point of items 1 and 2 as recommended and closed Phase 2 on these terms
+(ADR-0003, addendum of 2026-11-21, item 4):
+
+1. The store's file name is `wallet.redb` (ADR-0018 BK1).
+2. R1 to R4, BK1 to BK6 and M1 to M3 are decided as recommended (ADR-0003
+   and ADR-0018, addenda of 2026-11-21; N for ADR-0014's row in ADR-0014's
+   addendum of the same date). `libc` stays a direct, Unix-only
+   dependency of `purse-store` (ADR-0018, addendum of 2026-11-21, item 7).
+3. What this record lists as left stays listed as left, carried to the
+   phase named:
+   - the multisig records' differential against dcrwallet's udb, and the
+     oracle run of `redeemmultisigouts` that decides QK-0054 (R4): Phase 3;
+   - the transaction tables' consistency check, and `verify_backup`
+     running it (BK4): Phase 3;
+   - input selection itself, whose draws clause 3 checks only as the set
+     of outputs dcrwallet may choose: Phase 3;
+   - the dedicated-machine run (M2): before Phase 3's exit, together with
+     Phase 1's, when and where the owner says (ADR-0014, addendum of
+     2026-11-21);
+   - the measurement with the transaction store's own code (M3): Phase
+     3's exit;
+   - the large model run and the cursor conformance test's seed sweep:
+     the nightly job of ADR-0003's owner decision item 9, which does not
+     exist yet;
+   - a fuzz soak of the store's targets: before the store's PARITY row
+     moves to pinned (the same item 9);
+   - the backup's JSON-RPC method and the mapping of the name refusals
+     (BK2): Phase 7; the tool's `verify` and `restore`, `restore` creating
+     the store 0600 (BK6): Phase 8; the user documentation, with the
+     rename's window (BK3): Phase 13.
+
+   What the clauses above list as not covered without naming a phase (a
+   sweep of real process kills, cuts of a backup's rename and directory
+   syncs, real file systems under power loss, other bbolt page sizes, a
+   real migration, which needs a released schema version, and a redb
+   file-format migration, which is not built; in the measurement, input
+   selection, coinbase and stake-invalidation paths, cold reads, the 1m
+   size, memory, store open, backup and recovery times) stays listed as
+   not covered.

@@ -9,7 +9,7 @@
 //! the type; a change to one is a schema version step.
 
 use crate::codec::{ArrayWriter, Codec, DecodeError, Reader};
-use crate::keys::{CreditKey, Hash32};
+use crate::keys::{CreditKey, Hash32, Hash160};
 
 /// What an unspent output counts as before a balance query applies its
 /// depth rules (ADR-0003 Decision item 4). The class is fixed when the
@@ -1209,6 +1209,298 @@ impl Codec for Slip0044Acct0Row {
             next_internal,
             name,
         })
+    }
+}
+
+/// The block that mined a multisig output.
+///
+/// Its hash is never all zero: an all-zero hash is dcrwallet's "unmined"
+/// (`AddMultisigOut` writes it for an unmined output and tests for it,
+/// `wallet/udb/txmined.go:1750-1778`; `setMultisigOutUnmined`,
+/// `wallet/udb/txdb.go:1918-1922`),
+/// and [`MultisigOutRow`]'s encoding writes an unmined output's block
+/// bytes as zeros. The fields are private and [`MultisigBlock::new`]
+/// refuses the zero hash, so that every [`MultisigOutRow`] that can be
+/// built encodes to bytes that decode back to it (the [`Codec`] contract)
+/// and a typed write cannot leave a row that reads as corrupt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MultisigBlock {
+    hash: Hash32,
+    height: u32,
+}
+
+impl MultisigBlock {
+    /// The block `hash` at `height`; `None` when `hash` is all zero, which
+    /// is no block.
+    pub fn new(hash: Hash32, height: u32) -> Option<MultisigBlock> {
+        (hash != Hash32::default()).then_some(MultisigBlock { hash, height })
+    }
+
+    /// The block's hash, never all zero.
+    pub fn hash(&self) -> Hash32 {
+        self.hash
+    }
+
+    /// The block's height.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+/// The input that spends a multisig output.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MultisigSpender {
+    /// Spending transaction's hash.
+    pub hash: Hash32,
+    /// Input index.
+    pub input: u32,
+}
+
+/// `multisig_outs` value: a P2SH multisig output paying a script the
+/// wallet holds (dcrwallet's `ms`, `valueMultisigOut`,
+/// `wallet/udb/txdb.go:1755-1806`).
+///
+/// Layout (103 bytes): script HASH160 (20) ‖ m u8 ‖ n u8 ‖ flags u8
+/// (bit 0 spent, bit 1 stake tree, no other bit) ‖ block hash (32) ‖
+/// block height u32 BE ‖ amount i64 BE ‖ spender hash (32) ‖ spender input
+/// u32 BE.
+///
+/// dcrwallet's 135-byte value also carries the transaction hash, which is
+/// always the key's, and leaves stale bytes behind: its unspend zeroes 31
+/// of the spender hash's 32 bytes and writes input index 0xFFFFFFFF
+/// (QK-0055). Here an unspent output has spender bytes all zero and an
+/// unmined one block bytes all zero, so the encoding is canonical; none of
+/// those bytes reaches a client while the output is unspent, or unmined
+/// (`wallet/multisig.go:38-90` reads the spender only when the spent flag
+/// is set). The stake-tree flag is kept apart from the spent flag, so that
+/// both dcrwallet's outcome (its spend and unspend clear the stake-tree
+/// bit, QK-0054) and the corrected one can be written; which the
+/// transaction store writes is decided with it in Phase 3.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MultisigOutRow {
+    /// HASH160 of the redeem script.
+    pub script_hash: Hash160,
+    /// Signatures required.
+    pub m: u8,
+    /// Public keys in the script.
+    pub n: u8,
+    /// The output is in the stake tree.
+    pub stake_tree: bool,
+    /// The mining block; `None` while unmined.
+    pub block: Option<MultisigBlock>,
+    /// Amount in atoms.
+    pub amount: i64,
+    /// The spending input; `None` while unspent.
+    pub spender: Option<MultisigSpender>,
+}
+
+const MS_SPENT: u8 = 1;
+const MS_STAKE: u8 = 1 << 1;
+
+impl Codec for MultisigOutRow {
+    type Bytes = [u8; 103];
+
+    fn encode(&self) -> [u8; 103] {
+        // An unmined output's block bytes are all zero; a block's hash
+        // never is (`MultisigBlock::new`).
+        let (block_hash, block_height) = self
+            .block
+            .map_or((Hash32::default(), 0), |b| (b.hash, b.height));
+        let sp = self.spender.unwrap_or_default();
+        let mut flags = 0;
+        if self.spender.is_some() {
+            flags |= MS_SPENT;
+        }
+        if self.stake_tree {
+            flags |= MS_STAKE;
+        }
+        ArrayWriter::new()
+            .put(&self.script_hash.0)
+            .put(&[self.m, self.n, flags])
+            .put(&block_hash.0)
+            .put(&block_height.to_be_bytes())
+            .put(&self.amount.to_be_bytes())
+            .put(&sp.hash.0)
+            .put(&sp.input.to_be_bytes())
+            .finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("multisig output", bytes);
+        let script_hash = Hash160(r.array()?);
+        let m = r.u8()?;
+        let n = r.u8()?;
+        let flags = r.u8()?;
+        let block_hash = Hash32(r.array()?);
+        let block_height = r.u32_be()?;
+        let amount = r.i64_be()?;
+        let sp = MultisigSpender {
+            hash: Hash32(r.array()?),
+            input: r.u32_be()?,
+        };
+        r.finish()?;
+        let r = Reader::new("multisig output", bytes);
+        if flags & !(MS_SPENT | MS_STAKE) != 0 {
+            return Err(r.field("unknown flag bits"));
+        }
+        let block = match MultisigBlock::new(block_hash, block_height) {
+            Some(b) => Some(b),
+            None if block_height == 0 => None,
+            None => return Err(r.field("height set on an unmined output")),
+        };
+        let spender = if flags & MS_SPENT != 0 {
+            Some(sp)
+        } else if sp == MultisigSpender::default() {
+            None
+        } else {
+            return Err(r.field("spender set on an unspent output"));
+        };
+        Ok(MultisigOutRow {
+            script_hash,
+            m,
+            n,
+            stake_tree: flags & MS_STAKE != 0,
+            block,
+            amount,
+            spender,
+        })
+    }
+}
+
+/// `vsp_tickets` value: a ticket's VSP fee state (dcrwallet's `vsp`,
+/// `serializeVSPTicket`, `wallet/udb/vsp.go:147-179`).
+///
+/// Layout (40 bytes, dcrwallet's): fee transaction hash (32; all zero when
+/// none is known) ‖ fee status u32 BE (dcrwallet's `FeeTxStatus`: 0
+/// started, 1 paid, 2 errored, 3 confirmed; the store keeps any value) ‖
+/// VSP host id u32 BE (a key of `vsp_hosts`, or 0: no host recorded).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VspTicketRow {
+    /// The fee transaction's hash, all zero when none is known.
+    pub fee_hash: Hash32,
+    /// The fee status.
+    pub fee_status: u32,
+    /// The VSP's host id.
+    pub host_id: u32,
+}
+
+impl Codec for VspTicketRow {
+    type Bytes = [u8; 40];
+
+    fn encode(&self) -> [u8; 40] {
+        ArrayWriter::new()
+            .put(&self.fee_hash.0)
+            .put(&self.fee_status.to_be_bytes())
+            .put(&self.host_id.to_be_bytes())
+            .finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp ticket", bytes);
+        let row = VspTicketRow {
+            fee_hash: Hash32(r.array()?),
+            fee_status: r.u32_be()?,
+            host_id: r.u32_be()?,
+        };
+        r.finish()?;
+        Ok(row)
+    }
+}
+
+/// `vsp_pubkeys` value: a VSP host's id and the public key the wallet
+/// recorded for it on first use (dcrwallet's `vsppubkey`,
+/// `wallet/udb/vsp.go:241-289`).
+///
+/// Layout: host id u32 BE ‖ public key (the rest). (dcrwallet puts the
+/// key's length before it; the length is the rest here.)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VspPubKeyRow {
+    /// The host's id, its key in `vsp_hosts`.
+    pub host_id: u32,
+    /// The VSP's public key, as given.
+    pub pubkey: Vec<u8>,
+}
+
+impl Codec for VspPubKeyRow {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(self.pubkey.len().saturating_add(4));
+        v.extend_from_slice(&self.host_id.to_be_bytes());
+        v.extend_from_slice(&self.pubkey);
+        v
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp pubkey", bytes);
+        Ok(VspPubKeyRow {
+            host_id: r.u32_be()?,
+            pubkey: r.rest().to_vec(),
+        })
+    }
+}
+
+/// The value of the four treasury policy tables: a treasury vote, one
+/// byte, never 0 (dcrwallet's `stake.TreasuryVoteT`,
+/// `wallet/udb/treasury.go`).
+///
+/// dcrwallet represents no policy (abstain, `TreasuryVoteInvalid`, 0) by
+/// the key's absence and stores whatever other byte its setter is given;
+/// only the wallet layer limits it to 1 (yes) or 2 (no)
+/// (`wallet/wallet.go:669-674`; QK-0127). The store keeps any non-zero
+/// byte, so that both layers can be ported over it, and refuses 0, which
+/// would be a second spelling of an absent row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TreasuryVote(u8);
+
+impl TreasuryVote {
+    /// `TreasuryVoteYes`.
+    pub const YES: TreasuryVote = TreasuryVote(1);
+    /// `TreasuryVoteNo`.
+    pub const NO: TreasuryVote = TreasuryVote(2);
+
+    /// The vote with code `code`; `None` for 0, which is no policy.
+    pub fn new(code: u8) -> Option<TreasuryVote> {
+        (code != 0).then_some(TreasuryVote(code))
+    }
+
+    /// The vote's code.
+    pub fn code(self) -> u8 {
+        self.0
+    }
+}
+
+impl Codec for TreasuryVote {
+    type Bytes = [u8; 1];
+
+    fn encode(&self) -> [u8; 1] {
+        [self.0]
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("treasury vote", bytes);
+        let b = r.u8()?;
+        r.finish()?;
+        TreasuryVote::new(b).ok_or_else(|| DecodeError::field("treasury vote", "0 is no policy"))
+    }
+}
+
+/// The value of `agenda_prefs` and `ticket_agenda_prefs`: the chosen
+/// choice id's bytes (dcrwallet stores the choice id string as the value,
+/// `wallet/udb/agendas.go:34-44`). An empty choice reads as no choice in
+/// dcrwallet, as an absent row does.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AgendaChoice(pub Vec<u8>);
+
+impl Codec for AgendaChoice {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Ok(AgendaChoice(bytes.to_vec()))
     }
 }
 

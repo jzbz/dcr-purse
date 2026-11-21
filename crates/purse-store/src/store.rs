@@ -7,9 +7,9 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
 
 use redb::{Database, Durability, ReadableDatabase as _, StorageBackend, TableHandle as _};
 
@@ -26,6 +26,111 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// The `format` meta row of every dcr-purse wallet store. A redb file
 /// without it is not one and is refused.
 pub const FORMAT_MAGIC: &[u8] = b"dcr-purse wallet store";
+
+/// The name of the wallet's store file in its network directory
+/// (`<appdata>/<net>/`, ADR-0005 Decision item 2), where dcrwallet keeps
+/// `wallet.db`.
+///
+/// The project owner decided that the name is fixed in Phase 2 with the
+/// schema and is not `wallet.db`, so that a dcrwallet started on the same
+/// directory by mistake finds no database to open (ADR-0003, addendum of
+/// 2026-11-19 "Decisions of the project owner", item 5; ADR-0018 Open point
+/// 6; ADR-0005, "Options considered", option (d)). The name itself,
+/// `wallet.redb`, is the one this constant proposes and awaits the owner
+/// (ADR-0018, addendum "The `purse-store` part, as built", open point
+/// BK1). The store's own
+/// functions take a path from their caller and never add this name
+/// themselves; the wallet loader, `restore` and the documentation use it.
+pub const STORE_FILE_NAME: &str = "wallet.redb";
+
+/// The mode of every file the store creates on Unix (the store, a backup,
+/// a verification's copy): read and write for the owner only, dcrwallet's
+/// `bolt.Open(dbPath, 0600, nil)` (`wallet/internal/bdb/db.go:321`; spec
+/// 01's parity constants). The process umask can only narrow it.
+pub const FILE_MODE: u32 = 0o600;
+
+/// The mode of every directory the store creates on Unix (the backups
+/// directory and its parents when missing, `.partial`, a verification's
+/// scratch directory): dcrwallet's `os.MkdirAll(path, 0700)`
+/// (`walletsetup.go:375`). An existing directory's mode is left alone.
+pub const DIR_MODE: u32 = 0o700;
+
+/// Creates a new file at `path` with [`FILE_MODE`] on Unix, refusing an
+/// existing one (`create_new`). On other platforms the file gets the
+/// directory's default access control.
+pub(crate) fn create_private_file(path: &Path) -> io::Result<fs::File> {
+    let mut o = fs::OpenOptions::new();
+    o.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        o.mode(FILE_MODE);
+    }
+    o.open(path)
+}
+
+/// Creates the directory `dir` and every missing parent, each with
+/// [`DIR_MODE`] on Unix, and returns the directories it created, outermost
+/// first (empty when `dir` existed), so that the caller can make their
+/// names durable ([`sync_parents`]).
+pub(crate) fn create_private_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut missing = Vec::new();
+    for a in dir.ancestors() {
+        if a.as_os_str().is_empty() {
+            break;
+        }
+        match fs::symlink_metadata(a) {
+            Ok(_) => break,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => missing.push(a.to_path_buf()),
+            Err(e) => return Err(e),
+        }
+    }
+    if missing.is_empty() {
+        return Ok(missing);
+    }
+    let mut b = fs::DirBuilder::new();
+    b.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        b.mode(DIR_MODE);
+    }
+    b.create(dir)?;
+    missing.reverse();
+    Ok(missing)
+}
+
+/// Makes the names of the directories `created` durable in their parents
+/// (Unix): an fsync of each one's parent directory, outermost first.
+/// Windows cannot open a directory to sync it without a call the store's
+/// crates do not make (ADR-0018 Open point 7), so there it does nothing.
+pub(crate) fn sync_parents(created: &[PathBuf]) -> io::Result<()> {
+    for d in created {
+        sync_dir(d.parent().unwrap_or(Path::new("")))?;
+    }
+    Ok(())
+}
+
+/// An fsync of the directory `dir` (Unix), making the names in it durable;
+/// nothing on other platforms (see [`sync_parents`]). An empty `dir` is a
+/// relative path's directory, the current one: a path such as `w` has the
+/// parent `""`, which no open accepts.
+#[cfg(unix)]
+pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    fs::File::open(dir).and_then(|f| f.sync_all())
+}
+
+/// An fsync of the directory `dir` (Unix); nothing on other platforms
+/// (see [`sync_parents`]).
+#[cfg(not(unix))]
+pub(crate) fn sync_dir(_dir: &Path) -> io::Result<()> {
+    Ok(())
+}
 
 /// One schema migration: the step from version `from` to `from + 1`.
 ///
@@ -117,12 +222,14 @@ impl<'a> OpenOptions<'a> {
     /// trusts a file that was shut down cleanly and may panic if the file
     /// was corrupted outside redb; with it, such corruption is an error.
     ///
-    /// The store never turns it on by itself. Asking for it where a file
-    /// may have been damaged outside redb (a backup being restored, say) is
-    /// the caller's decision, which the wallet loader and `purse-udb` have
-    /// not made yet. (After an unclean shutdown redb repairs the file on
-    /// open whatever this says.) Only the checked open is fuzzed
-    /// (`fuzz/fuzz_targets/store_open.rs`).
+    /// The store never turns it on by itself for an open of the wallet's
+    /// own store: whether the wallet does is decided in Phase 3 (ADR-0003,
+    /// addendum "Decisions of the project owner", item 6). The backup
+    /// verify path always opens its copy of a file handed in from outside
+    /// with it ([`crate::backup`], ADR-0018 Decision item 6). (After an
+    /// unclean shutdown redb repairs the file on open whatever this says.)
+    /// Only the checked open is fuzzed (`fuzz/fuzz_targets/store_open.rs`,
+    /// `fuzz/fuzz_targets/backup_verify.rs`).
     pub fn check_integrity(mut self, on: bool) -> Self {
         self.check_integrity = on;
         self
@@ -139,16 +246,17 @@ impl<'a> OpenOptions<'a> {
 
     /// Creates a new store at `path`, which must not exist, running `init`
     /// in the creating transaction: the file is a complete store with
-    /// whatever `init` writes, or (on any error) no file is left.
+    /// whatever `init` writes, or (on any error) no file is left. On Unix
+    /// the file is created with [`FILE_MODE`] (owner only), as dcrwallet
+    /// creates `wallet.db`; its directory must exist.
     pub fn create_with<F>(&self, path: &Path, init: F) -> Result<Store>
     where
         F: FnOnce(&mut WriteTx<'_>) -> Result<()>,
     {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
+        // Created here, with the owner-only mode, so that redb opens an
+        // existing file and the mode is the store's choice, not the
+        // engine's default.
+        match create_private_file(path) {
             Ok(f) => drop(f),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(Error::exists(path.to_owned()));
@@ -241,6 +349,10 @@ pub struct Store {
     /// `commit_lock`, after the commit it counts; read without it, so that
     /// asking for it never waits on a write transaction.
     relaxed: AtomicU32,
+    /// Held for the whole of a backup ([`crate::backup`]): one backup runs
+    /// at a time (ADR-0018 Decision item 1). A second is refused, not
+    /// queued; neither readers nor writers take it.
+    backup_lock: Mutex<()>,
 }
 
 /// How [`Store::update_with`] commits.
@@ -269,11 +381,31 @@ impl Store {
         OpenOptions::new().open(path)
     }
 
-    fn new(db: Database) -> Store {
+    pub(crate) fn new(db: Database) -> Store {
         Store {
             db,
             commit_lock: Mutex::new(()),
             relaxed: AtomicU32::new(0),
+            backup_lock: Mutex::new(()),
+        }
+    }
+
+    /// The engine's handle, for the backup's snapshot copy and its
+    /// verification ([`crate::backup`]).
+    pub(crate) fn database(&self) -> &Database {
+        &self.db
+    }
+
+    /// The backup lock, or the refusal of a second backup while one runs
+    /// ([`crate::backup::BACKUP_RUNNING_TEXT`]). A backup that panicked
+    /// left nothing the lock protects, so its poison is ignored.
+    pub(crate) fn backup_guard(&self) -> Result<MutexGuard<'_, ()>> {
+        match self.backup_lock.try_lock() {
+            Ok(g) => Ok(g),
+            Err(TryLockError::Poisoned(p)) => Ok(p.into_inner()),
+            Err(TryLockError::WouldBlock) => {
+                Err(Error::invalid(crate::backup::BACKUP_RUNNING_TEXT))
+            }
         }
     }
 
@@ -329,7 +461,7 @@ impl Store {
 
     /// The stored schema version, after checking that the database is a
     /// dcr-purse wallet store.
-    fn inspect(&self) -> Result<u32> {
+    pub(crate) fn inspect(&self) -> Result<u32> {
         let txn = self.db.begin_read()?;
         let meta = match txn.open_table(definition(TableId::Meta)) {
             Ok(t) => t,
@@ -363,7 +495,7 @@ impl Store {
     }
 
     /// Fails unless every table of the schema is in the file.
-    fn check_tables(&self) -> Result<()> {
+    pub(crate) fn check_tables(&self) -> Result<()> {
         let txn = self.db.begin_read()?;
         let names: Vec<String> = txn.list_tables()?.map(|h| h.name().to_owned()).collect();
         for id in TableId::ALL {
@@ -566,5 +698,15 @@ mod tests {
                 assert_eq!(b.relaxed_pending(), 0);
             });
         });
+    }
+
+    /// The directory of a bare relative name is `""`, which no open
+    /// accepts: syncing it syncs the current directory. A backup into the
+    /// directory `""` once published its file and then failed here.
+    #[test]
+    fn an_empty_directory_path_syncs_the_current_directory() {
+        sync_dir(Path::new("")).expect("empty path");
+        sync_dir(Path::new(".")).expect("dot");
+        sync_parents(&[PathBuf::from("a-bare-name")]).expect("bare name");
     }
 }

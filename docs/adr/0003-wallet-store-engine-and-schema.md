@@ -1103,7 +1103,10 @@ pointers added to it.
    Decision items 5, 6 and 8).
 5. **The store's file name** (ADR-0018 Open point 6) is fixed in Phase 2
    with the schema, a name other than `wallet.db`. `purse-store` takes the
-   path from its caller, so the name is still to be chosen.
+   path from its caller, so the name is still to be chosen. *2026-11-20:
+   proposed as `wallet.redb` (`purse_store::STORE_FILE_NAME`), awaiting
+   the owner: ADR-0018, addendum "The `purse-store` part, as built", Open
+   point BK1.*
 6. **Integrity check on open.** Whether the wallet opens its own store
    with redb's integrity check (`purse-store`'s
    `OpenOptions::check_integrity`, off by default) is decided in Phase 3.
@@ -1263,3 +1266,202 @@ neither `dcroxide-stake` nor `dcroxide-gcs`. The pin moved onto the gate
 the same day, at dcroxide `2074168` (item 10's dated note), so the
 transaction store, the first wallet code to link them, has the gate in
 the pin. Nothing in this record's schema or its other addenda changes.
+
+## Addendum, 2026-11-20 — The remaining records, as built
+
+Decision item 2 has Phase 2 add "multisig, voting accounts, VSP, agenda
+and treasury records and the aux buckets of spec 05, each keyed for its
+own access path", and imported keys and scripts found by `addr_by_hash`
+and listed by `addr_by_acct_sha` under the imported account. This
+addendum lists every bucket and record dcrwallet stores at the parity pin
+that `purse-store` did not yet hold, says how each is now held, and
+records the tables built for them. They are added to schema version 1:
+no dcr-purse release exists and no wallet has been written at version 1,
+so version 1 itself changes and no migration exists for the change, as
+for the two earlier changes to version 1 (addenda "Schema version 1 as
+built" and "Chain tables keyed by height, as built"). The checked-in
+version-1 fixture (`crates/purse-store/tests/data/schema-v1.redb`) was
+regenerated with the documented command (`write_current_schema_fixture`,
+run twice, byte-identical; 282,624 bytes) and its pinned SHA-256 in
+`tests/migration.rs` changed with it.
+
+**What was not held, and who reads it.** From specs 02, 03 and 05 and the
+Go source at the pin (`wallet/udb/txdb.go`, `vsp.go`, `treasury.go`,
+`agendas.go`, `addressdb.go`, `addressmanager.go`):
+
+| dcrwallet bucket or record | key | value | read by | order reaches a client |
+|---|---|---|---|---|
+| `wtxmgr/ms` (multisig outputs) | outpoint (hash ‖ index BE, 36) | 135 bytes: script HASH160, m, n, flags (bit 0 spent, bit 1 stake tree), block hash, height BE, amount BE, spender hash, spender index BE, transaction hash (`valueMultisigOut`, txdb.go:1755-1806) | `GetMultisigOutput` (`FetchP2SHMultiSigOutput`, wallet/multisig.go:33, for `getmultisigoutinfo`; chainntfns.go:529); `AddMultisigOut` (createtx.go:314, chainntfns.go:635); `SpendMultisigOut`; `Rollback` and `RemoveUnconfirmed` rewrite it | no: lookups by outpoint |
+| `wtxmgr/mu` (unspent multisig) | outpoint | one byte 0 | `UnspentMultisigCreditsForAddress` walks the whole bucket and keeps one script's outputs (txmined.go:2875-2927) | **yes**: `redeemmultisigouts` returns them in that walk's order (internal/rpc/jsonrpc/methods.go:4186-4215) |
+| `vsp` (VSP tickets) | ticket hash | 40 bytes: fee hash, fee status BE, host id BE (vsp.go:147-179) | `GetVSPTicket` (wallet.go:5656, :5673, :5691; vspticket.go:321), `SetVSPTicket` (vspticket.go:249-282), `DeleteVSPTicket` (chainntfns.go:270), `GetVSPTicketsByFeeStatus` (wallet.go:5618, for gRPC `GetVSPTicketsByFeeStatus`, rpcserver/server.go:4065, :4081) | no: lookups, and a Go map whose order is random (QK-0125) |
+| `vsphost` (VSP hosts) | host id BE | length BE ‖ host; plus the counter row `vsphostindex` → highest id BE, and id 0 → empty host seeded by upgrade 23 (vsp.go:52-68, :185-234) | `SetVSPTicket`, `GetVSPTicket`, `GetVSPHost` | no |
+| `vsppubkey` | host bytes | host id BE ‖ length BE ‖ public key (vsp.go:241-289) | `SetVSPTicket` (is the host known), `GetVSPTicket`, `GetVSPPubKey` | no |
+| `tspendpolicy` | tspend hash | one byte, any non-zero (0 is the key's absence; QK-0127) | `TSpendPolicy`; `TSpendPolicies` loads every row into a map at start (wallet.go:379) | no: map |
+| `treasurypolicy` | pi key bytes | one byte | `TreasuryKeyPolicy`, `TreasuryKeyPolicies` (wallet.go:389) | no: map |
+| `vsptspendpolicy` | ticket ‖ tspend hash | one byte | `VSPTSpendPolicy`, `VSPTSpendPolicies` (wallet.go:383) | no: map |
+| `vsptreasurypolicy` | ticket ‖ pi key | one byte | `VSPTreasuryKeyPolicy`, `VSPTreasuryKeyPolicies` (wallet.go:393) | no: map |
+| `agendaprefs` | version BE ‖ agenda id | choice id | `DefaultAgendaPreference` (wallet.go:330, :440) | no: lookups |
+| `ticketsagendaprefs/<ticket>/` (one nested bucket per ticket) | version BE ‖ agenda id | choice id | `TicketAgendaPreference` (wallet.go:361, :442) | no: lookups |
+| `waddrmgr/addr` rows of type 1 and 2 (imported keys and scripts) | SHA-256 of the HASH160 | type, account, add time, sealed keys or sealed hash and script | `Address`, `RedeemScript`, `PrivateKey`, `ForEachAccountAddress` | yes, for the imported account: `getaddressesbyaccount "imported"` (methods.go:983-988) |
+| `waddrmgr/acct` rows of type 2 and `acctvars/<n>/kdf-params` (imported voting accounts) | account LE | sealed keys; Argon2id parameters | the address manager | as every account: account order |
+| `wstakemgr` | — | dead data, not created at the pin (spec 05 §4.5, QK-0126) | nothing | — |
+
+The last three need no new table. An imported key or script is an
+`AddrRow::Imported` row of `addr_by_hash` with its account, and its
+`addr_by_acct_sha` row keys it by the account's little-endian number and
+the SHA-256 of its HASH160, so one prefix walk of account 0x7FFFFFFF is
+dcrwallet's `ForEachAccountAddress` order (`purse-udb` writes both rows,
+`addresses.rs`; `tests/records.rs` holds the order on 50 imported rows).
+A voting account is an `accounts` row of its own type (2) whose key
+material carries the Argon2id parameters (`purse-udb`'s `AccountKeys`).
+`wstakemgr` is never read, and no dcrwallet file is imported (ADR-0013).
+The `tix` bucket's value, the picked height, is always written as -1 and
+never read at the pin (txmined.go:1333-1336, txunmined.go:120-123), which
+is why `tickets` keeps no value.
+
+**The tables** (`crates/purse-store/src/records.rs`, whose module
+documentation is the reference; layouts on the key and value types in
+`keys.rs` and `values.rs`):
+
+| table | key | value | serves |
+|---|---|---|---|
+| `multisig_outs` | outpoint | `MultisigOutRow`, 103 bytes: script HASH160 ‖ m ‖ n ‖ flags (bit 0 spent, bit 1 stake tree) ‖ block hash ‖ height BE ‖ amount BE ‖ spender hash ‖ spender input BE | `ms` |
+| `multisig_unspent` | script HASH160 ‖ outpoint | empty | `mu`, one prefix walk per script |
+| `vsp_tickets` | ticket hash | `VspTicketRow`, dcrwallet's 40 bytes | `vsp` |
+| `vsp_fee_status` | fee status BE ‖ ticket hash | empty | the tickets of one status |
+| `vsp_hosts` | host id BE | host bytes | `vsphost` without its counter |
+| `vsp_pubkeys` | host bytes | host id BE ‖ public key | `vsppubkey` |
+| `tspend_policies` | tspend hash | `TreasuryVote` (one byte, never 0) | `tspendpolicy` |
+| `treasury_key_policies` | pi key bytes | `TreasuryVote` | `treasurypolicy` |
+| `vsp_tspend_policies` | ticket ‖ tspend hash | `TreasuryVote` | `vsptspendpolicy` |
+| `vsp_treasury_key_policies` | ticket ‖ pi key | `TreasuryVote` | `vsptreasurypolicy` |
+| `agenda_prefs` | version BE ‖ agenda id | choice bytes | `agendaprefs` |
+| `ticket_agenda_prefs` | ticket ‖ version BE ‖ agenda id | choice bytes | `ticketsagendaprefs`, flattened |
+
+Where dcrwallet's order reaches a client, the keys keep it: within one
+script, `multisig_unspent`'s order is the outpoint order of dcrwallet's
+`mu` walk, so `redeemmultisigouts` reads one script's entries instead of
+every unspent multisig output of the wallet, in the same sequence. The
+policy and preference tables keep dcrwallet's key bytes (their readers
+are lookups by key, and the per-ticket rows of one ticket are contiguous,
+as its nested bucket was). `vsp_fee_status` is new: dcrwallet walks every
+VSP ticket for `GetVSPTicketsByFeeStatus`; the index reads only the
+tickets of the status asked, at one more row written per ticket change.
+
+Differences from dcrwallet's layout, none of which a client can observe:
+
+- `multisig_outs` drops the transaction hash, which is always the key's,
+  and is canonical: an unspent output's spender bytes and an unmined
+  one's block bytes are zero, where dcrwallet's unspend leaves one byte
+  of the old spender hash and writes index 0xFFFFFFFF (QK-0055); nothing
+  reads the spender of an unspent output (`wallet/multisig.go:38-90`,
+  `getmultisigoutinfo` reports it only when spent, methods.go:2296-2299).
+  The stake-tree flag is a field of its own, so that dcrwallet's outcome
+  (its spend and unspend clear it, QK-0054, which then reaches
+  `redeemmultisigouts` as the output's tree) and the corrected one can
+  both be written; the transaction store chooses in Phase 3. Because an
+  all-zero block hash means unmined in both layouts, a mined output's
+  block (`MultisigBlock`) cannot carry that hash: its fields are private
+  and `MultisigBlock::new` returns no block for it. Before that, a row
+  with a block of hash zero was accepted by `put_multisig_out` and then
+  read back as unmined (height 0) or refused as corrupt (any other
+  height), which broke the codec's round trip and made every backup of
+  such a store fail verification; `tests/records.rs` and the encodings
+  generator now cover the zero hash.
+- No `vsphostindex` row: hosts are never deleted and each new id is the
+  highest plus one, so the last key of `vsp_hosts` is the counter (as the
+  length of `unspent` is `KeyN`). No id 0 with the empty host either:
+  `GetVSPTicket` treats an absent host and an empty one alike
+  (vsp.go:112-123); `GetVSPHost(0)`, which no wallet code calls, is
+  answered with the empty host by the layer above (the differential's
+  interpreter does so, and `purse-udb` will). The one udb-level path
+  where the counter and the last key could differ is `SetVSPHost` called
+  with an id out of order, which has no caller at the pin (Open point R2).
+- The public-key and host values drop their length prefixes (the length
+  is the rest of the value).
+- A treasury vote of 0 is refused by the value type, being dcrwallet's
+  spelling of an absent row; any other byte is kept, as dcrwallet's
+  setters keep it (only the wallet layer limits it to 1 or 2, QK-0127).
+
+**Operations.** `WriteTx::put_multisig_out` and `delete_multisig_out`
+keep `multisig_unspent`; `add_vsp_host` gives the next id to a new host
+(1 for the first) and writes `vsp_hosts` and `vsp_pubkeys` together, or
+returns a known host's id, keeping its first public key (QK-0122);
+`put_vsp_ticket` and `delete_vsp_ticket` keep `vsp_fee_status`; the
+readers `vsp_host_id`, `vsp_tickets_with_fee_status` and
+`unspent_multisig_for` are on both transaction types. Each operation
+checks what it can refuse before it writes, so a refusal leaves the
+transaction usable: an empty host (bbolt's `key required`, where
+dcrwallet has already written the host row and counter and its caller
+abandons the transaction, QK-0122), a host over bbolt's key limit, a new
+host when id `u32::MAX` is taken (dcrwallet's counter would wrap to 0),
+a ticket naming a host id the store does not hold. The policy and
+preference tables have no invariant and use the generic typed `put` and
+`delete`. `ReadTx::check_records` checks the four invariants (each
+index exactly matches its table; the host tables are each other's
+inverse with no id 0 and no empty host; every ticket's host id is 0 or
+known).
+
+**Tests.** `tests/records_oracle.rs` runs generated scripts of the VSP
+(ticket set, get, delete, by fee status; host and public key gets),
+treasury (all twelve) and agenda (all four) operations through
+dcrwallet's own udb via the `oprunner` oracle and through an interpreter
+over these tables standing where `purse-udb` will: 12 scripts by default,
+857 operations equal (87 of them errors, empty hosts and pi keys among
+them); a run of 80 scripts at another seed, 5,835 equal. The store's
+host ids, values, deletes and listings agree with Go's on every one;
+the error texts and result shapes are the interpreter's.
+`tests/conformance.rs` holds the unspent multisig listing against bbolt's
+walk of dcrwallet's `mu` keys (40 key sets of up to 400 outpoints, the
+indexes chosen so that big-endian order matters), and runs the named
+cursor cases and a corpus with the cursor on each of the twelve tables.
+`tests/records.rs` holds the host ids, both indexes through every
+transition, each refusal writing nothing, each broken invariant caught by
+both checks, and the imported-address and voting-account rows.
+`tests/encodings.rs` round-trips and orders every new key, round-trips
+every new value, feeds every decoder random bytes and pins the layouts
+and decode errors. The model-based test runs random record operations in
+committed and abandoned transactions with power cuts and reopens around
+them, and checks after each both the store's `check_records` and the
+tests' own checker on the model (`tests/support/records.rs`, which reads
+the raw rows from the documented layouts). The power-loss sweep's
+workload writes, moves and deletes VSP tickets, multisig outputs and
+treasury policies through the operations (26 commits, 482 storage
+operations), and every reopened image passes both record checks. The
+migration sweeps carry record rows and a dummy step that changes both
+indexes, and the fixture holds a row in every table. The `store_decode`
+and `store_open` fuzz targets reach the new types and `check_records`.
+After the last change to the record types (the multisig block's
+constructor, below), each was run once for 60 seconds on an x86_64 Linux
+desktop as CI's smoke job runs it: `store_decode` with debug assertions
+(23,668,733 inputs), `store_open` without them (31,496 inputs), no crash
+in either; an earlier one-minute run of `store_decode` on the new types
+left no log. All on an x86_64 Linux desktop only.
+
+**Not done.** No measurement: nothing in the brief's exit names these
+records, and what a VSP ticket or multisig write costs (two tables each)
+was not measured. The multisig differential against Go is the order test
+alone: `oprunner`'s multisig operations need transaction records and
+imported scripts, which belong to the transaction store (Phase 3). No
+frozen vectors were checked in for the records differential. The logical
+export (ADR-0001) of these records is `purse-udb`'s, not built.
+
+**Open points**, each for the owner, with a recommendation:
+
+- R1. *Accept the twelve tables, their layouts and operations as built in
+  schema version 1.* Recommended: accept.
+- R2. *No `vsphostindex` counter row and no seeded host 0.* A port of
+  dcrwallet's udb-level `SetVSPHost`, which no wallet code calls outside
+  `SetVSPTicket`, could write an id out of order, after which dcrwallet's
+  counter and the last key would give different next ids. Recommended:
+  accept; `purse-udb` ports `SetVSPHost` and `SetVSPPubKey` only through
+  `add_vsp_host`, and its operation-script generator does not draw them
+  alone.
+- R3. *The `vsp_fee_status` index* (one more row written per ticket
+  change, against a walk of every VSP ticket per query). Recommended:
+  keep it; the cost was not measured and is one small row in a commit
+  that writes the ticket anyway.
+- R4. *The multisig stake-tree flag after a spend and unspend*
+  (QK-0054, candidate). The store can hold either outcome. Recommended:
+  decide in Phase 3 with an oracle run of `redeemmultisigouts`, under
+  ADR-0012 Rule 1 (the tree reaches a client in that result).

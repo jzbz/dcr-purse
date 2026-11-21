@@ -32,28 +32,73 @@ use purse_errors::Kind;
 use purse_store::{
     AccountKey, AccountName, AccountNames, AccountNumber, AccountRow, Accounts, AcctHistory,
     AcctHistoryKey, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrByPath, AddrPathKey, AddrRow,
-    BalanceClass, BalanceHeightKey, BalanceHeights, BalanceKey, BalanceRow, Balances, BirthState,
-    BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, ChainBlock,
-    CoinTypeKeys, CommitmentRow, CommitmentUnspentRow, Commitments, CommitmentsUnspent,
-    CreditFlags, CreditKey, CreditRow, Credits, CreditsInvalidated, DebitRow, Debits,
-    DebitsInvalidated, Empty, Hash32, Hash160, Headers, HeadersDetached, History, HistoryKey,
-    MasterKeyParams, Meta, MetaKey, Migration, NEWER_VERSION_TEXT, OpenOptions, OutputTag, ReadTx,
-    SCHEMA_VERSION, Schema, ScriptLoc, SealedKey, Slip0044Acct0Row, Spender, Store, Table, TableId,
-    Tickets, Tip, TxMined, TxMinedRow, TxRecKey, TxUnmined, TxUnminedRow, UnminedCreditRow,
-    UnminedCredits, UnminedInputs, Unpublished, UnpublishedFlag, Unspent, UnspentRow, Wallet,
-    WalletKey, WriteTx, wallet,
+    AgendaChoice, AgendaKey, AgendaPrefs, BalanceClass, BalanceHeightKey, BalanceHeights,
+    BalanceKey, BalanceRow, Balances, BirthState, BlockByHash, BlockRow, Blocks, CFilterRow,
+    CFilters, CFiltersDetached, ChainBlock, CoinTypeKeys, CommitmentRow, CommitmentUnspentRow,
+    Commitments, CommitmentsUnspent, CreditFlags, CreditKey, CreditRow, Credits,
+    CreditsInvalidated, DebitRow, Debits, DebitsInvalidated, Empty, Hash32, Hash160, Headers,
+    HeadersDetached, History, HistoryKey, MasterKeyParams, Meta, MetaKey, Migration, MultisigBlock,
+    MultisigOutRow, MultisigOuts, MultisigSpender, MultisigUnspent, NEWER_VERSION_TEXT,
+    OpenOptions, OutputTag, PiKey, ReadTx, SCHEMA_VERSION, Schema, ScriptLoc, SealedKey,
+    Slip0044Acct0Row, Spender, Store, TSpendPolicies, Table, TableId, TicketAgendaKey,
+    TicketAgendaPrefs, Tickets, Tip, TreasuryKeyPolicies, TreasuryVote, TxMined, TxMinedRow,
+    TxRecKey, TxUnmined, TxUnminedRow, UnminedCreditRow, UnminedCredits, UnminedInputs,
+    Unpublished, UnpublishedFlag, Unspent, UnspentRow, VspFeeStatus, VspHosts, VspPubKeys,
+    VspTSpendKey, VspTSpendPolicies, VspTicketRow, VspTickets, VspTreasuryKey,
+    VspTreasuryKeyPolicies, Wallet, WalletKey, WriteTx, wallet,
 };
 use purse_testutil::SplitMix64;
 use support::chain::chain_view;
 use support::powerloss::{Cut, PowerLoss, Shared};
+use support::records::records_view;
 use support::{StoreDigest, chain_header, digest, raw_digest, short};
 
 // The dummy steps.
 
 /// Version 1 to 2: rewrites every credit, adds 1,500 tickets, deletes every
-/// other unspent output and adds a meta row: enough pages that the step's
-/// commit spans many storage operations.
+/// other unspent output, spends every unspent multisig output, moves every
+/// VSP ticket to the next fee status, records a new VSP host, clears a
+/// treasury policy and adds an agenda choice (the record tables through
+/// their operations, so that their indexes change in the step), and adds a
+/// meta row: enough pages that the step's commit spans many storage
+/// operations.
 fn step_1_to_2(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
+    let outs: Vec<_> = tx.iter::<MultisigOuts>()?.collect::<Result<_, _>>()?;
+    for (op, row) in outs {
+        if row.spender.is_none() {
+            let spent = MultisigOutRow {
+                spender: Some(MultisigSpender {
+                    hash: Hash32([0x5e; 32]),
+                    input: op.index,
+                }),
+                ..row
+            };
+            tx.put_multisig_out(&op, &spent)?;
+        }
+    }
+    let tickets: Vec<_> = tx.iter::<VspTickets>()?.collect::<Result<_, _>>()?;
+    let host = tx.add_vsp_host(b"https://vsp.migrated.example", &[0x99; 32])?;
+    for (t, row) in tickets {
+        tx.put_vsp_ticket(
+            &t,
+            &VspTicketRow {
+                fee_status: row.fee_status + 1,
+                host_id: host,
+                ..row
+            },
+        )?;
+    }
+    let first_policy = tx.first::<TSpendPolicies>()?.map(|(k, _)| k);
+    if let Some(k) = first_policy {
+        tx.delete::<TSpendPolicies>(&k)?;
+    }
+    tx.put::<AgendaPrefs>(
+        &AgendaKey {
+            version: 99,
+            agenda: b"migrated".to_vec(),
+        },
+        &AgendaChoice(b"yes".to_vec()),
+    )?;
     let credits: Vec<_> = tx
         .range_raw(
             TableId::Credits,
@@ -182,7 +227,90 @@ fn base_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
     for n in 0u32..20 {
         tx.put_raw(TableId::Accounts, &n.to_le_bytes(), &rng.bytes(40))?;
     }
+    record_rows(tx, &mut rng, 40)?;
     tx.put_raw(TableId::TxMined, &rng.bytes(36), &rng.bytes(30_000))
+}
+
+/// `n` rows of each record table through the record operations: VSP
+/// tickets over three hosts, multisig outputs over four scripts (some
+/// spent, some unmined), the four treasury policies and the two agenda
+/// preferences.
+fn record_rows(tx: &mut WriteTx<'_>, rng: &mut SplitMix64, n: u32) -> purse_store::Result<()> {
+    let hosts: Vec<u32> = (0..3)
+        .map(|i| tx.add_vsp_host(format!("https://vsp{i}.example").as_bytes(), &rng.bytes(33)))
+        .collect::<Result<_, _>>()?;
+    for i in 0..n {
+        let mut h = [0u8; 32];
+        rng.fill(&mut h);
+        let ticket = Hash32(h);
+        tx.put_vsp_ticket(
+            &ticket,
+            &VspTicketRow {
+                fee_hash: if i % 3 == 0 {
+                    Hash32::default()
+                } else {
+                    Hash32([i as u8; 32])
+                },
+                fee_status: i % 4,
+                host_id: hosts[i as usize % 3],
+            },
+        )?;
+        let mut op = [0u8; 32];
+        rng.fill(&mut op);
+        tx.put_multisig_out(
+            &purse_store::Outpoint {
+                hash: Hash32(op),
+                index: i % 5,
+            },
+            &MultisigOutRow {
+                script_hash: Hash160([(i % 4) as u8; 20]),
+                m: 2,
+                n: 3,
+                stake_tree: i % 7 == 0,
+                block: (i % 5 != 0)
+                    .then(|| MultisigBlock::new(Hash32([0xb1; 32]), i + 1))
+                    .flatten(),
+                amount: i64::from(i) * 1_000,
+                spender: (i % 3 == 2).then_some(MultisigSpender {
+                    hash: Hash32([0x5d; 32]),
+                    input: i,
+                }),
+            },
+        )?;
+        let vote = TreasuryVote::new(1 + (i % 2) as u8).expect("non-zero");
+        tx.put::<TSpendPolicies>(&ticket, &vote)?;
+        tx.put::<TreasuryKeyPolicies>(&PiKey(rng.bytes(33)), &vote)?;
+        tx.put::<VspTSpendPolicies>(
+            &VspTSpendKey {
+                ticket,
+                tspend: Hash32([i as u8; 32]),
+            },
+            &vote,
+        )?;
+        tx.put::<VspTreasuryKeyPolicies>(
+            &VspTreasuryKey {
+                ticket,
+                pikey: rng.bytes(33),
+            },
+            &vote,
+        )?;
+        tx.put::<AgendaPrefs>(
+            &AgendaKey {
+                version: 10 + i % 2,
+                agenda: format!("agenda{i}").into_bytes(),
+            },
+            &AgendaChoice(b"no".to_vec()),
+        )?;
+        tx.put::<TicketAgendaPrefs>(
+            &TicketAgendaKey {
+                ticket,
+                version: 10,
+                agenda: b"treasury".to_vec(),
+            },
+            &AgendaChoice(b"abstain".to_vec()),
+        )?;
+    }
+    Ok(())
 }
 
 /// The blocks of `v` to connect, each with its filter.
@@ -335,6 +463,9 @@ fn sweep(to: u32, cut: Cut) -> Outcome {
         tx.check_chain()
             .unwrap_or_else(|e| panic!("cut after {n}: {e}"));
         chain_view(&tx).unwrap_or_else(|e| panic!("cut after {n}: {e}"));
+        tx.check_records()
+            .unwrap_or_else(|e| panic!("cut after {n}: {e}"));
+        records_view(&tx).unwrap_or_else(|e| panic!("cut after {n}: {e}"));
     }
     eprintln!("{out:?}");
     assert!(out.cut_reached > 0);
@@ -792,7 +923,74 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
         next_external: 0,
         next_internal: 0,
         name: b"default".to_vec(),
-    })
+    })?;
+    // The records Phase 2 adds: an unspent and a spent multisig output of
+    // one script, two VSP tickets of one host, one of each policy and
+    // preference.
+    let script_hash = Hash160([0x33; 20]);
+    for (i, spent) in [(0u32, false), (1, true)] {
+        tx.put_multisig_out(
+            &purse_store::Outpoint {
+                hash: h32(0x7f),
+                index: i,
+            },
+            &MultisigOutRow {
+                script_hash,
+                m: 1,
+                n: 2,
+                stake_tree: false,
+                block: MultisigBlock::new(h32(0xb2), 2),
+                amount: 300_000,
+                spender: spent.then_some(MultisigSpender {
+                    hash: h32(0x7b),
+                    input: 1,
+                }),
+            },
+        )?;
+    }
+    let host = tx.add_vsp_host(b"https://vsp.example.org", &[0x44; 32])?;
+    assert_eq!(host, 1, "the first host's id");
+    for (t, status) in [(0x7eu8, 0u32), (0x80, 3)] {
+        tx.put_vsp_ticket(
+            &h32(t),
+            &VspTicketRow {
+                fee_hash: h32(t ^ 0xff),
+                fee_status: status,
+                host_id: host,
+            },
+        )?;
+    }
+    tx.put::<TSpendPolicies>(&h32(0x90), &TreasuryVote::YES)?;
+    tx.put::<TreasuryKeyPolicies>(&PiKey(vec![0x03; 33]), &TreasuryVote::NO)?;
+    tx.put::<VspTSpendPolicies>(
+        &VspTSpendKey {
+            ticket: h32(0x7e),
+            tspend: h32(0x90),
+        },
+        &TreasuryVote::NO,
+    )?;
+    tx.put::<VspTreasuryKeyPolicies>(
+        &VspTreasuryKey {
+            ticket: h32(0x7e),
+            pikey: vec![0x03; 33],
+        },
+        &TreasuryVote::YES,
+    )?;
+    tx.put::<AgendaPrefs>(
+        &AgendaKey {
+            version: 11,
+            agenda: b"maxblocksize".to_vec(),
+        },
+        &AgendaChoice(b"yes".to_vec()),
+    )?;
+    tx.put::<TicketAgendaPrefs>(
+        &TicketAgendaKey {
+            ticket: h32(0x7e),
+            version: 11,
+            agenda: b"maxblocksize".to_vec(),
+        },
+        &AgendaChoice(b"no".to_vec()),
+    )
 }
 
 /// The checked-in store of each released schema version, and its SHA-256:
@@ -801,7 +999,7 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
 const FIXTURES: &[(u32, &str, &str)] = &[(
     1,
     "schema-v1.redb",
-    "2153a18e9d5bc02012abd42bf4348206dae41628af14c68746e795d7ced3ee56",
+    "7530933cabd9daeef7dfab58b6f2e95651ac4b8d6119ceae090cfb0767cdf977",
 )];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -852,6 +1050,24 @@ fn every_table_decodes(tx: &ReadTx) {
         (TableId::CommitmentsUnspent, count::<CommitmentsUnspent>(tx)),
         (TableId::Balances, count::<Balances>(tx)),
         (TableId::BalanceHeights, count::<BalanceHeights>(tx)),
+        (TableId::MultisigOuts, count::<MultisigOuts>(tx)),
+        (TableId::MultisigUnspent, count::<MultisigUnspent>(tx)),
+        (TableId::VspTickets, count::<VspTickets>(tx)),
+        (TableId::VspFeeStatus, count::<VspFeeStatus>(tx)),
+        (TableId::VspHosts, count::<VspHosts>(tx)),
+        (TableId::VspPubKeys, count::<VspPubKeys>(tx)),
+        (TableId::TSpendPolicies, count::<TSpendPolicies>(tx)),
+        (
+            TableId::TreasuryKeyPolicies,
+            count::<TreasuryKeyPolicies>(tx),
+        ),
+        (TableId::VspTSpendPolicies, count::<VspTSpendPolicies>(tx)),
+        (
+            TableId::VspTreasuryKeyPolicies,
+            count::<VspTreasuryKeyPolicies>(tx),
+        ),
+        (TableId::AgendaPrefs, count::<AgendaPrefs>(tx)),
+        (TableId::TicketAgendaPrefs, count::<TicketAgendaPrefs>(tx)),
     ];
     assert_eq!(counts.len(), TableId::ALL.len(), "a table is missing here");
     for (t, n) in counts {
@@ -871,6 +1087,21 @@ fn every_table_decodes(tx: &ReadTx) {
     tx.check_chain()
         .expect("the chain tables hold their invariants");
     chain_view(tx).expect("the chain tables pass the independent check");
+    tx.check_records()
+        .expect("the record tables hold their invariants");
+    records_view(tx).expect("the record tables pass the independent check");
+    assert_eq!(
+        tx.unspent_multisig_for(&Hash160([0x33; 20]))
+            .expect("multisig"),
+        [purse_store::Outpoint {
+            hash: h32(0x7f),
+            index: 0
+        }]
+    );
+    assert_eq!(
+        tx.vsp_tickets_with_fee_status(3).expect("by status"),
+        [h32(0x80)]
+    );
     assert!(tx.processed_marker().expect("marker").is_some());
     assert!(tx.birth_state().expect("birth").is_some());
     assert!(

@@ -116,6 +116,10 @@ fn exercise(bytes: Vec<u8>) {
     let _ = tx.wallet_row::<purse_store::wallet::Slip0044Account0>();
     // The chain walk reads every chain table and both header fields.
     let _ = tx.check_chain();
+    // The record check decodes every indexed record row.
+    let _ = tx.check_records();
+    let _ = tx.unspent_multisig_for(&purse_store::Hash160([0; 20]));
+    let _ = tx.vsp_tickets_with_fee_status(0);
     if let Ok(Some(tip)) = tx.tip() {
         let _ = tx.header(&tip.hash);
         let _ = tx.cfilters_in(tip.height.saturating_sub(3)..).map(|i| i.take(4).count());

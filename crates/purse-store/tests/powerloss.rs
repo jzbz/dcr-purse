@@ -7,7 +7,9 @@
 //!
 //! The workload creates a store, runs wallet-shaped write transactions
 //! (many small rows, a transaction record of several pages, overwrites, a
-//! bulk delete that lets the file shrink), an initial sync of header and
+//! bulk delete that lets the file shrink, and VSP tickets, hosts, multisig
+//! outputs and treasury policies written, moved between fee statuses,
+//! mined, spent and deleted through the record operations), an initial sync of header and
 //! filter batches through the chain operations (blocks connected by
 //! height, a header-only reorganisation that moves five blocks' headers
 //! and filters to the detached tables, a detached header recorded and a
@@ -26,7 +28,8 @@
 //!   batches committed without durability since the last durable one,
 //!   fewer than the interval (`sync.rs`, ADR-0003 Decision item 9);
 //! - the chain tables hold their invariants (`ReadTx::check_chain`, and
-//!   the tests' independent check, `support::chain`);
+//!   the tests' independent check, `support::chain`), and so do the record
+//!   tables (`ReadTx::check_records`, and `support::records`);
 //! - the reopened store takes a further durable commit and opens cleanly
 //!   after it.
 //!
@@ -63,12 +66,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use purse_store::{
-    BlockRow, CFilterRow, ChainBlock, Error, Hash32, HeaderBytes, OpenOptions, Store, SyncBatch,
-    TableId,
+    BlockRow, CFilterRow, ChainBlock, Error, Hash32, Hash160, HeaderBytes, MultisigBlock,
+    MultisigOutRow, MultisigSpender, OpenOptions, Outpoint, Store, SyncBatch, TableId,
+    VspTicketRow,
 };
 use purse_testutil::SplitMix64;
 use support::chain::{ChainView, chain_view};
 use support::powerloss::{Cut, PowerLoss, Shared};
+use support::records::records_view;
 use support::{StoreDigest, digest, short};
 
 /// One write of an update step.
@@ -76,6 +81,17 @@ use support::{StoreDigest, digest, short};
 enum W {
     Put(TableId, Vec<u8>, Vec<u8>),
     Del(TableId, Vec<u8>),
+    /// A ticket's VSP record through `put_vsp_ticket`, its host recorded
+    /// first through `add_vsp_host` (dcrwallet's `SetVSPTicket`).
+    Ticket {
+        ticket: Hash32,
+        host: Vec<u8>,
+        row: VspTicketRow,
+    },
+    /// `delete_vsp_ticket`.
+    DelTicket(Hash32),
+    /// `put_multisig_out`.
+    Multisig(Outpoint, MultisigOutRow),
 }
 
 /// One header-and-filter batch of initial sync.
@@ -166,6 +182,45 @@ fn workload() -> Vec<Step> {
         rng.bytes(36),
         rng.bytes(60_000),
     )]));
+    // The record tables: VSP tickets over three hosts, multisig outputs of
+    // four scripts, a treasury policy each.
+    let mut tickets = Vec::new();
+    let mut outs = Vec::new();
+    let mut ws = Vec::new();
+    for i in 0..30u32 {
+        let ticket = hash(&mut rng);
+        tickets.push(ticket);
+        ws.push(W::Ticket {
+            ticket,
+            host: format!("https://vsp{}.example", i % 3).into_bytes(),
+            row: VspTicketRow {
+                fee_hash: Hash32::default(),
+                fee_status: 0,
+                host_id: 0,
+            },
+        });
+        let o = Outpoint {
+            hash: hash(&mut rng),
+            index: i % 3,
+        };
+        let row = MultisigOutRow {
+            script_hash: Hash160([(i % 4) as u8; 20]),
+            m: 2,
+            n: 3,
+            stake_tree: false,
+            block: None,
+            amount: 10_000 + i64::from(i),
+            spender: None,
+        };
+        outs.push((o, row));
+        ws.push(W::Multisig(o, row));
+        ws.push(W::Put(
+            TableId::TSpendPolicies,
+            ticket.0.to_vec(),
+            vec![1 + (i % 2) as u8],
+        ));
+    }
+    steps.push(Step::Update(ws));
     // Initial sync: 10 batches of 40 blocks. The 7th reorganises: it
     // detaches the last five blocks and connects its own at their heights.
     // The 8th records a detached header. After the 9th, one batch detaches
@@ -245,6 +300,36 @@ fn workload() -> Vec<Step> {
         }
     }
     steps.push(Step::Finish);
+    // The records move: fees paid and confirmed, tickets deleted, outputs
+    // mined and spent.
+    let mut ws = Vec::new();
+    for (i, t) in tickets.iter().enumerate() {
+        if i % 5 == 4 {
+            ws.push(W::DelTicket(*t));
+        } else {
+            ws.push(W::Ticket {
+                ticket: *t,
+                host: format!("https://vsp{}.example", i % 3).into_bytes(),
+                row: VspTicketRow {
+                    fee_hash: hash(&mut rng),
+                    fee_status: 1 + (i % 3) as u32,
+                    host_id: 0,
+                },
+            });
+        }
+    }
+    for (i, (o, row)) in outs.iter().enumerate() {
+        let mined = MultisigOutRow {
+            block: MultisigBlock::new(chain[i].0.hash, i as u32),
+            spender: (i % 2 == 0).then(|| MultisigSpender {
+                hash: hash(&mut rng),
+                input: 0,
+            }),
+            ..*row
+        };
+        ws.push(W::Multisig(*o, mined));
+    }
+    steps.push(Step::Update(ws));
     for rows in [30, 2, 90] {
         steps.push(update(&mut rng, &mut live, rows));
     }
@@ -273,6 +358,14 @@ fn apply_update(store: &Store, step_no: usize, ws: &[W]) -> purse_store::Result<
                 W::Del(t, k) => {
                     tx.delete_raw(*t, k)?;
                 }
+                W::Ticket { ticket, host, row } => {
+                    let host_id = tx.add_vsp_host(host, &[0x02; 33])?;
+                    tx.put_vsp_ticket(ticket, &VspTicketRow { host_id, ..*row })?;
+                }
+                W::DelTicket(t) => {
+                    tx.delete_vsp_ticket(t)?;
+                }
+                W::Multisig(o, row) => tx.put_multisig_out(o, row)?,
             }
         }
         // Every commit changes the rows, so every commit has its own digest.
@@ -493,6 +586,12 @@ fn check_cut(
         .map_err(|e| format!("chain tables after reopen: {e}"))?;
     chain_view(&store.read().map_err(|e| e.to_string())?)
         .map_err(|e| format!("chain tables after reopen (independent check): {e}"))?;
+    store
+        .read()
+        .and_then(|tx| tx.check_records())
+        .map_err(|e| format!("record tables after reopen: {e}"))?;
+    records_view(&store.read().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("record tables after reopen (independent check): {e}"))?;
     // The commits the reopened store may hold: from the last durable
     // acknowledged one to the one in flight when the power went.
     let lo = acked.durable;

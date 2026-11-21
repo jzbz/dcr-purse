@@ -51,6 +51,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "backup_verify"
+path = "fuzz_targets/backup_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "boltread_open"
 path = "fuzz_targets/boltread_open.rs"
 test = false

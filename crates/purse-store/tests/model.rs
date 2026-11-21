@@ -26,8 +26,14 @@
 //! operations also run durably in a write transaction of `Store::update`,
 //! committed or abandoned, where block rows with wallet state connect and
 //! detach freely; those rows then stand in the chain for later header
-//! batches to refuse. The model is a map per table, the chain operations written out
-//! on it as their documentation states them. After every operation the
+//! batches to refuse. Record operations (VSP hosts and tickets, multisig
+//! outputs, treasury policies and agenda preferences, refusals of an empty
+//! host and of a ticket naming no host among them) run in durable write
+//! transactions, committed or abandoned, and after each the record tables
+//! must hold their invariants by the store's `ReadTx::check_records` and by
+//! the tests' `support::records` on the model. The model is a map per
+//! table, the chain and record operations written out on it as their
+//! documentation states them. After every operation the
 //! store's whole contents must equal the model's, and the chain tables
 //! must hold their invariants, by the store's own check
 //! (`ReadTx::check_chain`) and by the tests' independent one
@@ -58,14 +64,18 @@ use std::sync::Arc;
 
 use purse_errors::Kind;
 use purse_store::{
-    BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, ChainBlock, Codec,
-    Error, FORMAT_MAGIC, Hash32, HeaderBytes, Headers, HeadersDetached, Height, MetaKey,
-    OpenOptions, ReadTx, SCHEMA_VERSION, Store, SyncBatch, Table, TableId, Tip, WriteTx,
+    AgendaChoice, AgendaKey, AgendaPrefs, BlockByHash, BlockRow, Blocks, CFilterRow, CFilters,
+    CFiltersDetached, ChainBlock, Codec, Error, FORMAT_MAGIC, Hash32, Hash160, HeaderBytes,
+    Headers, HeadersDetached, Height, MetaKey, MultisigBlock, MultisigOutRow, MultisigSpender,
+    OpenOptions, Outpoint, PiKey, ReadTx, SCHEMA_VERSION, Store, SyncBatch, TSpendPolicies, Table,
+    TableId, TicketAgendaKey, TicketAgendaPrefs, Tip, TreasuryKeyPolicies, TreasuryVote,
+    VspTSpendKey, VspTSpendPolicies, VspTicketRow, VspTreasuryKey, VspTreasuryKeyPolicies, WriteTx,
 };
 use purse_testutil::SplitMix64;
 use support::chain::chain_view_of;
 use support::chain_header;
 use support::powerloss::{Cut, PowerLoss, Shared};
+use support::records::records_view_of;
 
 type Rows = BTreeMap<Vec<u8>, Vec<u8>>;
 type State = BTreeMap<TableId, Rows>;
@@ -175,8 +185,55 @@ enum Op {
         ops: Vec<ChainOp>,
         commit: bool,
     },
+    /// Record operations (`purse_store::records`) and policy and
+    /// preference writes in a durable write transaction, committed or
+    /// abandoned.
+    Records {
+        ops: Vec<RecOp>,
+        commit: bool,
+    },
     Reopen,
     Crash,
+}
+
+/// One record operation, on values drawn from small sets so that hosts,
+/// tickets and outputs are written again, moved and deleted.
+#[derive(Clone, Debug)]
+enum RecOp {
+    /// `add_vsp_host` of host number `host` (0 is the empty host, which is
+    /// refused), with a public key of bytes `pubkey`.
+    Host { host: u8, pubkey: u8 },
+    /// `put_vsp_ticket`; `host_id` may name no host (refused).
+    Ticket {
+        ticket: u8,
+        status: u32,
+        host_id: u32,
+        fee: u8,
+    },
+    /// `delete_vsp_ticket`.
+    DelTicket(u8),
+    /// `put_multisig_out` of output `(hash, index)`.
+    Multisig {
+        hash: u8,
+        index: u32,
+        script: u8,
+        mined: bool,
+        spent: bool,
+        stake: bool,
+    },
+    /// `delete_multisig_out`.
+    DelMultisig { hash: u8, index: u32 },
+    /// A treasury policy in table number `table` (of the four) at key
+    /// `key`: written when `vote` is non-zero, deleted when it is 0, as
+    /// dcrwallet's setters do.
+    Policy { table: u8, key: u8, vote: u8 },
+    /// An agenda preference, per ticket when `ticket` is set.
+    Agenda {
+        ticket: Option<u8>,
+        version: u32,
+        agenda: u8,
+        choice: u8,
+    },
 }
 
 // Generation.
@@ -275,13 +332,52 @@ fn chain_op(rng: &mut SplitMix64) -> ChainOp {
     }
 }
 
+fn rec_op(rng: &mut SplitMix64) -> RecOp {
+    match rng.below(14) {
+        0 | 1 => RecOp::Host {
+            host: rng.below(5) as u8,
+            pubkey: rng.below(4) as u8,
+        },
+        2..=4 => RecOp::Ticket {
+            ticket: rng.below(8) as u8,
+            status: rng.below(4) as u32,
+            host_id: rng.below(6) as u32,
+            fee: rng.below(3) as u8,
+        },
+        5 => RecOp::DelTicket(rng.below(8) as u8),
+        6..=8 => RecOp::Multisig {
+            hash: rng.below(4) as u8,
+            index: [0, 1, 256][rng.below(3) as usize],
+            script: rng.below(3) as u8,
+            mined: rng.below(2) == 0,
+            spent: rng.below(3) == 0,
+            stake: rng.below(4) == 0,
+        },
+        9 => RecOp::DelMultisig {
+            hash: rng.below(4) as u8,
+            index: [0, 1, 256][rng.below(3) as usize],
+        },
+        10 | 11 => RecOp::Policy {
+            table: rng.below(4) as u8,
+            key: rng.below(4) as u8,
+            vote: rng.below(4) as u8,
+        },
+        _ => RecOp::Agenda {
+            ticket: (rng.below(2) == 0).then(|| rng.below(4) as u8),
+            version: 10 + rng.below(2) as u32,
+            agenda: rng.below(3) as u8,
+            choice: rng.below(3) as u8,
+        },
+    }
+}
+
 fn writes(rng: &mut SplitMix64) -> Vec<Wr> {
     let n = 1 + rng.below(12) as usize;
     (0..n).map(|_| write(rng)).collect()
 }
 
 fn op(rng: &mut SplitMix64) -> Op {
-    match rng.below(22) {
+    match rng.below(24) {
         0..=8 => Op::Update {
             writes: writes(rng),
             commit: rng.below(6) != 0,
@@ -306,6 +402,10 @@ fn op(rng: &mut SplitMix64) -> Op {
         }
         16..=17 => Op::Reopen,
         18..=19 => Op::Crash,
+        20..=21 => Op::Records {
+            ops: (0..1 + rng.below(8)).map(|_| rec_op(rng)).collect(),
+            commit: rng.below(6) != 0,
+        },
         _ => Op::Chain {
             ops: (0..1 + rng.below(4)).map(|_| chain_op(rng)).collect(),
             commit: rng.below(6) != 0,
@@ -903,6 +1003,44 @@ fn count(i: usize, n: u64) {
     CHAIN.with(|c| c[i].set(c[i].get() + n));
 }
 
+thread_local! {
+    /// The record operations committed on this thread, by kind (in the
+    /// order of [`RECORD_KINDS`]).
+    static RECORDS: [Cell<u64>; 9] = const { [const { Cell::new(0) }; 9] };
+}
+
+const RECORD_KINDS: [&str; 9] = [
+    "hosts recorded",
+    "empty hosts refused",
+    "tickets written",
+    "tickets refused for an unknown host",
+    "tickets deleted",
+    "multisig outputs written",
+    "multisig outputs deleted",
+    "policies written or cleared",
+    "agenda preferences written",
+];
+
+fn count_record_ops(ops: &[RecOp]) {
+    for op in ops {
+        let i = match op {
+            RecOp::Host { host: 0, .. } => 1,
+            RecOp::Host { .. } => 0,
+            // At most four hosts exist (hosts 1 to 4), so host id 5 is
+            // always refused; ids 1 to 4 not yet given are refused too and
+            // counted with the written ones.
+            RecOp::Ticket { host_id, .. } if *host_id > 4 => 3,
+            RecOp::Ticket { .. } => 2,
+            RecOp::DelTicket(_) => 4,
+            RecOp::Multisig { .. } => 5,
+            RecOp::DelMultisig { .. } => 6,
+            RecOp::Policy { .. } => 7,
+            RecOp::Agenda { .. } => 8,
+        };
+        RECORDS.with(|c| c[i].set(c[i].get() + 1));
+    }
+}
+
 #[derive(Debug)]
 enum SyncErr {
     Store(Error),
@@ -1259,6 +1397,273 @@ fn apply_chain_op<C: ChainTx>(b: &mut C, m: &mut State, op: &ChainOp) -> Result<
     Ok(())
 }
 
+// The record operations on the model, written from their documentation
+// (`purse_store::records`) over raw rows.
+
+fn host_bytes(n: u8) -> Vec<u8> {
+    if n == 0 {
+        Vec::new()
+    } else {
+        format!("https://vsp{n}.example").into_bytes()
+    }
+}
+
+fn rows_of(m: &State, t: TableId) -> Rows {
+    m.get(&t).cloned().unwrap_or_default()
+}
+
+fn status_key(status: &[u8], ticket: &[u8]) -> Vec<u8> {
+    [status, ticket].concat()
+}
+
+/// Expects a refusal of kind `Invalid` ending in `text`.
+fn rec_refused<T: std::fmt::Debug>(r: purse_store::Result<T>, text: &str) -> Result<(), TxErr> {
+    match r {
+        Err(x) if x.kind() == Kind::Invalid && x.to_string().ends_with(text) => Ok(()),
+        other => Err(TxErr::Mismatch(format!(
+            "expected the refusal {text:?}, got {other:?}"
+        ))),
+    }
+}
+
+fn apply_rec_op(tx: &mut WriteTx<'_>, m: &mut State, op: &RecOp) -> Result<(), TxErr> {
+    match op {
+        RecOp::Host { host, pubkey } => {
+            let host = host_bytes(*host);
+            if host.is_empty() {
+                return rec_refused(tx.add_vsp_host(&host, &[*pubkey; 33]), "key required");
+            }
+            let want = match rows_of(m, TableId::VspPubKeys).get(&host) {
+                Some(row) => u32::from_be_bytes(row[..4].try_into().expect("id")),
+                None => {
+                    let id = rows_of(m, TableId::VspHosts)
+                        .keys()
+                        .next_back()
+                        .map_or(0, |k| u32::from_be_bytes(k[..].try_into().expect("id")))
+                        + 1;
+                    put(
+                        m,
+                        TableId::VspHosts,
+                        id.to_be_bytes().to_vec(),
+                        host.clone(),
+                    );
+                    let mut v = id.to_be_bytes().to_vec();
+                    v.extend_from_slice(&[*pubkey; 33]);
+                    put(m, TableId::VspPubKeys, host.clone(), v);
+                    id
+                }
+            };
+            let got = tx.add_vsp_host(&host, &[*pubkey; 33])?;
+            if got != want {
+                return Err(TxErr::Mismatch(format!("host id {got}, model {want}")));
+            }
+        }
+        RecOp::Ticket {
+            ticket,
+            status,
+            host_id,
+            fee,
+        } => {
+            let t = hash_of(*ticket).0.to_vec();
+            let row = VspTicketRow {
+                fee_hash: if *fee == 0 {
+                    Hash32::default()
+                } else {
+                    hash_of(*fee)
+                },
+                fee_status: *status,
+                host_id: *host_id,
+            };
+            if *host_id != 0
+                && !rows_of(m, TableId::VspHosts).contains_key(&host_id.to_be_bytes()[..])
+            {
+                return rec_refused(
+                    tx.put_vsp_ticket(&hash_of(*ticket), &row),
+                    "unknown host id",
+                );
+            }
+            if let Some(old) = rows_of(m, TableId::VspTickets).get(&t) {
+                del(m, TableId::VspFeeStatus, &status_key(&old[32..36], &t));
+            }
+            put(m, TableId::VspTickets, t.clone(), row.encode().to_vec());
+            put(
+                m,
+                TableId::VspFeeStatus,
+                status_key(&status.to_be_bytes(), &t),
+                Vec::new(),
+            );
+            tx.put_vsp_ticket(&hash_of(*ticket), &row)?;
+        }
+        RecOp::DelTicket(ticket) => {
+            let t = hash_of(*ticket).0.to_vec();
+            let was = match rows_of(m, TableId::VspTickets).get(&t) {
+                Some(old) => {
+                    del(m, TableId::VspFeeStatus, &status_key(&old[32..36], &t));
+                    del(m, TableId::VspTickets, &t);
+                    true
+                }
+                None => false,
+            };
+            let got = tx.delete_vsp_ticket(&hash_of(*ticket))?;
+            if got != was {
+                return Err(TxErr::Mismatch(format!("ticket delete {got}, model {was}")));
+            }
+        }
+        RecOp::Multisig {
+            hash,
+            index,
+            script,
+            mined,
+            spent,
+            stake,
+        } => {
+            let o = Outpoint {
+                hash: hash_of(*hash),
+                index: *index,
+            };
+            let ok = o.encode().to_vec();
+            let row = MultisigOutRow {
+                script_hash: Hash160([*script; 20]),
+                m: 1,
+                n: 3,
+                stake_tree: *stake,
+                block: mined
+                    .then(|| MultisigBlock::new(hash_of(0xbb), 7))
+                    .flatten(),
+                amount: 1_000 + i64::from(*index),
+                spender: spent.then_some(MultisigSpender {
+                    hash: hash_of(0xcc),
+                    input: 1,
+                }),
+            };
+            if let Some(old) = rows_of(m, TableId::MultisigOuts).get(&ok)
+                && old[22] & 1 == 0
+            {
+                del(m, TableId::MultisigUnspent, &[&old[..20], &ok[..]].concat());
+            }
+            put(m, TableId::MultisigOuts, ok.clone(), row.encode().to_vec());
+            if !spent {
+                put(
+                    m,
+                    TableId::MultisigUnspent,
+                    [&[*script; 20][..], &ok[..]].concat(),
+                    Vec::new(),
+                );
+            }
+            tx.put_multisig_out(&o, &row)?;
+        }
+        RecOp::DelMultisig { hash, index } => {
+            let o = Outpoint {
+                hash: hash_of(*hash),
+                index: *index,
+            };
+            let ok = o.encode().to_vec();
+            let old = rows_of(m, TableId::MultisigOuts).get(&ok).cloned();
+            if let Some(old) = &old {
+                if old[22] & 1 == 0 {
+                    del(m, TableId::MultisigUnspent, &[&old[..20], &ok[..]].concat());
+                }
+                del(m, TableId::MultisigOuts, &ok);
+            }
+            let got = tx.delete_multisig_out(&o)?;
+            if got.map(|r| r.encode().to_vec()) != old {
+                return Err(TxErr::Mismatch(
+                    "multisig delete returned another row".into(),
+                ));
+            }
+        }
+        RecOp::Policy { table, key, vote } => {
+            let (t, k) = match table {
+                0 => (TableId::TSpendPolicies, hash_of(*key).0.to_vec()),
+                1 => (TableId::TreasuryKeyPolicies, vec![0x02 + *key; 33]),
+                2 => (
+                    TableId::VspTSpendPolicies,
+                    [hash_of(*key).0, hash_of(0x70).0].concat(),
+                ),
+                _ => (
+                    TableId::VspTreasuryKeyPolicies,
+                    [
+                        &hash_of(*key).0[..],
+                        &vec![0x03; usize::from(*key) * 11][..],
+                    ]
+                    .concat(),
+                ),
+            };
+            if *vote == 0 {
+                let was = rows_of(m, t).contains_key(&k);
+                del(m, t, &k);
+                if tx.delete_raw(t, &k)? != was {
+                    return Err(TxErr::Mismatch("policy delete".into()));
+                }
+            } else {
+                let v = TreasuryVote::new(*vote).expect("non-zero");
+                put(m, t, k.clone(), v.encode().to_vec());
+                match t {
+                    TableId::TSpendPolicies => tx.put::<TSpendPolicies>(&hash_of(*key), &v)?,
+                    TableId::TreasuryKeyPolicies => {
+                        tx.put::<TreasuryKeyPolicies>(&PiKey(k.clone()), &v)?
+                    }
+                    TableId::VspTSpendPolicies => tx.put::<VspTSpendPolicies>(
+                        &VspTSpendKey {
+                            ticket: hash_of(*key),
+                            tspend: hash_of(0x70),
+                        },
+                        &v,
+                    )?,
+                    _ => tx.put::<VspTreasuryKeyPolicies>(
+                        &VspTreasuryKey {
+                            ticket: hash_of(*key),
+                            pikey: k[32..].to_vec(),
+                        },
+                        &v,
+                    )?,
+                }
+            }
+        }
+        RecOp::Agenda {
+            ticket,
+            version,
+            agenda,
+            choice,
+        } => {
+            let agenda = vec![b'a' + agenda; usize::from(*agenda)];
+            let choice = AgendaChoice(vec![b'c'; usize::from(*choice)]);
+            match ticket {
+                None => {
+                    let k = AgendaKey {
+                        version: *version,
+                        agenda,
+                    };
+                    put(m, TableId::AgendaPrefs, k.encode(), choice.encode());
+                    tx.put::<AgendaPrefs>(&k, &choice)?;
+                }
+                Some(t) => {
+                    let k = TicketAgendaKey {
+                        ticket: hash_of(*t),
+                        version: *version,
+                        agenda,
+                    };
+                    put(m, TableId::TicketAgendaPrefs, k.encode(), choice.encode());
+                    tx.put::<TicketAgendaPrefs>(&k, &choice)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The record tables hold their invariants, by the store's check and by
+/// the tests' own on the model.
+fn check_records(store: &Store, model: &State, after: &str) -> Res<()> {
+    store
+        .read()
+        .and_then(|tx| tx.check_records())
+        .map_err(|x| format!("after {after}: {x}"))?;
+    records_view_of(|id| rows_of(model, id))
+        .map(drop)
+        .map_err(|x| format!("after {after}: record tables inconsistent: {x}"))
+}
+
 /// The chain tables hold their invariants.
 fn check_chain(store: &Store, after: &str) -> Res<()> {
     store
@@ -1344,6 +1749,26 @@ fn run_op(h: &mut Harness, model: &mut State, op: &Op) -> Res<()> {
             }
             compare(h.store(), model, "chain update")?;
             check_chain(h.store(), "chain update")
+        }
+        Op::Records { ops, commit } => {
+            let mut pending = model.clone();
+            let r = h.store().update(|tx| {
+                for o in ops {
+                    apply_rec_op(tx, &mut pending, o)?;
+                }
+                if *commit { Ok(()) } else { Err(TxErr::Abandon) }
+            });
+            match r {
+                Ok(()) => {
+                    count_record_ops(ops);
+                    *model = pending;
+                }
+                Err(TxErr::Abandon) => {}
+                Err(TxErr::Store(x)) => return Err(e(x)),
+                Err(TxErr::Mismatch(m)) => return Err(m),
+            }
+            compare(h.store(), model, "record update")?;
+            check_records(h.store(), model, "record update")
         }
         Op::Reopen => {
             h.reopen()?;
@@ -1455,6 +1880,8 @@ fn op_name(op: &Op) -> &'static str {
         Op::Sync { .. } => "sync",
         Op::Chain { commit: true, .. } => "chain update",
         Op::Chain { commit: false, .. } => "abandoned chain update",
+        Op::Records { commit: true, .. } => "record update",
+        Op::Records { commit: false, .. } => "abandoned record update",
         Op::Reopen => "reopen",
         Op::Crash => "power loss",
     }
@@ -1586,6 +2013,14 @@ fn the_store_behaves_as_its_model() {
     eprintln!("chain operations: {c:?}");
     for &(what, n) in &c {
         assert!(n > 0, "no chain operation {what}: {c:?}");
+    }
+    let r: Vec<(&str, u64)> = RECORD_KINDS
+        .into_iter()
+        .zip(RECORDS.with(|c| c.each_ref().map(Cell::get)))
+        .collect();
+    eprintln!("record operations committed: {r:?}");
+    for &(what, n) in &r {
+        assert!(n > 0, "no record operation {what}: {r:?}");
     }
 }
 

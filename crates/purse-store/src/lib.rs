@@ -49,6 +49,15 @@
 //! | [`CommitmentsUnspent`] | [`Outpoint`] | [`CommitmentUnspentRow`] | `cmu` |
 //! | [`Balances`] | [`BalanceKey`] | [`BalanceRow`] | `AccountBalance(s)` |
 //! | [`BalanceHeights`] | [`BalanceHeightKey`] | [`BalanceRow`] | depth-dependent categories |
+//! | [`MultisigOuts`] | [`Outpoint`] | [`MultisigOutRow`] | `ms`: `GetMultisigOutput` |
+//! | [`MultisigUnspent`] | [`MultisigUnspentKey`] (script ‖ outpoint) | [`Empty`] | `mu`: `UnspentMultisigCreditsForAddress` |
+//! | [`VspTickets`] | ticket [`Hash32`] | [`VspTicketRow`] | `vsp`: `GetVSPTicket`, `SetVSPTicket` |
+//! | [`VspFeeStatus`] | [`VspFeeStatusKey`] | [`Empty`] | `GetVSPTicketsByFeeStatus` (an index) |
+//! | [`VspHosts`] | [`VspHostId`] | [`VspHost`] | `vsphost` |
+//! | [`VspPubKeys`] | [`VspHost`] | [`VspPubKeyRow`] | `vsppubkey` |
+//! | [`TSpendPolicies`], [`TreasuryKeyPolicies`] | tspend [`Hash32`], [`PiKey`] | [`TreasuryVote`] | `tspendpolicy`, `treasurypolicy` |
+//! | [`VspTSpendPolicies`], [`VspTreasuryKeyPolicies`] | [`VspTSpendKey`], [`VspTreasuryKey`] | [`TreasuryVote`] | `vsptspendpolicy`, `vsptreasurypolicy` |
+//! | [`AgendaPrefs`], [`TicketAgendaPrefs`] | [`AgendaKey`], [`TicketAgendaKey`] | [`AgendaChoice`] | `agendaprefs`, `ticketsagendaprefs` |
 //!
 //! `unspent`, `unmined_credits`, `tx_unmined` and `unmined_inputs` hold
 //! exactly the key sets of dcrwallet's `u`, `mc`, `m` and `mi`, in its key
@@ -65,10 +74,15 @@
 //! dcrwallet's `KeyN` of `u` is [`ReadTx::unspent_count`], the length redb
 //! keeps in the table's root; there is no counter row to maintain.
 //!
-//! What the schema does not have yet: the records ADR-0003 Decision item 2
-//! adds beyond the spike's tables (multisig, voting accounts, VSP records
-//! with the VSP host index, agenda and treasury policies, the aux buckets
-//! of spec 05); each comes as a schema version step with its migration.
+//! The records ADR-0003 Decision item 2 has Phase 2 add beyond the spike's
+//! tables (multisig outputs, VSP records, agenda and treasury policies:
+//! spec 05's auxiliary buckets) are the last twelve tables above, with the
+//! operations that keep their two indexes: [`records`]. Imported keys and
+//! scripts are `addr_by_hash` rows listed by `addr_by_acct_sha` under their
+//! account, and voting accounts are `accounts` rows; neither needs a table
+//! of its own. dcrwallet's `vsphostindex` counter is the last key of
+//! `vsp_hosts`. Schema version 1 gained these tables before any release
+//! (ADR-0003, addendum "The remaining records, as built").
 //! dcrwallet's write-only rows `mgrcreated`, `date` and `bal`, which no
 //! reader at the pin observes, are not kept (ADR-0001 §11; ADR-0003,
 //! addendum "Schema version 1 as built").
@@ -125,6 +139,19 @@
 //! # }
 //! ```
 //!
+//! # Backup
+//!
+//! [`Store::backup`] copies one read transaction's snapshot of every table
+//! into a new store file with a backup record ([`BackupRecord`]: network,
+//! schema and dcr-purse versions, time, row count and BLAKE-256 digest of
+//! the rows), commits it durably, compacts it and publishes it by rename
+//! from the backups directory's `.partial/`, without blocking the wallet's
+//! readers or writers; [`verify_backup`] checks a file handed in from
+//! outside on a copy opened with redb's integrity check, never trusting it
+//! (ADR-0018 Decision items 1 to 3 and 6). The store's file name in its
+//! network directory is [`STORE_FILE_NAME`]. The JSON-RPC method and the
+//! tool that call these are later phases: [`backup`].
+//!
 //! # Cursors and ranges
 //!
 //! [`ReadTx::cursor`] and [`WriteTx::cursor`] give cursors with bbolt
@@ -154,9 +181,17 @@
 //! `tests/model.rs` runs random sequences of transactions, reopens and power
 //! cuts against an in-memory model and shrinks a failing sequence;
 //! `tests/migration.rs` cuts migrations at every write and opens the
-//! fixtures. The power-loss backend (`tests/support/powerloss.rs`) is a port
-//! of dcroxide's. `tests/measure.rs` holds the measurements of ADR-0003's
-//! addendum, as ignored tests.
+//! fixtures. The record tables are in all three, and `tests/records.rs`
+//! holds their operations and checks; `tests/records_oracle.rs` runs the
+//! VSP, treasury and agenda operations against dcrwallet's own udb through
+//! the `oprunner` oracle. The power-loss backend
+//! (`tests/support/powerloss.rs`) is a port of dcroxide's.
+//! `tests/measure.rs` holds the measurements of ADR-0003's addendum, as
+//! ignored tests. `tests/backup.rs` holds the backup: a backup under a
+//! concurrent writer equals a committed state, a power cut at every
+//! storage operation of a backup never leaves a file that verifies as
+//! anything but the complete backup, a stop at every step publishes
+//! nothing, and verification refuses damaged and foreign files.
 //!
 //! # Errors
 //!
@@ -164,11 +199,13 @@
 //! condition has (spec 01 §8.1); the text of an engine error is redb's
 //! (ADR-0011 ET-006). Errors convert into [`purse_errors::Error`].
 
+pub mod backup;
 pub mod chain;
 mod codec;
 mod cursor;
 mod error;
 mod keys;
+pub mod records;
 mod schema;
 mod store;
 mod sync;
@@ -176,30 +213,42 @@ mod txn;
 mod values;
 pub mod wallet;
 
+pub use backup::{
+    BACKUP_RECORD_KEY, BACKUPS_DIR, Backup, BackupInfo, BackupRecord, BackupStep, PARTIAL_DIR,
+    Verified, check_backup_name, verify_backup, verify_backup_on_backend,
+};
 pub use chain::{ChainBlock, GENESIS_AGAIN_TEXT, IN_MAIN_CHAIN_TEXT};
 pub use codec::{Codec, DecodeDetail, DecodeError};
 pub use cursor::{RawCursor, ReadCursor, TypedCursor, WriteCursor};
 pub use error::{Error, MISSING_FILE_TEXT, NEWER_VERSION_TEXT, NOT_INITIALIZED_TEXT, Result};
 pub use keys::{
-    AccountKey, AccountName, AccountNumber, AcctHistoryKey, AddrAcctShaKey, AddrPathKey,
+    AccountKey, AccountName, AccountNumber, AcctHistoryKey, AddrAcctShaKey, AddrPathKey, AgendaKey,
     BalanceHeightKey, BalanceKey, CreditKey, Hash32, Hash160, Height, HistoryKey, MetaKey,
-    Outpoint, TxRecKey, WalletKey,
+    MultisigUnspentKey, Outpoint, PiKey, TicketAgendaKey, TxRecKey, VspFeeStatusKey, VspHost,
+    VspHostId, VspTSpendKey, VspTreasuryKey, WalletKey,
 };
+pub use records::{UNKNOWN_VSP_HOST_TEXT, VSP_HOST_IDS_EXHAUSTED_TEXT};
 pub use schema::{
-    AccountNames, Accounts, AcctHistory, AddrByAcctSha, AddrByHash, AddrByPath, BalanceHeights,
-    Balances, BlockByHash, Blocks, CFilters, CFiltersDetached, Commitments, CommitmentsUnspent,
-    Credits, CreditsInvalidated, Debits, DebitsInvalidated, Headers, HeadersDetached, History,
-    Meta, SYNC_TABLES, TABLE_COUNT, Table, TableId, Tickets, TxMined, TxUnmined, UnminedCredits,
-    UnminedInputs, Unpublished, Unspent, Wallet,
+    AccountNames, Accounts, AcctHistory, AddrByAcctSha, AddrByHash, AddrByPath, AgendaPrefs,
+    BalanceHeights, Balances, BlockByHash, Blocks, CFilters, CFiltersDetached, Commitments,
+    CommitmentsUnspent, Credits, CreditsInvalidated, Debits, DebitsInvalidated, Headers,
+    HeadersDetached, History, Meta, MultisigOuts, MultisigUnspent, RECORD_TABLES, SYNC_TABLES,
+    TABLE_COUNT, TSpendPolicies, Table, TableId, TicketAgendaPrefs, Tickets, TreasuryKeyPolicies,
+    TxMined, TxUnmined, UnminedCredits, UnminedInputs, Unpublished, Unspent, VspFeeStatus,
+    VspHosts, VspPubKeys, VspTSpendPolicies, VspTickets, VspTreasuryKeyPolicies, Wallet,
 };
-pub use store::{FORMAT_MAGIC, MIGRATIONS, Migration, OpenOptions, SCHEMA_VERSION, Schema, Store};
+pub use store::{
+    DIR_MODE, FILE_MODE, FORMAT_MAGIC, MIGRATIONS, Migration, OpenOptions, SCHEMA_VERSION,
+    STORE_FILE_NAME, Schema, Store,
+};
 pub use sync::{InitialSync, MAX_DURABLE_INTERVAL, SyncBatch};
 pub use txn::{Iter, MAX_KEY_SIZE, MAX_VALUE_SIZE, RawEntry, RawIter, ReadTx, WriteTx};
 pub use values::{
-    AccountRow, AddrRow, BalanceClass, BalanceRow, BirthState, BlockRow, CFilterRow, CoinTypeKeys,
-    CommitmentRow, CommitmentUnspentRow, CreditFlags, CreditRow, DebitRow, Empty, HeaderBytes,
-    MasterKeyParams, OutputTag, RawValue, ScriptLoc, SealedKey, Slip0044Acct0Row, Spender, Tip,
-    TxMinedRow, TxUnminedRow, UnminedCreditRow, UnpublishedFlag, UnspentRow,
+    AccountRow, AddrRow, AgendaChoice, BalanceClass, BalanceRow, BirthState, BlockRow, CFilterRow,
+    CoinTypeKeys, CommitmentRow, CommitmentUnspentRow, CreditFlags, CreditRow, DebitRow, Empty,
+    HeaderBytes, MasterKeyParams, MultisigBlock, MultisigOutRow, MultisigSpender, OutputTag,
+    RawValue, ScriptLoc, SealedKey, Slip0044Acct0Row, Spender, Tip, TreasuryVote, TxMinedRow,
+    TxUnminedRow, UnminedCreditRow, UnpublishedFlag, UnspentRow, VspPubKeyRow, VspTicketRow,
 };
 pub use wallet::WalletRecord;
 

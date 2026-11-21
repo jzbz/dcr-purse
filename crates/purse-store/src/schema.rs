@@ -6,14 +6,16 @@
 
 use crate::codec::Codec;
 use crate::keys::{
-    AccountKey, AccountName, AccountNumber, AcctHistoryKey, AddrAcctShaKey, AddrPathKey,
+    AccountKey, AccountName, AccountNumber, AcctHistoryKey, AddrAcctShaKey, AddrPathKey, AgendaKey,
     BalanceHeightKey, BalanceKey, CreditKey, Hash32, Hash160, Height, HistoryKey, MetaKey,
-    Outpoint, TxRecKey, WalletKey,
+    MultisigUnspentKey, Outpoint, PiKey, TicketAgendaKey, TxRecKey, VspFeeStatusKey, VspHost,
+    VspHostId, VspTSpendKey, VspTreasuryKey, WalletKey,
 };
 use crate::values::{
-    AccountRow, AddrRow, BalanceRow, BlockRow, CFilterRow, CommitmentRow, CommitmentUnspentRow,
-    CreditRow, DebitRow, Empty, HeaderBytes, RawValue, TxMinedRow, TxUnminedRow, UnminedCreditRow,
-    UnpublishedFlag, UnspentRow,
+    AccountRow, AddrRow, AgendaChoice, BalanceRow, BlockRow, CFilterRow, CommitmentRow,
+    CommitmentUnspentRow, CreditRow, DebitRow, Empty, HeaderBytes, MultisigOutRow, RawValue,
+    TreasuryVote, TxMinedRow, TxUnminedRow, UnminedCreditRow, UnpublishedFlag, UnspentRow,
+    VspPubKeyRow, VspTicketRow,
 };
 
 /// A table of the schema: its name in the file and its key and value
@@ -170,6 +172,55 @@ schema! {
     /// `balance_heights`: [`BalanceHeightKey`] → [`BalanceRow`], the
     /// depth-dependent categories.
     BalanceHeights = BalanceHeights, "balance_heights", BalanceHeightKey, BalanceRow;
+    /// `multisig_outs`: [`Outpoint`] → [`MultisigOutRow`] (dcrwallet's
+    /// `ms`). Serves `GetMultisigOutput`, `AddMultisigOut`,
+    /// `SpendMultisigOut`. Written through
+    /// [`WriteTx::put_multisig_out`](crate::WriteTx::put_multisig_out),
+    /// which keeps `multisig_unspent` ([`crate::records`]).
+    MultisigOuts = MultisigOuts, "multisig_outs", Outpoint, MultisigOutRow;
+    /// `multisig_unspent`: [`MultisigUnspentKey`] (script HASH160 ‖
+    /// outpoint) → nothing (dcrwallet's `mu`, prefixed by the script).
+    /// Serves `UnspentMultisigCreditsForAddress` as one prefix walk in
+    /// dcrwallet's order.
+    MultisigUnspent = MultisigUnspent, "multisig_unspent", MultisigUnspentKey, Empty;
+    /// `vsp_tickets`: ticket hash → [`VspTicketRow`] (dcrwallet's `vsp`).
+    /// Serves `GetVSPTicket`, `SetVSPTicket`, `DeleteVSPTicket`. Written
+    /// through [`WriteTx::put_vsp_ticket`](crate::WriteTx::put_vsp_ticket),
+    /// which keeps `vsp_fee_status`.
+    VspTickets = VspTickets, "vsp_tickets", Hash32, VspTicketRow;
+    /// `vsp_fee_status`: [`VspFeeStatusKey`] (status ‖ ticket) → nothing:
+    /// the index of `vsp_tickets` by fee status (no dcrwallet equivalent).
+    /// Serves `GetVSPTicketsByFeeStatus`.
+    VspFeeStatus = VspFeeStatus, "vsp_fee_status", VspFeeStatusKey, Empty;
+    /// `vsp_hosts`: [`VspHostId`] → [`VspHost`] (dcrwallet's `vsphost`,
+    /// without its counter row). Serves `GetVSPHost` and `GetVSPTicket`'s
+    /// host.
+    VspHosts = VspHosts, "vsp_hosts", VspHostId, VspHost;
+    /// `vsp_pubkeys`: [`VspHost`] → [`VspPubKeyRow`] (dcrwallet's
+    /// `vsppubkey`). Serves `GetVSPPubKey` and the host lookup of
+    /// `SetVSPTicket`.
+    VspPubKeys = VspPubKeys, "vsp_pubkeys", VspHost, VspPubKeyRow;
+    /// `tspend_policies`: tspend hash → [`TreasuryVote`] (dcrwallet's
+    /// `tspendpolicy`). Serves `TSpendPolicy`, `TSpendPolicies`.
+    TSpendPolicies = TSpendPolicies, "tspend_policies", Hash32, TreasuryVote;
+    /// `treasury_key_policies`: [`PiKey`] → [`TreasuryVote`] (dcrwallet's
+    /// `treasurypolicy`). Serves `TreasuryKeyPolicy`, `TreasuryKeyPolicies`.
+    TreasuryKeyPolicies = TreasuryKeyPolicies, "treasury_key_policies", PiKey, TreasuryVote;
+    /// `vsp_tspend_policies`: [`VspTSpendKey`] → [`TreasuryVote`]
+    /// (dcrwallet's `vsptspendpolicy`). Serves `VSPTSpendPolicy`,
+    /// `VSPTSpendPolicies`.
+    VspTSpendPolicies = VspTSpendPolicies, "vsp_tspend_policies", VspTSpendKey, TreasuryVote;
+    /// `vsp_treasury_key_policies`: [`VspTreasuryKey`] → [`TreasuryVote`]
+    /// (dcrwallet's `vsptreasurypolicy`). Serves `VSPTreasuryKeyPolicy`,
+    /// `VSPTreasuryKeyPolicies`.
+    VspTreasuryKeyPolicies = VspTreasuryKeyPolicies, "vsp_treasury_key_policies", VspTreasuryKey, TreasuryVote;
+    /// `agenda_prefs`: [`AgendaKey`] → [`AgendaChoice`] (dcrwallet's
+    /// `agendaprefs`). Serves `DefaultAgendaPreference`.
+    AgendaPrefs = AgendaPrefs, "agenda_prefs", AgendaKey, AgendaChoice;
+    /// `ticket_agenda_prefs`: [`TicketAgendaKey`] → [`AgendaChoice`]
+    /// (dcrwallet's `ticketsagendaprefs`, its nested buckets flattened).
+    /// Serves `TicketAgendaPreference`.
+    TicketAgendaPrefs = TicketAgendaPrefs, "ticket_agenda_prefs", TicketAgendaKey, AgendaChoice;
 }
 
 impl TableId {
@@ -181,6 +232,24 @@ impl TableId {
 
 /// The number of tables.
 pub const TABLE_COUNT: usize = TableId::ALL.len();
+
+/// The tables of the records Phase 2 adds to the spike's schema
+/// ([`crate::records`]): multisig outputs, VSP records, treasury and agenda
+/// policies.
+pub const RECORD_TABLES: [TableId; 12] = [
+    TableId::MultisigOuts,
+    TableId::MultisigUnspent,
+    TableId::VspTickets,
+    TableId::VspFeeStatus,
+    TableId::VspHosts,
+    TableId::VspPubKeys,
+    TableId::TSpendPolicies,
+    TableId::TreasuryKeyPolicies,
+    TableId::VspTSpendPolicies,
+    TableId::VspTreasuryKeyPolicies,
+    TableId::AgendaPrefs,
+    TableId::TicketAgendaPrefs,
+];
 
 /// The tables a header-and-filter batch of initial sync may write
 /// ([`crate::SyncBatch`]), besides the tip and processed-marker rows of

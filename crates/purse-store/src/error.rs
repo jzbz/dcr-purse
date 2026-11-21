@@ -77,6 +77,13 @@ enum Repr {
     Inconsistent(String),
     /// A migration step failed.
     Migration { from: u32, source: Box<Error> },
+    /// A backup file that does not verify: its rows are not the ones its
+    /// backup record describes ([`crate::backup`]).
+    Unverified(String),
+    /// A backup of another network than the one asked for.
+    WrongNetwork { found: String, expected: String },
+    /// A backup stopped by its observer before it was published.
+    BackupStopped,
 }
 
 impl Error {
@@ -168,6 +175,24 @@ impl Error {
         }
     }
 
+    pub(crate) fn bad_backup(why: String) -> Error {
+        Error {
+            repr: Repr::Unverified(why),
+        }
+    }
+
+    pub(crate) fn other_network(found: String, expected: String) -> Error {
+        Error {
+            repr: Repr::WrongNetwork { found, expected },
+        }
+    }
+
+    pub(crate) fn stopped() -> Error {
+        Error {
+            repr: Repr::BackupStopped,
+        }
+    }
+
     pub(crate) fn migration(from: u32, source: Error) -> Error {
         Error {
             repr: Repr::Migration {
@@ -187,8 +212,13 @@ impl Error {
             Repr::Foreign(_)
             | Repr::NewerVersion { .. }
             | Repr::NoMigration { .. }
-            | Repr::Invalid(_) => Kind::Invalid,
-            Repr::Corrupt { .. } | Repr::MissingTable(_) | Repr::Inconsistent(_) => Kind::Io,
+            | Repr::Invalid(_)
+            | Repr::WrongNetwork { .. } => Kind::Invalid,
+            Repr::Corrupt { .. }
+            | Repr::MissingTable(_)
+            | Repr::Inconsistent(_)
+            | Repr::Unverified(_) => Kind::Io,
+            Repr::BackupStopped => Kind::Other,
             Repr::Migration { source, .. } => source.kind(),
         }
     }
@@ -251,6 +281,30 @@ impl Error {
         }
     }
 
+    /// For a backup file whose rows are not the ones its backup record
+    /// describes: what does not match ([`crate::backup`]).
+    pub fn unverified(&self) -> Option<&str> {
+        match &self.repr {
+            Repr::Unverified(why) => Some(why),
+            _ => None,
+        }
+    }
+
+    /// For a backup of another network than the one asked for: the
+    /// network the backup record names.
+    pub fn wrong_network(&self) -> Option<&str> {
+        match &self.repr {
+            Repr::WrongNetwork { found, .. } => Some(found),
+            _ => None,
+        }
+    }
+
+    /// Whether a backup stopped because its observer asked it to, before
+    /// it was published ([`crate::Store::backup_observed`]).
+    pub fn backup_stopped(&self) -> bool {
+        matches!(self.repr, Repr::BackupStopped)
+    }
+
     /// For a failed migration step: the version it started from.
     pub fn migration_from(&self) -> Option<u32> {
         match &self.repr {
@@ -284,6 +338,11 @@ impl Error {
             Repr::Migration { from, source } => {
                 format!("migration from schema version {from}: {}", source.cause())
             }
+            Repr::Unverified(why) => format!("backup does not verify: {why}"),
+            Repr::WrongNetwork { found, expected } => {
+                format!("backup is of network {found}, not {expected}")
+            }
+            Repr::BackupStopped => "backup stopped before it was published".to_owned(),
         }
     }
 
@@ -387,7 +446,8 @@ from_redb!(
     redb::TableError,
     redb::StorageError,
     redb::CommitError,
-    redb::SetDurabilityError
+    redb::SetDurabilityError,
+    redb::CompactionError
 );
 
 /// The store's result type.

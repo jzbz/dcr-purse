@@ -88,7 +88,7 @@ fn create_open_and_reopen_give_the_seeds_keys() {
             continue; // an unusable seed: not a creation case
         };
         let dir = scratch("prop-create");
-        let path = dir.join("wallet.redb");
+        let path = dir.join(purse_store::STORE_FILE_NAME);
         let store = Store::create(&path).expect("create store");
         let mut src = rng_source(&mut rng);
         store
@@ -229,7 +229,7 @@ fn the_lock_follows_gos_state_machine() {
         let seed = rng.bytes(32);
         let priv_pass = format!("pass-{case}").into_bytes();
         let dir = scratch("prop-lock");
-        let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+        let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
         let mut src = rng_source(&mut rng);
         store
             .update(|tx| {
@@ -418,7 +418,7 @@ fn wallet(rng: &mut SplitMix64, label: &str) -> (Store, Manager, ChainParams) {
             continue;
         }
         let dir = scratch(label);
-        let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+        let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
         let mut src = rng_source(rng);
         update(&store, |tx| {
             Manager::create(
@@ -721,7 +721,7 @@ fn wallet_on(
     let chain = ChainParams::by_name(net).expect("network");
     hd_keys_from_seed(seed, &chain).ok()?;
     let dir = scratch(label);
-    let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+    let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
     let mut src = rng_source(rng);
     update(&store, |tx| {
         Manager::create(

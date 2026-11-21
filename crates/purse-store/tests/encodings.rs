@@ -25,6 +25,11 @@ use purse_store::{
     Tip, TxMinedRow, TxRecKey, TxUnminedRow, UnminedCreditRow, UnpublishedFlag, UnspentRow,
     WalletKey,
 };
+use purse_store::{
+    AgendaChoice, AgendaKey, MultisigBlock, MultisigOutRow, MultisigSpender, MultisigUnspentKey,
+    PiKey, TicketAgendaKey, TreasuryVote, VspFeeStatusKey, VspHost, VspHostId, VspPubKeyRow,
+    VspTSpendKey, VspTicketRow, VspTreasuryKey,
+};
 use purse_testutil::SplitMix64;
 
 const ROUNDS: usize = 2_000;
@@ -214,6 +219,37 @@ fn key_round_trips_and_order() {
     keys("enc-wallet-key", |r| {
         WalletKey::ALL[r.below(WalletKey::ALL.len() as u64) as usize]
     });
+    keys("enc-multisig-unspent-key", |r| MultisigUnspentKey {
+        script_hash: Hash160([r.below(3) as u8; 20]),
+        outpoint: Outpoint {
+            hash: hash_of(r),
+            index: u32_of(r),
+        },
+    });
+    keys("enc-vsp-host-id", |r| VspHostId(u32_of(r)));
+    keys("enc-vsp-host", |r| VspHost(bytes_of(r, 12)));
+    keys("enc-vsp-fee-status-key", |r| VspFeeStatusKey {
+        status: u32_of(r),
+        ticket: hash_of(r),
+    });
+    keys("enc-pi-key", |r| PiKey(bytes_of(r, 40)));
+    keys("enc-vsp-tspend-key", |r| VspTSpendKey {
+        ticket: hash_of(r),
+        tspend: hash_of(r),
+    });
+    keys("enc-vsp-treasury-key", |r| VspTreasuryKey {
+        ticket: hash_of(r),
+        pikey: bytes_of(r, 40),
+    });
+    keys("enc-agenda-key", |r| AgendaKey {
+        version: u32_of(r),
+        agenda: bytes_of(r, 12),
+    });
+    keys("enc-ticket-agenda-key", |r| TicketAgendaKey {
+        ticket: hash_of(r),
+        version: u32_of(r),
+        agenda: bytes_of(r, 12),
+    });
 }
 
 #[test]
@@ -352,6 +388,48 @@ fn value_round_trips() {
         next_internal: u32_of(r),
         name: bytes_of(r, 12),
     });
+    values("enc-multisig-out", |r| {
+        let mut sh = [0u8; 20];
+        r.fill(&mut sh);
+        MultisigOutRow {
+            script_hash: Hash160(sh),
+            m: r.next_u64() as u8,
+            n: r.next_u64() as u8,
+            stake_tree: r.below(2) == 0,
+            // A drawn block hash is all zero one time in four: the
+            // constructor turns it into no block, which must round-trip as
+            // well (an all-zero hash is dcrwallet's "unmined").
+            block: (r.below(2) == 0)
+                .then(|| {
+                    let hash = if r.below(4) == 0 {
+                        Hash32::default()
+                    } else {
+                        hash_of(r)
+                    };
+                    MultisigBlock::new(hash, u32_of(r))
+                })
+                .flatten(),
+            amount: i64_of(r),
+            spender: (r.below(2) == 0).then(|| MultisigSpender {
+                hash: hash_of(r),
+                input: u32_of(r),
+            }),
+        }
+    });
+    values("enc-vsp-ticket", |r| VspTicketRow {
+        fee_hash: hash_of(r),
+        fee_status: u32_of(r),
+        host_id: u32_of(r),
+    });
+    values("enc-vsp-host-value", |r| VspHost(bytes_of(r, 60)));
+    values("enc-vsp-pubkey", |r| VspPubKeyRow {
+        host_id: u32_of(r),
+        pubkey: bytes_of(r, 40),
+    });
+    values("enc-treasury-vote", |r| {
+        TreasuryVote::new(1 + r.below(255) as u8).expect("non-zero")
+    });
+    values("enc-agenda-choice", |r| AgendaChoice(bytes_of(r, 12)));
 }
 
 /// Random bytes into every decoder: no panic, and whatever decodes is
@@ -363,7 +441,9 @@ fn decoders_refuse_garbage() {
     for _ in 0..20_000 {
         let len = match r.below(3) {
             0 => r.below(70) as usize,
-            1 => [1, 4, 5, 9, 12, 16, 21, 25, 36, 40, 45, 47, 48, 60, 88][r.below(15) as usize],
+            1 => [
+                1, 4, 5, 9, 12, 16, 21, 25, 36, 40, 45, 47, 48, 56, 60, 64, 88, 103,
+            ][r.below(18) as usize],
             _ => r.below(400) as usize,
         };
         let b = r.bytes(len);
@@ -407,6 +487,20 @@ fn decoders_refuse_garbage() {
         check_canonical::<SealedKey>(&b);
         check_canonical::<CoinTypeKeys>(&b);
         check_canonical::<Slip0044Acct0Row>(&b);
+        check_canonical::<MultisigUnspentKey>(&b);
+        check_canonical::<VspHostId>(&b);
+        check_canonical::<VspHost>(&b);
+        check_canonical::<VspFeeStatusKey>(&b);
+        check_canonical::<PiKey>(&b);
+        check_canonical::<VspTSpendKey>(&b);
+        check_canonical::<VspTreasuryKey>(&b);
+        check_canonical::<AgendaKey>(&b);
+        check_canonical::<TicketAgendaKey>(&b);
+        check_canonical::<MultisigOutRow>(&b);
+        check_canonical::<VspTicketRow>(&b);
+        check_canonical::<VspPubKeyRow>(&b);
+        check_canonical::<TreasuryVote>(&b);
+        check_canonical::<AgendaChoice>(&b);
     }
 }
 
@@ -534,6 +628,161 @@ fn decode_errors_name_the_row() {
         MetaKey::decode(b"nope").unwrap_err().to_string(),
         "meta key: unknown name"
     );
+}
+
+/// The record values refuse what their layouts leave undefined, with
+/// texts naming the row.
+#[test]
+fn record_decode_errors_name_the_row() {
+    let row = MultisigOutRow {
+        script_hash: Hash160([7; 20]),
+        m: 1,
+        n: 2,
+        stake_tree: true,
+        block: MultisigBlock::new(Hash32([9; 32]), 5),
+        amount: 100,
+        spender: None,
+    };
+    let enc = row.encode();
+    assert_eq!(enc.len(), 103);
+    assert_eq!(&enc[..20], &[7; 20]);
+    assert_eq!(enc[20..23], [1, 2, 2], "m, n, flags (stake tree only)");
+    let mut bad = enc;
+    bad[22] |= 4;
+    assert_eq!(
+        MultisigOutRow::decode(&bad).unwrap_err().to_string(),
+        "multisig output: unknown flag bits"
+    );
+    let mut bad = enc;
+    bad[23..55].fill(0); // zero block hash: unmined, but height 5
+    assert_eq!(
+        MultisigOutRow::decode(&bad).unwrap_err().to_string(),
+        "multisig output: height set on an unmined output"
+    );
+    let mut bad = enc;
+    bad[70] = 1; // a spender byte while the spent bit is clear
+    assert_eq!(
+        MultisigOutRow::decode(&bad).unwrap_err().to_string(),
+        "multisig output: spender set on an unspent output"
+    );
+    assert_eq!(
+        MultisigOutRow::decode(&enc[..102]).unwrap_err().to_string(),
+        "multisig output len 102"
+    );
+    // A block with an all-zero hash cannot be built: that hash is
+    // dcrwallet's "unmined", and a row carrying it would not read back.
+    assert_eq!(MultisigBlock::new(Hash32::default(), 0), None);
+    assert_eq!(MultisigBlock::new(Hash32::default(), 7), None);
+    let b = MultisigBlock::new(Hash32([9; 32]), 5).unwrap();
+    assert_eq!((b.hash(), b.height()), (Hash32([9; 32]), 5));
+    let unmined = MultisigOutRow { block: None, ..row };
+    assert!(unmined.encode()[23..59].iter().all(|&x| x == 0));
+    assert_eq!(MultisigOutRow::decode(&unmined.encode()).unwrap(), unmined);
+    // Spent with a zero spender hash is a state dcrwallet can write.
+    let spent = MultisigOutRow {
+        spender: Some(MultisigSpender::default()),
+        block: None,
+        ..row
+    };
+    let e = spent.encode();
+    assert_eq!(e[22], 3);
+    assert_eq!(MultisigOutRow::decode(&e).unwrap(), spent);
+    assert_eq!(TreasuryVote::new(0), None);
+    assert_eq!(
+        TreasuryVote::decode(&[0]).unwrap_err().to_string(),
+        "treasury vote: 0 is no policy"
+    );
+    assert_eq!(TreasuryVote::decode(&[2]).unwrap(), TreasuryVote::NO);
+    assert_eq!(TreasuryVote::decode(&[3]).unwrap().code(), 3);
+    assert_eq!(
+        VspTicketRow::decode(&[0; 36]).unwrap_err().to_string(),
+        "vsp ticket len 36"
+    );
+}
+
+/// The VSP ticket value is dcrwallet's 40-byte layout
+/// (`serializeVSPTicket`, `wallet/udb/vsp.go:163-179`): fee hash, status
+/// and host id big-endian.
+#[test]
+fn vsp_ticket_layout_is_dcrwallets() {
+    let row = VspTicketRow {
+        fee_hash: Hash32([0xaa; 32]),
+        fee_status: 3,
+        host_id: 0x0102_0304,
+    };
+    let mut want = vec![0xaa; 32];
+    want.extend_from_slice(&[0, 0, 0, 3, 1, 2, 3, 4]);
+    assert_eq!(row.encode().to_vec(), want);
+    // The policy keys are dcrwallet's bytes too (treasury.go:49-65,
+    // 167-183; agendas.go:23-28).
+    let k = VspTSpendKey {
+        ticket: Hash32([1; 32]),
+        tspend: Hash32([2; 32]),
+    };
+    assert_eq!(&k.encode()[..32], &[1; 32]);
+    assert_eq!(&k.encode()[32..], &[2; 32]);
+    let a = AgendaKey {
+        version: 10,
+        agenda: b"treasury".to_vec(),
+    };
+    assert_eq!(a.encode(), b"\x00\x00\x00\x0atreasury".to_vec());
+    let t = TicketAgendaKey {
+        ticket: Hash32([3; 32]),
+        version: 10,
+        agenda: b"treasury".to_vec(),
+    };
+    assert_eq!(&t.encode()[..32], &[3; 32]);
+    assert_eq!(&t.encode()[32..], a.encode().as_slice());
+}
+
+/// One script's `multisig_unspent` keys sort as dcrwallet's `mu` keys
+/// (bare outpoints) of that script do: within a script hash the key order
+/// is the outpoint order, whatever the other scripts' outpoints.
+#[test]
+fn multisig_unspent_keys_keep_mu_order_within_a_script() {
+    let mut r = SplitMix64::from_env("enc-multisig-mu-order");
+    for _ in 0..200 {
+        let n = 1 + r.below(40) as usize;
+        let entries: Vec<(u8, Outpoint)> = (0..n)
+            .map(|_| {
+                (
+                    r.below(3) as u8,
+                    Outpoint {
+                        hash: hash_of(&mut r),
+                        index: u32_of(&mut r),
+                    },
+                )
+            })
+            .collect();
+        let mut mu: Vec<[u8; 36]> = entries.iter().map(|(_, o)| o.encode()).collect();
+        mu.sort();
+        mu.dedup();
+        let mut ours: Vec<[u8; 56]> = entries
+            .iter()
+            .map(|(s, o)| {
+                MultisigUnspentKey {
+                    script_hash: Hash160([*s; 20]),
+                    outpoint: *o,
+                }
+                .encode()
+            })
+            .collect();
+        ours.sort();
+        ours.dedup();
+        for s in 0..3u8 {
+            let want: Vec<[u8; 36]> = mu
+                .iter()
+                .filter(|k| entries.iter().any(|(es, o)| *es == s && o.encode() == **k))
+                .copied()
+                .collect();
+            let got: Vec<[u8; 36]> = ours
+                .iter()
+                .filter(|k| k[..20] == [s; 20])
+                .map(|k| k[20..].try_into().unwrap())
+                .collect();
+            assert_eq!(got, want, "script {s}");
+        }
+    }
 }
 
 /// The flags byte layout: bit 0 change, bit 1 spent, bits 2-4 tag, bit 5

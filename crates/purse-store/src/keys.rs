@@ -503,6 +503,279 @@ impl Codec for BalanceHeightKey {
     }
 }
 
+/// The key of `multisig_unspent`: the P2SH script's HASH160 ‖ outpoint
+/// (hash ‖ index BE).
+///
+/// dcrwallet's `mu` bucket is keyed by the outpoint alone, and its one
+/// reader, `UnspentMultisigCreditsForAddress`, walks the whole bucket in
+/// key order and keeps the entries whose multisig record names the
+/// script hash asked for (`wallet/udb/txmined.go:2875-2927`); the order of
+/// its result reaches `redeemmultisigouts`
+/// (`internal/rpc/jsonrpc/methods.go:4186-4215`). Prefixed by the script
+/// hash, one script's entries are contiguous and in that same outpoint
+/// order, so the walk reads only them. [`Ord`] is the byte order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MultisigUnspentKey {
+    /// HASH160 of the P2SH redeem script.
+    pub script_hash: Hash160,
+    /// The unspent multisig output.
+    pub outpoint: Outpoint,
+}
+
+impl Codec for MultisigUnspentKey {
+    type Bytes = [u8; 56];
+
+    fn encode(&self) -> [u8; 56] {
+        ArrayWriter::new()
+            .put(&self.script_hash.0)
+            .put(&self.outpoint.encode())
+            .finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("multisig unspent key", bytes);
+        let k = MultisigUnspentKey {
+            script_hash: Hash160(r.array()?),
+            outpoint: Outpoint {
+                hash: Hash32(r.array()?),
+                index: r.u32_be()?,
+            },
+        };
+        r.finish()?;
+        Ok(k)
+    }
+}
+
+/// The key of `vsp_hosts`: a VSP host's id, big-endian, as dcrwallet keys
+/// its `vsphost` bucket (`wallet/udb/vsp.go:185-196`). Ids are given out
+/// from 1 upwards in order of first use, so the last key is the highest
+/// id given (`WriteTx::add_vsp_host`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VspHostId(pub u32);
+
+impl Codec for VspHostId {
+    type Bytes = [u8; 4];
+
+    fn encode(&self) -> [u8; 4] {
+        self.0.to_be_bytes()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp host id", bytes);
+        let id = r.u32_be()?;
+        r.finish()?;
+        Ok(VspHostId(id))
+    }
+}
+
+/// A VSP host as the caller names it (the VSP's URL as configured), as
+/// bytes: the key of `vsp_pubkeys` and the value of `vsp_hosts`, as in
+/// dcrwallet's `vsppubkey` and `vsphost` (`wallet/udb/vsp.go:185-289`).
+/// No normalisation is applied. The empty host cannot be a key (bbolt and
+/// the store refuse an empty key).
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VspHost(pub Vec<u8>);
+
+impl Codec for VspHost {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Ok(VspHost(bytes.to_vec()))
+    }
+}
+
+/// The key of `vsp_fee_status`: fee status (BE) ‖ ticket hash.
+///
+/// The index of `vsp_tickets` by fee status, so that
+/// `GetVSPTicketsByFeeStatus` reads the tickets of one status rather than
+/// every ticket (dcrwallet walks its whole `vsp` bucket,
+/// `wallet/udb/vsp.go:129-145`). Within a status, tickets are in hash
+/// order; dcrwallet returns them in Go map order, which is random
+/// (QK-0125), so no order of its reaches a client.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VspFeeStatusKey {
+    /// The ticket's fee status (dcrwallet's `FeeTxStatus`).
+    pub status: u32,
+    /// The ticket's hash.
+    pub ticket: Hash32,
+}
+
+impl Codec for VspFeeStatusKey {
+    type Bytes = [u8; 36];
+
+    fn encode(&self) -> [u8; 36] {
+        ArrayWriter::new()
+            .put(&self.status.to_be_bytes())
+            .put(&self.ticket.0)
+            .finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp fee status key", bytes);
+        let k = VspFeeStatusKey {
+            status: r.u32_be()?,
+            ticket: Hash32(r.array()?),
+        };
+        r.finish()?;
+        Ok(k)
+    }
+}
+
+/// The key of `treasury_key_policies`: a Politeia ("pi") key's bytes as
+/// the caller passes them, dcrwallet's `treasurypolicy` key
+/// (`wallet/udb/treasury.go:151-163`; 33 bytes in practice, a compressed
+/// public key, though nothing checks it).
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PiKey(pub Vec<u8>);
+
+impl Codec for PiKey {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Ok(PiKey(bytes.to_vec()))
+    }
+}
+
+/// The key of `vsp_tspend_policies`: ticket hash ‖ tspend hash, dcrwallet's
+/// `vsptspendpolicy` key (`wallet/udb/treasury.go:49-65`). One ticket's
+/// policies are contiguous.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VspTSpendKey {
+    /// The VSP customer's ticket.
+    pub ticket: Hash32,
+    /// The treasury spend transaction.
+    pub tspend: Hash32,
+}
+
+impl Codec for VspTSpendKey {
+    type Bytes = [u8; 64];
+
+    fn encode(&self) -> [u8; 64] {
+        ArrayWriter::new()
+            .put(&self.ticket.0)
+            .put(&self.tspend.0)
+            .finish()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp tspend policy key", bytes);
+        let k = VspTSpendKey {
+            ticket: Hash32(r.array()?),
+            tspend: Hash32(r.array()?),
+        };
+        r.finish()?;
+        Ok(k)
+    }
+}
+
+/// The key of `vsp_treasury_key_policies`: ticket hash ‖ pi key bytes,
+/// dcrwallet's `vsptreasurypolicy` key (`wallet/udb/treasury.go:167-183`).
+/// The pi key may be empty here (the key is then the ticket hash alone).
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VspTreasuryKey {
+    /// The VSP customer's ticket.
+    pub ticket: Hash32,
+    /// The pi key's bytes.
+    pub pikey: Vec<u8>,
+}
+
+impl Codec for VspTreasuryKey {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(self.pikey.len().saturating_add(32));
+        v.extend_from_slice(&self.ticket.0);
+        v.extend_from_slice(&self.pikey);
+        v
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("vsp treasury key policy key", bytes);
+        Ok(VspTreasuryKey {
+            ticket: Hash32(r.array()?),
+            pikey: r.rest().to_vec(),
+        })
+    }
+}
+
+/// The key of `agenda_prefs`: deployment version (BE) ‖ agenda id bytes,
+/// dcrwallet's `agendaprefs` key (`agendaPreferencesTy.key`,
+/// `wallet/udb/agendas.go:23-28`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AgendaKey {
+    /// The stake version of the deployment.
+    pub version: u32,
+    /// The agenda's id.
+    pub agenda: Vec<u8>,
+}
+
+impl Codec for AgendaKey {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(self.agenda.len().saturating_add(4));
+        v.extend_from_slice(&self.version.to_be_bytes());
+        v.extend_from_slice(&self.agenda);
+        v
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("agenda preference key", bytes);
+        Ok(AgendaKey {
+            version: r.u32_be()?,
+            agenda: r.rest().to_vec(),
+        })
+    }
+}
+
+/// The key of `ticket_agenda_prefs`: ticket hash ‖ deployment version (BE)
+/// ‖ agenda id bytes.
+///
+/// dcrwallet nests one bucket per ticket in `ticketsagendaprefs`, named by
+/// the ticket hash, holding [`AgendaKey`]-shaped keys
+/// (`wallet/udb/agendas.go:38-44`); flattened, one ticket's preferences
+/// are one contiguous range in the same order. dcrwallet only looks them
+/// up one key at a time (`wallet/wallet.go:361`, `:442`), so no iteration
+/// order reaches a client.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TicketAgendaKey {
+    /// The ticket.
+    pub ticket: Hash32,
+    /// The stake version of the deployment.
+    pub version: u32,
+    /// The agenda's id.
+    pub agenda: Vec<u8>,
+}
+
+impl Codec for TicketAgendaKey {
+    type Bytes = Vec<u8>;
+
+    fn encode(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(self.agenda.len().saturating_add(36));
+        v.extend_from_slice(&self.ticket.0);
+        v.extend_from_slice(&self.version.to_be_bytes());
+        v.extend_from_slice(&self.agenda);
+        v
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader::new("ticket agenda preference key", bytes);
+        Ok(TicketAgendaKey {
+            ticket: Hash32(r.array()?),
+            version: r.u32_be()?,
+            agenda: r.rest().to_vec(),
+        })
+    }
+}
+
 /// The names of the `meta` table's rows: the store's own (format, schema
 /// version) and the chain and sync state of dcrwallet's `wtxmgr` root
 /// (`txdb.go:155-163`). Each has its own value type; the typed accessors of

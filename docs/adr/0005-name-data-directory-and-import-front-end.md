@@ -216,7 +216,10 @@ Addendum.)
    `<net>/` with the store (named per ADR-0003) and `peers.json`
    *(the store's file name is fixed in Phase 2 with the schema, a name
    other than `wallet.db`: project owner, 2026-11-19; ADR-0003, addendum
-   of that date, item 5; ADR-0018 Open point 6)*;
+   of that date, item 5; ADR-0018 Open point 6)* *(proposed name, not yet
+   decided: `wallet.redb`, `purse_store::STORE_FILE_NAME`; ADR-0018,
+   addendum of 2026-11-20 "The `purse-store` part, as built", open point
+   BK1)*;
    `logs/<net>/dcr-purse.log`, named for the program as dcroxide's is, so
    the two never share a log; TLS and CA files under dcrwallet's names.
    Options behave as dcrwallet's; no environment variables; the dcrd

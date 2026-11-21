@@ -18,6 +18,12 @@
 //! oracle reports the layout it built, and the tests assert that those
 //! scripts had several leaves.
 //!
+//! The store's side walks `tickets` as `c`; one test runs the named cases
+//! and a corpus with the cursor on each record table of Phase 2 in turn
+//! (`purse_store::RECORD_TABLES`), and another holds the one record order
+//! a client sees, the unspent multisig outputs of a script, against
+//! bbolt's walk of dcrwallet's `mu` keys.
+//!
 //! A script is a key set for a table `c`, one for a table `o`, and a list
 //! of operations run in one transaction against one cursor on `c`:
 //! cursor moves, cursor deletes, puts, deletes and gets on `c`, writes to
@@ -85,6 +91,7 @@
     reason = "test code: counters and indices over small generated scripts"
 )]
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::ops::Bound;
@@ -92,13 +99,31 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use purse_store::{Error, OpenOptions, RawEntry, ReadTx, Store, TableId, WriteTx};
+use purse_store::{Codec as _, Error, OpenOptions, RawEntry, ReadTx, Store, TableId, WriteTx};
 use purse_testutil::serde_json::{self, Value, json};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, Oracle, SplitMix64, hex, oracle_or_skip, unhex};
 use sha2::{Digest, Sha256};
 
-/// The table every script's cursor walks (`c` in the oracle).
-const C: TableId = TableId::Tickets;
+thread_local! {
+    /// The table every script's cursor walks on the store's side (`c` in
+    /// the oracle): `tickets`, or the record table a test names
+    /// ([`with_cursor_table`]). bbolt's answers do not depend on it.
+    static CURSOR_TABLE: Cell<TableId> = const { Cell::new(TableId::Tickets) };
+}
+
+/// The table every script's cursor walks on this thread.
+fn c_table() -> TableId {
+    CURSOR_TABLE.with(Cell::get)
+}
+
+/// Runs `f` with the store's side of every script on table `t`.
+fn with_cursor_table<R>(t: TableId, f: impl FnOnce() -> R) -> R {
+    let was = CURSOR_TABLE.with(|c| c.replace(t));
+    let r = f();
+    CURSOR_TABLE.with(|c| c.set(was));
+    r
+}
+
 /// The other table (`o` in the oracle).
 const O: TableId = TableId::Unspent;
 
@@ -313,7 +338,7 @@ fn read_range(
     if inverted(lo, hi) {
         return Ok(json!({"kv": []}));
     }
-    let it = tx.range_raw(C, Bound::Included(lo), hi_bound(hi))?;
+    let it = tx.range_raw(c_table(), Bound::Included(lo), hi_bound(hi))?;
     if rev { kv_json(it.rev()) } else { kv_json(it) }
 }
 
@@ -326,7 +351,7 @@ fn write_range(
     if inverted(lo, hi) {
         return Ok(json!({"kv": []}));
     }
-    let it = tx.range_raw(C, Bound::Included(lo), hi_bound(hi))?;
+    let it = tx.range_raw(c_table(), Bound::Included(lo), hi_bound(hi))?;
     if rev { kv_json(it.rev()) } else { kv_json(it) }
 }
 
@@ -334,7 +359,7 @@ fn new_store(s: &Script) -> Store {
     OpenOptions::new()
         .create_on_backend(redb::backends::InMemoryBackend::new(), |tx| {
             for (k, v) in &s.entries {
-                tx.put_raw(C, k, v)?;
+                tx.put_raw(c_table(), k, v)?;
             }
             for (k, v) in &s.other {
                 tx.put_raw(O, k, v)?;
@@ -347,7 +372,7 @@ fn new_store(s: &Script) -> Store {
 /// Runs a read-only script with a [`purse_store::ReadCursor`].
 fn run_read(store: &Store, s: &Script) -> Vec<Value> {
     let tx = store.read().expect("read transaction");
-    let mut c = tx.cursor(C).expect("cursor");
+    let mut c = tx.cursor(c_table()).expect("cursor");
     let mut out = Vec::new();
     for op in &s.ops {
         let r = match op {
@@ -356,10 +381,12 @@ fn run_read(store: &Store, s: &Script) -> Vec<Value> {
             Op::Next => moved(c.next()),
             Op::Prev => moved(c.prev()),
             Op::Seek(k) => moved(c.seek(k)),
-            Op::Get(k) => tx.get_raw(C, k).map(|v| json!({"v": v.map(|v| hex(&v))})),
-            Op::Count => tx.len(C).map(|n| json!({"n": n})),
+            Op::Get(k) => tx
+                .get_raw(c_table(), k)
+                .map(|v| json!({"v": v.map(|v| hex(&v))})),
+            Op::Count => tx.len(c_table()).map(|n| json!({"n": n})),
             Op::Fresh => {
-                c = tx.cursor(C).expect("cursor");
+                c = tx.cursor(c_table()).expect("cursor");
                 Ok(json!({}))
             }
             Op::Range { lo, hi, rev } => read_range(&tx, lo, hi, *rev),
@@ -384,7 +411,7 @@ impl From<Error> for Abort {
 
 fn write_ops(tx: &mut WriteTx<'_>, s: &Script) -> purse_store::Result<Vec<Value>> {
     let mut out = Vec::new();
-    let mut c = tx.cursor(C)?;
+    let mut c = tx.cursor(c_table())?;
     for op in &s.ops {
         let r = match op {
             Op::First => moved(c.first())?,
@@ -393,16 +420,16 @@ fn write_ops(tx: &mut WriteTx<'_>, s: &Script) -> purse_store::Result<Vec<Value>
             Op::Prev => moved(c.prev())?,
             Op::Seek(k) => moved(c.seek(k))?,
             Op::Delete => done(c.delete().map(drop)),
-            Op::Put(k, v) => done(c.tx().put_raw(C, k, v)),
-            Op::Del(k) => done(c.tx().delete_raw(C, k).map(drop)),
-            Op::Get(k) => json!({"v": c.tx().get_raw(C, k)?.map(|v| hex(&v))}),
+            Op::Put(k, v) => done(c.tx().put_raw(c_table(), k, v)),
+            Op::Del(k) => done(c.tx().delete_raw(c_table(), k).map(drop)),
+            Op::Get(k) => json!({"v": c.tx().get_raw(c_table(), k)?.map(|v| hex(&v))}),
             Op::OPut(k, v) => done(c.tx().put_raw(O, k, v)),
             Op::ODel(k) => done(c.tx().delete_raw(O, k).map(drop)),
             Op::Fresh => {
-                c = tx.cursor(C)?;
+                c = tx.cursor(c_table())?;
                 json!({})
             }
-            Op::Count => json!({"n": c.tx().len(C)?}),
+            Op::Count => json!({"n": c.tx().len(c_table())?}),
             Op::Range { lo, hi, rev } => write_range(c.tx(), lo, hi, *rev)?,
         };
         out.push(r);
@@ -423,7 +450,7 @@ fn contents(store: &Store) -> Value {
             .collect();
         Value::Array(kv)
     };
-    json!({"c": dump(C), "o": dump(O)})
+    json!({"c": dump(c_table()), "o": dump(O)})
 }
 
 /// Runs a script with a [`purse_store::WriteCursor`]: committed when it
@@ -551,6 +578,27 @@ fn leaf_pages(go: &Value) -> u64 {
 // The comparison
 // ---------------------------------------------------------------------
 
+/// The least number of operations a random corpus of 400 scripts must
+/// compare for each one the rule skips: the guard that the rule has not
+/// grown to skip what it should compare. The ratio follows the seed. Over
+/// `PURSE_TEST_SEED` 1 to 150 its lowest was 8.32 at 4 KiB pages (seed 40),
+/// 8.85 at 16 KiB (seed 134) and 8.75 at 64 KiB (seed 67), against 11.4 at
+/// the default seed. The guard sits about a quarter below those, so that
+/// a fresh seed passes, while a rule that skipped twice as much would fail
+/// at the default seed. Until 2026-11-20 it was 10, which 9, 9 and 7 of
+/// those 150 seeds missed at 4, 16 and 64 KiB, with no comparison
+/// failing.
+const MIN_COMPARED_PER_SKIPPED: usize = 6;
+
+/// [`MIN_COMPARED_PER_SKIPPED`] for the corpus of 60 smaller scripts run on
+/// each record table: its lowest over the same seeds was 5.31 (seed 66).
+const MIN_COMPARED_PER_SKIPPED_RECORD_TABLES: usize = 4;
+
+/// The least number of the 400 random scripts that must span several
+/// leaves at 4 KiB pages: over the same seeds the fewest was 46 (seed
+/// 108), against 69 at the default seed. It was 50 until 2026-11-20.
+const MIN_MULTILEAF_SCRIPTS: usize = 35;
+
 #[derive(Default, Debug)]
 struct Tally {
     scripts: usize,
@@ -673,14 +721,15 @@ fn compare(label: &str, s: &Script, go: &Outcome, ours: &Outcome, tally: &mut Ta
     tally.prevs_again += prevs_again;
     // bbolt can panic on a cursor Delete outside the compared ops (after
     // Last on a bucket emptied in the transaction and a later Put it
-    // indexes -1, QK-0748); the oracle stops the script there.
+    // indexes -1, QK-0748); the oracle stops the script there and rolls it
+    // back, returning no final contents. The panic may be the script's last
+    // op, so that every op has a result: the script panicked all the same.
     let ran = go.results.len();
-    if ran < s.ops.len() {
-        let last = go.results.last();
+    let last = go.results.last();
+    let panicked = last.is_some_and(|r| r.get("panic").is_some());
+    if panicked || ran < s.ops.len() {
         assert!(
-            last.is_some_and(|r| r.get("panic").is_some())
-                && !cmp[ran - 1]
-                && s.ops[ran - 1] == Op::Delete,
+            panicked && !cmp[ran - 1] && s.ops[ran - 1] == Op::Delete,
             "{label} {}: the oracle ran {ran} of {} ops, the last {last:?}\nscript: {}",
             s.name,
             s.ops.len(),
@@ -712,8 +761,15 @@ fn compare(label: &str, s: &Script, go: &Outcome, ours: &Outcome, tally: &mut Ta
             s.to_json()
         );
     }
-    if s.writable && ran == s.ops.len() {
-        let g = go.final_.as_ref().expect("Go's final contents");
+    if s.writable && !panicked {
+        let g = go.final_.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{label} {}: no final contents from the oracle; its last result {:?}\nscript: {}",
+                s.name,
+                go.results.last(),
+                s.to_json()
+            )
+        });
         let mut o = ours.final_.clone().expect("final contents");
         // The frozen vectors hold digests of the final contents.
         if g["c"].is_string() {
@@ -1154,7 +1210,7 @@ fn random_utxo(r: &mut SplitMix64, name: String, n: usize) -> Script {
     };
     let store = new_store(&probe);
     let tx = store.read().expect("read");
-    let mut c = tx.cursor(C).expect("cursor");
+    let mut c = tx.cursor(c_table()).expect("cursor");
     let mut ops = Vec::new();
     for _ in 0..4 {
         let rand_key = if r.below(3) == 0 {
@@ -2038,13 +2094,135 @@ fn cursors_match_bbolt() {
         "{tally:?}\n{multileaf} random scripts over several leaves at {PAGE_SIZE}-byte \
          pages (this host's page size, which dcrwallet would use: {os_page_size:?})"
     );
-    assert!(tally.compared > 10 * tally.skipped, "{tally:?}");
+    assert!(
+        tally.compared > MIN_COMPARED_PER_SKIPPED * tally.skipped,
+        "{tally:?}"
+    );
     assert!(tally.deletes_compared > 100, "{tally:?}");
     assert!(tally.steps_after_delete > 100, "{tally:?}");
     assert!(
-        multileaf > 50,
+        multileaf > MIN_MULTILEAF_SCRIPTS,
         "{multileaf} random scripts over several leaves"
     );
+}
+
+/// The named cases and a random corpus with the store's cursor on each
+/// record table of Phase 2 in turn, against bbolt's answers for the same
+/// scripts: every table of the schema is the same raw-bytes B-tree, and
+/// this holds it for the new ones.
+#[test]
+fn cursors_match_bbolt_on_every_record_table() {
+    let Some(mut oracle) = oracle_or_skip("boltcursor") else {
+        return;
+    };
+    let mut scripts = named_cases();
+    scripts.extend(corpus("cursor-conformance-records", None, 60, false));
+    let answers: Vec<Value> = scripts.iter().map(|s| run_oracle(&mut oracle, s)).collect();
+    for t in purse_store::RECORD_TABLES {
+        let mut tally = Tally::default();
+        with_cursor_table(t, || {
+            for (s, go) in scripts.iter().zip(&answers) {
+                check_script(s, go, &mut tally);
+            }
+        });
+        eprintln!("{}: {tally:?}", t.name());
+        assert!(
+            tally.compared > MIN_COMPARED_PER_SKIPPED_RECORD_TABLES * tally.skipped,
+            "{}: {tally:?}",
+            t.name()
+        );
+    }
+}
+
+/// The unspent multisig outputs of a script come back in dcrwallet's order:
+/// bbolt's walk of the `mu` bucket (bare outpoints, `First` then `Next`,
+/// as `UnspentMultisigCreditsForAddress` walks it,
+/// `wallet/udb/txmined.go:2886-2927`) filtered by script, equal to the
+/// store's prefix walk of `multisig_unspent` for each script.
+#[test]
+fn unspent_multisig_listing_is_bbolts_mu_walk() {
+    let Some(mut oracle) = oracle_or_skip("boltcursor") else {
+        return;
+    };
+    let mut r = SplitMix64::from_env("purse-store multisig mu order");
+    for case in 0..40 {
+        let n = 1 + r.below(if case % 4 == 0 { 400 } else { 40 }) as usize;
+        // Outpoints over few hashes, so that indexes of one hash (1, 256,
+        // 2^24, ...) sort big-endian; each paying one of three scripts.
+        let mut outs: BTreeMap<Vec<u8>, u8> = BTreeMap::new();
+        while outs.len() < n {
+            let mut op = vec![0u8; 36];
+            if r.below(2) == 0 {
+                op[0] = r.below(4) as u8;
+            } else {
+                r.fill(&mut op[..32]);
+            }
+            let index: u32 = match r.below(4) {
+                0 => r.below(3) as u32,
+                1 => 1 << (8 * r.below(4)),
+                _ => r.next_u64() as u32,
+            };
+            op[32..].copy_from_slice(&index.to_be_bytes());
+            outs.insert(op, r.below(3) as u8);
+        }
+        let mut entries: Vec<RawEntry> = outs.keys().map(|k| (k.clone(), vec![0])).collect();
+        // Insert in a shuffled order: the order comes from the keys alone.
+        for i in (1..entries.len()).rev() {
+            entries.swap(i, r.below(i as u64 + 1) as usize);
+        }
+        let mut ops = vec![Op::First];
+        ops.extend(std::iter::repeat_n(Op::Next, n));
+        let script = Script {
+            name: format!("mu-walk-{case}"),
+            entries,
+            other: Vec::new(),
+            writable: false,
+            exact: true,
+            ops,
+        };
+        let go = run_oracle(&mut oracle, &script);
+        let walked: Vec<Vec<u8>> = go["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .filter_map(|v| v["k"].as_str().map(unhex))
+            .collect();
+        assert_eq!(walked.len(), n, "{}: bbolt's walk", script.name);
+        let store = OpenOptions::new()
+            .create_on_backend(redb::backends::InMemoryBackend::new(), |tx| {
+                for (k, s) in &outs {
+                    let op = purse_store::Outpoint {
+                        hash: purse_store::Hash32(k[..32].try_into().expect("hash")),
+                        index: u32::from_be_bytes(k[32..].try_into().expect("index")),
+                    };
+                    tx.put_multisig_out(
+                        &op,
+                        &purse_store::MultisigOutRow {
+                            script_hash: purse_store::Hash160([*s; 20]),
+                            m: 1,
+                            n: 1,
+                            stake_tree: false,
+                            block: None,
+                            amount: 1,
+                            spender: None,
+                        },
+                    )?;
+                }
+                Ok(())
+            })
+            .expect("store");
+        let tx = store.read().expect("read");
+        for s in 0..3u8 {
+            let want: Vec<Vec<u8>> = walked.iter().filter(|k| outs[*k] == s).cloned().collect();
+            let got: Vec<Vec<u8>> = tx
+                .unspent_multisig_for(&purse_store::Hash160([s; 20]))
+                .expect("listing")
+                .iter()
+                .map(|o| o.encode().to_vec())
+                .collect();
+            assert_eq!(got, want, "{}: script {s}", script.name);
+        }
+    }
 }
 
 /// Scripts that run off the ends of the table and write around them
@@ -2248,10 +2426,45 @@ fn corpus_matches_at(oracle: &mut Oracle, page_size: u32) {
         }
     }
     eprintln!("{page_size}-byte pages: {tally:?}\nedges: {edges:?}");
-    assert!(tally.compared > 10 * tally.skipped, "{tally:?}");
+    assert!(
+        tally.compared > MIN_COMPARED_PER_SKIPPED * tally.skipped,
+        "{tally:?}"
+    );
     assert!(tally.deletes_compared > 100, "{tally:?}");
     assert!(tally.steps_after_delete > 100, "{tally:?}");
     assert!(edges.compared > edges.skipped, "{edges:?}");
+}
+
+/// A random write script in which bbolt panics (QK-0748) on an op the rule
+/// does not compare is accepted, whether the panic stops the script early
+/// or falls on its last op. In the second case every op has a result but
+/// the oracle, having rolled the transaction back, returns no final
+/// contents; the comparison once took a full set of results for a script
+/// that ran to its end and demanded them. Over `PURSE_TEST_SEED` 1 to 150
+/// that failed at 4 seeds of the 16 KiB corpus, 2 of the 64 KiB corpus and
+/// 1 of the record tables' corpus (the panic `Go's final contents`).
+#[test]
+fn a_go_panic_on_an_uncompared_op_is_accepted_wherever_it_falls() {
+    let Some(mut oracle) = oracle_or_skip("boltcursor") else {
+        return;
+    };
+    let ops = vec![
+        Op::Del(b"a".to_vec()),
+        Op::Last,
+        Op::Put(b"b".to_vec(), Vec::new()),
+        Op::Delete,
+    ];
+    let mut tail = ops.clone();
+    tail.push(Op::Get(b"b".to_vec()));
+    for (name, ops) in [("panic-last", ops), ("panic-then-more", tail)] {
+        let mut s = named(name, kv(&[b"a".to_vec()]), true, ops);
+        s.exact = false;
+        let go = run_oracle(&mut oracle, &s);
+        let mut tally = Tally::default();
+        check_script(&s, &go, &mut tally);
+        assert!(tally.go_panics > 0, "{name}: {tally:?}");
+        assert_eq!(tally.finals, 0, "{name}: {tally:?}");
+    }
 }
 
 /// The rule leaves out what follows a `next` that ran off the end in a
@@ -2650,7 +2863,7 @@ fn writes_between_moves_follow_the_rule() {
         store
             .update(|tx| {
                 let mut model: BTreeSet<Vec<u8>> = s.entries.iter().map(|e| e.0.clone()).collect();
-                let mut c = tx.cursor(C)?;
+                let mut c = tx.cursor(c_table())?;
                 let forward = r.below(2) == 0;
                 let mut at = if forward { c.first()? } else { c.last()? }.map(|e| e.0);
                 let mut seen = Vec::new();
@@ -2660,10 +2873,10 @@ fn writes_between_moves_follow_the_rule() {
                     for _ in 0..r.below(3) {
                         let w = g.key(&mut r);
                         if r.below(2) == 0 {
-                            c.tx().put_raw(C, &w, b"")?;
+                            c.tx().put_raw(c_table(), &w, b"")?;
                             model.insert(w);
                         } else {
-                            c.tx().delete_raw(C, &w)?;
+                            c.tx().delete_raw(c_table(), &w)?;
                             model.remove(&w);
                         }
                     }
@@ -2791,7 +3004,7 @@ fn the_write_cursor_follows_its_documented_rule() {
                     keys: s.entries.iter().map(|e| e.0.clone()).collect(),
                     at: At::Unpositioned,
                 };
-                let mut c = tx.cursor(C)?;
+                let mut c = tx.cursor(c_table())?;
                 let key = |e: Option<RawEntry>| e.map(|e| e.0);
                 for step in 0..60 {
                     let what = r.below(14);
@@ -2811,7 +3024,7 @@ fn the_write_cursor_follows_its_documented_rule() {
                         }
                         10..=11 => {
                             let k = g.key(&mut r);
-                            c.tx().put_raw(C, &k, b"")?;
+                            c.tx().put_raw(c_table(), &k, b"")?;
                             m.keys.insert(k);
                             continue;
                         }
@@ -2824,7 +3037,7 @@ fn the_write_cursor_follows_its_documented_rule() {
                                 Some(k) => k.clone(),
                                 None => g.key(&mut r),
                             };
-                            c.tx().delete_raw(C, &k)?;
+                            c.tx().delete_raw(c_table(), &k)?;
                             m.keys.remove(&k);
                             continue;
                         }
@@ -2849,19 +3062,19 @@ fn put_limits() {
     let store = new_store(&named("limits", Vec::new(), true, Vec::new()));
     store
         .update(|tx| {
-            let e = tx.put_raw(C, b"", b"v").expect_err("empty key");
+            let e = tx.put_raw(c_table(), b"", b"v").expect_err("empty key");
             assert_eq!(e.to_string(), "invalid operation: key required");
             assert_eq!(e.kind(), purse_errors::Kind::Invalid);
             let e = tx
-                .put_raw(C, &vec![1; purse_store::MAX_KEY_SIZE + 1], b"v")
+                .put_raw(c_table(), &vec![1; purse_store::MAX_KEY_SIZE + 1], b"v")
                 .expect_err("long key");
             assert_eq!(e.to_string(), "invalid operation: key too large");
-            tx.put_raw(C, &vec![1; purse_store::MAX_KEY_SIZE], b"v")?;
-            tx.put_raw(C, b"k", b"")?;
+            tx.put_raw(c_table(), &vec![1; purse_store::MAX_KEY_SIZE], b"v")?;
+            tx.put_raw(c_table(), b"k", b"")?;
             Ok::<_, Error>(())
         })
         .expect("update");
-    assert_eq!(store.read().expect("read").len(C).expect("len"), 2);
+    assert_eq!(store.read().expect("read").len(c_table()).expect("len"), 2);
 }
 
 /// Ranges with the lower bound above the upper: empty, as bbolt's walk.
@@ -2880,7 +3093,7 @@ fn inverted_ranges_are_empty() {
         (Bound::Excluded(&b"b"[..]), Bound::Included(&b"b"[..])),
         (Bound::Included(&b"b"[..]), Bound::Excluded(&b"b"[..])),
     ] {
-        let n = tx.range_raw(C, lo, hi).map(|it| it.count());
+        let n = tx.range_raw(c_table(), lo, hi).map(|it| it.count());
         assert!(matches!(n, Ok(0)), "range {lo:?}..{hi:?}: {n:?}");
     }
 }

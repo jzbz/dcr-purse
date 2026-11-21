@@ -34,7 +34,7 @@ fn registry_is_the_parsers() {
 fn wallet() -> (Store, ChainParams) {
     let chain = ChainParams::by_name("simnet").expect("simnet");
     let dir = scratch("export");
-    let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+    let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
     store
         .update(|tx| {
             Manager::create(

@@ -575,3 +575,348 @@ documentation and the restore-every-release CI job in Phase 13.
   answered as already received, which suggests no second payment, but no
   run confirms it).
 - Decrediton: whether it offers or expects any backup of the wallet file.
+
+## Addendum, 2026-11-20 — The `purse-store` part, as built
+
+"Consequences" gives `purse-store` the snapshot copy, the backup record,
+the digest and the verify path in Phase 2, and the owner's answer to Open
+point 6 fixes the store's file name there. This addendum records what was
+built (`crates/purse-store/src/backup.rs`, module `purse_store::backup`,
+whose documentation is the reference), where it differs from the
+decision text and why, what was not built or tested, and the questions it
+leaves for the owner. The decision above is unchanged. The addendum's
+own open points are labelled BK1 to BK6, apart from the backup designs B1
+to B7 compared under "Options considered".
+
+**Decision item 1, as built.** `Store::backup(dir, name, info)` takes one
+read transaction of the live store as the snapshot and copies every table
+it lists, in the byte order of the table names, rows as raw bytes in key
+order, into one write transaction of a new redb file with a 64 MiB cache
+(`BACKUP_CACHE_SIZE`), committed with `Durability::Immediate`. The backup
+record is written into the copy's `meta` table under the key `backup` in
+the same transaction (`BackupRecord`; layout, 54 to 564 bytes: format u8,
+1 ‖ network length u8 ‖ network ‖ schema version u32 BE ‖ version length
+u8 ‖ dcr-purse version ‖ time i64 BE ‖ row count u64 BE ‖ digest, 32
+bytes). The digest is BLAKE-256 (`dcroxide-crypto`, a new dependency of
+`purse-store`, already in the workspace graph) over every row of the
+snapshot, each row as its table's name, key and value, each
+length-prefixed by a u64 big-endian length. Points the decision text left
+open, settled as follows: the store does not know its network, so the
+caller states the network's name and the dcr-purse version (each 1 to 255
+bytes of UTF-8, `BackupInfo`); the time is Unix nanoseconds, the unit of
+ADR-0008's `Clock::now_wall`; a `backup` row in the store being copied
+(a backup file opened directly as a store, without `restore`) is neither
+copied nor digested, so a backup of it carries the same rows and a
+record of its own. One backup at a time: a second, through either entry
+point, is refused at once with `a backup is already running` (kind
+`Invalid`), not queued. Writers were checked not to be blocked: the tests
+commit from inside a running backup and from another thread under its
+snapshot.
+
+**Decision item 2, as built.** After the commit, `compact` with
+`CompactionMode::Balanced` is called until it returns `false`, at most 16
+times (redb's `compact` already repeats until it makes no progress, so the
+second call reports nothing left; the bound only stops a misbehaving
+engine from looping). A published backup reopened and compacted again
+reports nothing to do (`tests/backup.rs`).
+
+**Decision item 3, as built.** The backup checks the name (below), takes
+the backup lock, creates `dir` if it is missing, refuses (kind `Exist`) a
+name under which anything exists in `dir`, a broken link included, before
+it writes anything, removes every entry of `dir/.partial/`, creates
+`.partial/<name>` exclusively, copies, commits, compacts, closes the
+file, checks the final name again, renames, and syncs `dir` and
+`.partial/` (Unix; a no-op on Windows, Open point 7). When the backup
+creates `dir`, and any missing parent of it, it syncs each new directory's
+parent at once (Unix), so that a backup that has returned survives a power
+cut together with the directory holding it; without that sync a first
+backup's whole `backups/` entry could be lost on a file system that does
+not order directory updates, though `backup` had returned. A `dir` given
+as the empty relative path (the current directory) is synced as `.`: the
+sync once opened `""`, which always fails, so such a backup published its
+file and then returned an error, and a retry under the name was refused
+(`tests/backup.rs`, run in a child process because the current directory
+is the whole process's). Two additions
+to the text, both on the side of never touching anything outside
+`.partial/`: a `.partial` that is not a directory, a file or a link to a
+directory included, is refused rather than cleaned
+(`PARTIAL_NOT_DIR_TEXT`); and a link inside `.partial/` is removed, never
+followed. An ordinary error before the rename removes the backup's own
+file from `.partial/`; a stop asked by the caller's observer
+(`Store::backup_observed`, the hook the daemon's shutdown will use, since
+a started backup otherwise ignores its request, Decision item 4) leaves it
+for the next backup, as a crash does. A stop is honoured at every step,
+`Closed` (the last, after the file is complete and closed) included: the
+backup is then not published and the complete file stays in `.partial/`
+for the next backup to remove. After `Closed` only the second check of the
+name, the rename and the directory syncs remain, and each can still fail.
+The final name is checked again just before the rename, but the rename
+itself (`std::fs::rename`) replaces a file created under that name between
+the check and the rename, on Unix and on Windows alike; Open point BK3.
+
+**File modes.** A backup holds everything the store holds, keys included,
+so on Unix the backup file is created with mode 0600 and every directory
+the backup creates (`backups/` and missing parents, `.partial/`, verify's
+scratch directory) with 0700, the modes dcrwallet gives its database file
+(`bolt.Open(dbPath, 0600, nil)`, `wallet/internal/bdb/db.go:321`) and its
+directories (`os.MkdirAll(path, 0700)`, `walletsetup.go:375`), and which
+spec 01 lists among the parity constants. The live store file is created
+0600 the same way (`Store::create_with`; it was created with the
+platform's default, 0644 under the usual umask, before this change). The
+umask can only narrow these modes. A directory that exists keeps the mode
+its owner gave it: the backup does not change permissions it did not
+create. On Windows the files and directories get the default access
+control of their parent, as Go's `os.OpenFile` gives dcrwallet's there.
+`purse_store::FILE_MODE` and `DIR_MODE` name the two modes. Open point
+BK6.
+
+**Decision item 4, the library's part.** `check_backup_name` refuses, each
+with a text of dcr-purse's own (kind `Invalid`), an empty name, one with a
+path separator (`/` or `\` on every platform), one containing `..`, and
+one beginning with a dot. Beyond that list, so that the answer is the same
+on every platform (ADR-0012), it refuses as `backup name is not a portable
+file name` a name Windows would not keep as one file in the backups
+directory: a control character or one of `: * ? " < > |` (`C:w` names a
+drive there and `w:s` an alternate data stream), a trailing dot or space
+(dropped by Windows, so `w.` would be `w`), a device name with or without
+an extension, or more than 255 bytes. The device names, compared without
+regard to ASCII case, are Microsoft's list (`CON`, `PRN`, `AUX`, `NUL`, and
+`COM` and `LPT` followed by a digit 0 to 9 or a superscript `¹`, `²` or
+`³`) and the console names `CONIN$` and `CONOUT$`, which `CreateFile` opens
+as console handles; Go's `isReservedBaseName`
+(`internal/filepathlite/path_windows.go`) reserves the same apart from
+`COM0` and `LPT0`, and the console names only as a whole base name, so
+refusing `CONOUT$.txt` is stricter than Go and costs nothing. A name it
+accepts is exactly one plain path component. Open point BK2. The mapping
+of these refusals to
+JSON-RPC's invalid-parameter code, the absolute path in the reply, the
+log line, and `help` staying silent are Phase 7's.
+
+**Decision items 5 and 6, the library's part.** `verify_backup(file,
+scratch, network)` copies the file into the scratch directory (a new file,
+created exclusively, mode 0600 on Unix), opens the copy only through a
+writable open with `set_check_integrity_on_open`, and removes the copy;
+`file` is only ever read (the tests compare its bytes after every call).
+Only a regular file is copied, and no more of it than its length when it
+was opened: a directory, a FIFO, a socket or a device (`/dev/zero` would be
+copied without end) is refused before anything is copied (`the file to
+verify is not a regular file`, kind `Invalid`), on every platform. The
+type is checked by path before the open (Windows cannot open a directory
+as a file, and would otherwise report an I/O error) and again on the open
+handle, which is authoritative; on Unix the open carries `O_NONBLOCK`
+(the `libc` crate's constant, already in the graph through redb), because
+a plain read-only open of a FIFO with no writer waits for one forever and
+the path can change between the check and the open. The copy's name
+begins `.verify-`, a prefix reserved to verification in the scratch
+directory. On Unix the name
+is removed as soon as the file is created, before a byte is copied: the
+open handle keeps the file, and the kernel frees it when the handle
+closes, however the process ends, so a killed verify leaves no copy. On
+Windows the name stays until the check ends, and a verify killed in
+between leaves its copy, a file exactly as sensitive as the backup it
+copies; each verify therefore first removes every file named with the
+reserved prefix in its scratch directory, so the next verify into the same
+directory removes it. The file being verified is never one of those, even
+when it lies in the scratch directory under the prefix or is reached
+through a link there: the sweep recognises it by device and inode on Unix
+and by canonical path elsewhere, and removes nothing when it cannot
+recognise it. A caller (Phase 8's `verify` and `restore`) that
+gives each run a different scratch directory must remove a killed run's
+directory itself. It refuses, never panicking: a file that is not a redb
+database or fails
+the integrity check; a redb database that is not a dcr-purse store (no
+`meta` table, an unknown `format` row, a table of other key or value
+types, which redb reports as a misuse of the engine and the verify path
+reports as a foreign file); no schema version, version 0, or a version
+newer than the build (`Error::newer_version_info`); a backup record that
+does not decode, whose schema version is not the store's, whose network
+is not the one asked for (kind `Invalid`, `Error::wrong_network`), or
+whose row count or digest is not that of the rows in the file (kind `Io`,
+`Error::unverified`). For a store of this build's schema version it then
+requires every table of the schema, decodes every key and value of every
+table by its types (`ReadTx::check_rows`, new), and runs the store's
+consistency checks, `check_chain` and `check_records`. A plain copy of a
+stopped store has no record and passes on the integrity and consistency
+checks alone, as item 5 says. `verify_backup_on_backend` runs the same
+checks on a storage backend, for the fuzz target. Two limits of what
+"the store's consistency check (ADR-0003 item 4)" can mean today: the
+store has no check yet of the transaction tables' indexes and balances,
+which come with the transaction store in Phase 3 (Open point BK4); and for
+a store of an older schema version the consistency checks are skipped
+and the result says so (`consistency_checked: false`), because `restore`
+migrates before it checks, and no older version exists yet, so that path
+is not exercised. `restore` itself, the tool and its messages are Phase
+8's and were not built.
+
+**Open point 6, the file name.** `purse_store::STORE_FILE_NAME` is
+`wallet.redb`, a name other than `wallet.db` as the owner decided; the
+name itself is proposed here and not decided (Open point BK1). The store's
+functions take their path from the caller and never add the name; the
+tests of `purse-udb` that create a wallet's store use the constant, and
+ADR-0005 Decision item 2 carries a dated pointer to this addendum.
+
+**Schema.** The `backup` row of `meta` exists only in backup files. It is
+an addition to schema version 1 made before any release: no wallet has
+been written at version 1 and no migration exists or is needed, and
+version 1 may still change without one until a release ships (as the
+addenda of ADR-0003 say of its own changes). `MetaKey` does not name the
+row, so a typed walk of a backup's `meta` table stops at it with a
+corrupt-row error; `check_rows` skips it, and `restore` removes it. The
+checked-in version-1 fixture is unchanged.
+
+**Tests** (`crates/purse-store/tests/backup.rs`, 21 tests, two of them
+the child halves of the kill test and of the backup into the current
+directory, which do nothing on their own; Linux on
+x86_64 only in this change):
+
+- A backup taken while another thread commits durably equals one of the
+  states the writer committed (the writer digests the store after every
+  commit) and not the last, the observer holding the snapshot open until
+  the writer has committed twice under it: 4 cases by default
+  (`PURSE_STORE_BACKUP_CASES`), each also verified and opened as a store.
+- A power cut at every storage operation of a backup's copy, commit and
+  compaction into a power-loss backend (the harness of the store's
+  power-loss suite), clean, torn and with every write kept (a killed
+  process's page cache): on the fixture with 40 further rows of each of
+  three tables, 107 operations; with a clean or torn cut 81 images were
+  refused and 27 verified, with every write kept 80 and 28. Every image
+  that verified carried exactly the complete backup's record, and every
+  one of the 27 cuts that fell after the commit had returned, during the
+  compaction or the close, verified. The source store's own backend saw
+  no storage operation during any backup, its digest was unchanged, and
+  it took a durable commit and reopened afterwards. A transient storage
+  error at every operation gives an error or a backup that verifies, the
+  source unchanged, and the store takes further backups (the lock is
+  released on every path).
+- A stop at every step of a file backup (`Prepared`, each of the 42
+  tables copied, `Committed`, `Compacted`, `Closed`) publishes nothing,
+  leaves the source as it was, and leaves `.partial/<name>` refused by
+  verify before the commit (kind `NotExist`, no tables) and verifying as
+  the backup from the commit on; the next backup removes everything in
+  `.partial/` (files and a nested directory) and publishes, and a user's
+  file in the backups directory is untouched.
+- Every name refusal, the device names above with superscript digits,
+  `COM0`, `LPT0` and the console names included, with nothing written and
+  the backups directory not created; an existing name refused before
+  `.partial/` is cleaned; a
+  `.partial` that is a file, and (Unix only) one that links elsewhere,
+  refused with the files there untouched; a link inside `.partial/`
+  removed without following it.
+- `verify_backup` refuses a missing file (kind `NotExist`), empty, zeroed,
+  text and random files, seven truncations, foreign redb files, a newer
+  version (edited, and honestly written by a store of version 2), version
+  0, no version, an unknown format row, an added row, a record with the
+  wrong row count, schema version or network, three undecodable records,
+  an undecodable row, an unknown meta row, a removed header row and a
+  missing table, each with its own error. One bit flipped at 464
+  positions spread over a backup file of the fixture with 30 further rows
+  per table: 133 refused, 331 verified, each of those as the original
+  backup (the flip fell where no check reads, such as unused page space).
+  These ran with redb's debug assertions on, as the test profile builds
+  it, and none fired.
+- (Unix) The store file, a backup and verify's scratch directory have no
+  permission bit outside the owner's, whatever the umask, and the owner can
+  read and write them; a backups directory created two levels deep and
+  `.partial/` likewise; an existing backups directory keeps its 0755.
+- `verify_backup` refuses a directory (and on Unix `/dev/zero` and
+  `/dev/null`) before copying anything, the scratch directory left empty.
+  It removes files named with the reserved prefix that a killed verify
+  left, and nothing else in its scratch directory (a user's file, a
+  directory under the prefix). A child process verifying a backup of the
+  fixture with 400 further rows per table in a loop is killed four times,
+  150 to 360 ms after it starts: on Unix it never leaves a copy holding a
+  byte (an empty file could be caught in the instant between its creation
+  and the removal of its name), and the next verify leaves the scratch
+  directory without a copy, on every platform. With the early removal of
+  the name disabled, the same test failed at once on a 1,118,208-byte copy
+  left behind.
+- The record round-trips (2,000 random records), decodes only canonical
+  encodings (20,000 mutated encodings, 5,712 of which decoded, each
+  re-encoding to its input), has its layout pinned byte for byte and
+  every decoder refusal pinned by its text.
+
+The fuzz target `fuzz/fuzz_targets/backup_verify.rs` decodes arbitrary
+backup records and verifies patched images of a backup of the fixture;
+CI's smoke job runs it without debug assertions, as it runs `store_open`
+and for the same reason (the job's comment). It was run for 121 seconds
+(53,883 inputs) and, after the last changes to this module, again for 60
+seconds (28,151 inputs), both without debug assertions on an x86_64 Linux
+desktop, with no crash. It verifies through `verify_backup_on_backend`, so
+it does not reach `verify_backup`'s file handling (the regular-file check,
+the copy and its removal), which the tests above hold.
+
+**Not built or not tested.**
+
+- The JSON-RPC method (Phase 7), the tool's `verify` and `restore`
+  commands and `restore`'s removal of the record, migration and rename
+  (Phase 8), and the user documentation (Phase 13).
+- A sweep of process kills with real processes, as the Experiments ran:
+  the power-loss sweep's kept-writes cut is the in-process equivalent at
+  every storage operation of the copy and compaction, and the stop at
+  every step covers the boundaries between file-system steps, but the
+  rename and the directory syncs themselves are not cut: they are file
+  system calls outside the power-loss backend, so power loss across the
+  rename is not exercised (as before this change). Nor is the sync of a
+  new backups directory into its parent: it is called, and a backup into a
+  directory created two levels deep is tested, but no power cut shows that
+  the entry survives.
+- Windows and macOS: CI runs the suite there; the link and mode tests are
+  Unix only, the directory sync is a no-op on Windows (Open point 7, to be
+  measured in Phase 8), and on Windows a killed verify's copy stays until
+  the next verify into the same scratch directory (the kill test holds
+  that next verify to removing it). The refusal of a FIFO, a socket and a
+  device without blocking is tested on Unix only (Windows has no FIFO a
+  test can make with std); the refusal of a directory is tested on every
+  platform. On Windows the sweep's recognition of the file being verified
+  rests on `std::fs::canonicalize`, tested by CI's Windows run of the same
+  test but not examined for paths `canonicalize` cannot resolve (the sweep
+  then removes nothing). Whether the backup and the store
+  inherit an access control list on Windows that keeps other users out was
+  not examined.
+- No time or memory of the built backup or verify was measured; the
+  Experiments' figures are the prototype's.
+- Unbounded allocation in verify: the bytes the verify path parses itself
+  are the record's, at most 564; rows are streamed, never collected; what
+  redb allocates reading a hostile file is bounded by its integrity check
+  and, in the fuzz targets, by their 64 MiB image limit, not by this code,
+  and was not measured.
+- The verify path for an older schema version (none exists).
+
+**Open points**, each for the owner, with a recommendation; none is
+decided:
+
+- BK1. *The store's file name: `wallet.redb`.* Other than `wallet.db`, as
+  decided; it says what the file is, and `purse-udb`'s tests already used
+  it. Recommended: accept. Changing it is one constant before a release.
+- BK2. *The name refusals beyond Decision item 4's list* (control
+  characters, `: * ? " < > |`, a trailing dot or space, Windows device
+  and console names as listed above, `COM0` and `LPT0` included, over 255
+  bytes), refused on every platform so that a name means
+  the same file everywhere and never reaches outside the directory on
+  Windows. Recommended: accept, Phase 7 answering them with the same
+  invalid-parameter code as the others.
+- BK3. *The rename replaces a file created under the final name between the
+  last check and the rename.* Only something writing into `backups/`
+  itself, during the microseconds between the two calls, can race it,
+  but then the backup overwrites that file, which item 3 says never
+  happens. The alternative publishes with a hard link from `.partial/`
+  to the final name, which fails if the name exists, then removes the
+  `.partial/` name; some file systems (FAT, some network shares) have no
+  hard links, so it needs the rename as a fallback. Recommended: keep the
+  rename with the second check in 1.0 and record the window in the user
+  documentation; revisit if Phase 7's tests or users show the race.
+- BK4. *The transaction tables' consistency check in verify.* The store
+  checks its chain and record tables; the indexes and balances of the
+  transaction tables (ADR-0003 Decision item 4) have no check in
+  `purse-store` yet. Recommended: when the transaction store builds that
+  check in Phase 3, `verify_backup` runs it too, and the tool's
+  documentation says until then what verify does not check.
+- BK5. *The record's caller-stated fields*: the network as the data
+  directory names it, the version string of ADR-0005 item 9, the time in
+  Unix nanoseconds. Recommended: accept.
+- BK6. *File modes on Unix*: 0600 for the store, a backup and verify's
+  copy, 0700 for every directory the store creates, existing directories
+  left as they are; dcrwallet's modes, spec 01's parity constants. The
+  alternative of copying the live store's mode onto a backup would carry a
+  mode loosened by hand onto every backup. Recommended: accept, and have
+  Phase 8's `restore` create the restored store 0600 the same way.

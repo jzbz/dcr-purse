@@ -71,7 +71,7 @@ fn coin_types_match_upstream() {
 fn create(net: &str, pub_pass: &[u8], priv_pass: &[u8]) -> (Store, Manager, ChainParams) {
     let chain = ChainParams::by_name(net).expect("network");
     let dir = scratch("upstream");
-    let store = Store::create(&dir.join("wallet.redb")).expect("create store");
+    let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
     let mut created = None;
     store
         .update(|tx| {

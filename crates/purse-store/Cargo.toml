@@ -9,6 +9,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# BLAKE-256, the digest of every row a backup copies, which its backup
+# record carries (ADR-0018 Decision item 1 names it). dcroxide's own port,
+# already in the workspace graph; its default features are empty (`rand`
+# stays off).
+dcroxide-crypto.workspace = true
 # Op/Kind: store errors convert into the wallet-wide error model (ADR-0011).
 purse-errors.workspace = true
 # The engine (ADR-0003 Decision item 1), pinned exactly in the root manifest.
@@ -17,6 +22,15 @@ redb.workspace = true
 # (`addr_by_acct_sha`, ADR-0003 Decision item 3). The release already in the
 # lock file; no default features.
 sha2 = { version = "0.11.1", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+# `O_NONBLOCK`, so that opening the file handed to `verify_backup` cannot
+# block on a FIFO with no writer before its type is checked on the handle;
+# its value differs between Unix systems and architectures, which a
+# constant of the store's own would have to track. Bindings only (no C is
+# compiled), and the release already in the lock file through redb; no
+# default features.
+libc = { version = "0.2.191", default-features = false }
 
 [dev-dependencies]
 # SplitMix64 for the seeded property tests.

@@ -4,8 +4,8 @@
 
 //! Test support shared by the store's fault-injection, model and migration
 //! suites: a power-loss storage backend for redb 5, a digest of every
-//! table, and a consistency checker of the chain tables independent of the
-//! store's own (`chain`).
+//! table, and consistency checkers of the chain tables (`chain`) and of the
+//! indexed record tables (`records`), each independent of the store's own.
 //!
 //! Each test file that needs it says `mod support;`; not every file uses
 //! every item.
@@ -21,6 +21,7 @@
 
 pub mod chain;
 pub mod powerloss;
+pub mod records;
 
 use purse_store::{Hash32, HeaderBytes, MetaKey, ReadTx, TableId};
 use redb::{ReadableDatabase as _, ReadableTable as _, TableDefinition, TableHandle as _};

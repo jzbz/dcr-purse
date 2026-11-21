@@ -744,6 +744,8 @@ dependencies = [
 name = "purse-store"
 version = "0.1.0"
 dependencies = [
+ "dcroxide-crypto",
+ "libc",
  "purse-errors",
  "redb",
  "sha2",

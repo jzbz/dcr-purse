@@ -18,6 +18,11 @@ use purse_store::{
     Outpoint, SealedKey, Slip0044Acct0Row, Tip, TxMinedRow, TxRecKey, TxUnminedRow,
     UnminedCreditRow, UnpublishedFlag, UnspentRow, WalletKey,
 };
+use purse_store::{
+    AgendaChoice, AgendaKey, MultisigOutRow, MultisigUnspentKey, PiKey, TicketAgendaKey,
+    TreasuryVote, VspFeeStatusKey, VspHost, VspHostId, VspPubKeyRow, VspTSpendKey, VspTicketRow,
+    VspTreasuryKey,
+};
 
 fn check<T: Codec>(b: &[u8]) {
     if let Ok(x) = T::decode(b) {
@@ -29,7 +34,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((&which, row)) = data.split_first() else {
         return;
     };
-    match which % 40 {
+    match which % 54 {
         0 => check::<Hash32>(row),
         1 => check::<Hash160>(row),
         2 => check::<Height>(row),
@@ -69,6 +74,20 @@ fuzz_target!(|data: &[u8]| {
         36 => check::<SealedKey>(row),
         37 => check::<CoinTypeKeys>(row),
         38 => check::<Slip0044Acct0Row>(row),
+        39 => check::<MultisigUnspentKey>(row),
+        40 => check::<VspHostId>(row),
+        41 => check::<VspHost>(row),
+        42 => check::<VspFeeStatusKey>(row),
+        43 => check::<PiKey>(row),
+        44 => check::<VspTSpendKey>(row),
+        45 => check::<VspTreasuryKey>(row),
+        46 => check::<AgendaKey>(row),
+        47 => check::<TicketAgendaKey>(row),
+        48 => check::<MultisigOutRow>(row),
+        49 => check::<VspTicketRow>(row),
+        50 => check::<VspPubKeyRow>(row),
+        51 => check::<TreasuryVote>(row),
+        52 => check::<AgendaChoice>(row),
         _ => check::<Tip>(row),
     }
 });

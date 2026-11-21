@@ -921,7 +921,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
     let mut rng = SplitMix64(state);
 
     std::fs::create_dir_all(dir).map_err(|e| fault(format!("create {}: {e}", dir.display())))?;
-    let path = dir.join("wallet.redb");
+    let path = dir.join(purse_store::STORE_FILE_NAME);
     let store = Store::create(&path).map_err(|e| fault(format!("create store: {e}")))?;
     let mut create_rng = source(&mut rng);
     let created: Result<(), RunErr> = store.update(|tx: &mut WriteTx<'_>| {

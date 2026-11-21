@@ -254,6 +254,14 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   not this item's method; bench ledger, "Signing at dcroxide `2074168`"),
   against the 1.72× in Phase 4's row.*
 
+  *2026-11-20: the row for Phases 2 and 3 measured for `purse-store` as
+  built against dcrwallet's udb on one generated wallet, on the shared
+  desktop (ADR-0003, addendum "`purse-store` against dcrwallet on the
+  same workload"; bench ledger, entry of that date). No figure was slower
+  than Go. A balance was 36,800 to 102,500 times faster, and a range over
+  blocks 1.86 to 2.05 times. N is not set yet (ADR-0003 Open point M1), and
+  the dedicated-machine run is owed (its Open point M2).*
+
   Phase 5 runs both sides on a mainnet-scale scripted backend; served from
   memory it gates local work, and the wire gains are gated at Phase 10.
 - **Regressions.** CI gates exactly only deterministic counters (filter

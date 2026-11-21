@@ -62,7 +62,7 @@ own flow. ADR-0013 records the decision and these costs.
 | `purse-txauthor` | dcrwallet `wallet/txauthor`: the fee, input and change loop over abstract input and change sources, change-position randomization drawn through dcroxide's generator (process-wide, or a caller's seeded `Prng`), and the input-signing loop | implemented, differential against Go |
 | `purse-mixsolver` | the StakeShuffle root solver over F = 2¹²⁷ − 1, in place of dcrwallet's external `csppsolver` | implemented, differential against the FLINT-backed reference |
 | `sntrup4591761` | `companyzero/sntrup4591761`: the Streamlined NTRU Prime 4591^761 KEM of the mixing key exchange, byte-compatible down to the randomness it draws | implemented, differential against Go; 13 to 44 times faster than Go, constant time |
-| `purse-store` | the wallet's own store on redb 5 in place of `walletdb` and bbolt (ADR-0003): every table of the schema with documented encodings, main-chain headers and filters keyed by height and detached ones by hash, typed transactions, bbolt-ordered cursors, schema versioning and migrations, relaxed durability confined to initial sync | in progress: cursors conform to bbolt through the oracle; a power cut at every storage operation, a model-based property test and a migration cut at every write pass (brief Phase 2's exit tests); the multisig, voting-account, VSP, agenda and treasury records and spec 05's aux buckets, and backup, not yet written |
+| `purse-store` | the wallet's own store on redb 5 in place of `walletdb` and bbolt (ADR-0003): every table of the schema with documented encodings, main-chain headers and filters keyed by height and detached ones by hash, typed transactions, bbolt-ordered cursors, schema versioning and migrations, relaxed durability confined to initial sync | Phase 2's five exit clauses held, closing awaits the owner ([PHASE2-EXIT.md](docs/PHASE2-EXIT.md)): cursors conform to bbolt through the oracle; a power cut at every storage operation, a model-based property test and a migration cut at every write pass (brief Phase 2's exit tests); the multisig, VSP, agenda and treasury records (spec 05's aux buckets) have their tables and typed operations; the VSP, agenda and treasury records are checked against dcrwallet's udb through the `oprunner` oracle, the multisig records only for the one order a client sees, against bbolt through `boltcursor` (their udb differential waits for Phase 3's transaction records); voting accounts and imported keys and scripts are rows of the existing tables; the backup of ADR-0018 is built as library functions (snapshot copy, backup record, publication through `.partial/`, a verify path that never trusts the file), files created owner-only on Unix as dcrwallet's are, tested with a power cut at every storage operation of a backup, a killed verify and damaged and foreign files; its JSON-RPC method and tool come in Phases 7 and 8; measured against dcrwallet's udb on the same wallet (100,075 transactions), with the transaction-store rows written by the test until Phase 3: balances 36,800 to 102,500 times faster, ranges over blocks 1.86 to 2.05 times, address and account lookups 1.8 to 4.0 times, commits 1.6 to 1.9 times, on a shared desktop ([bench-ledger.md](docs/bench-ledger.md), 2026-11-20); the file name `wallet.redb` is proposed, not yet fixed |
 | `purse-udb` | dcrwallet `wallet/udb` over `purse-store`: the address manager and, later, the transaction store, plus the Rust producer of the logical export (ADR-0001) | in progress: the address manager's creation, opening and wallet lock, the coin type (its private key and the SLIP0044 upgrade), its accounts (BIP0044 and imported xpub), addresses (sync, recording, lookups, private keys, the used and returned indexes), imported keys and scripts, and `Encrypt`/`Decrypt` pass the operation-script differential against Go on all four networks and both coin types (results and masked exports; the divergences recorded in `docs/PARITY.md` are pinned on both sides), with frozen vectors, the reachable upstream tests and property tests; watching-only wallets, voting accounts, per-account passphrases and passphrase changes are listed as not written in its crate documentation |
 | `purse-export-check` | — | the logical export's strict parser and conformance tests (ADR-0001), and the operation-script corpus run through the Go runner (ADR-0002); a test utility until the store exists |
 | `purse-testutil` | — | the oracle harness, the version-skew checks and test helpers |
@@ -129,6 +129,8 @@ Environment variables the tests read:
 | `PURSE_TXAUTHOR_CASES` | multiplier of the random instances in the `purse-txauthor` property tests (default 1) |
 | `PURSE_UDB_SCRIPTS` | number of generated operation scripts in the `purse-udb` differential against Go (default 24; all four networks, simnet most often, and half of them upgraded to the SLIP0044 coin type) |
 | `PURSE_UDB_CASES` | number of random wallets or generated scripts in each `purse-udb` property test (default 24) |
+| `PURSE_STORE_BENCH_DIR` | directory for the files of the ignored store measurements (`purse-store`'s `tests/measure.rs`, `purse-udb`'s `tests/measure.rs`); required by them, and outside the repository |
+| `PURSE_UDB_MEASURE_BLOCKS`, `PURSE_UDB_MEASURE_ROUNDS` | chain length (default 40,000 blocks) and rounds per side (default 3) of the ignored measurement of `purse-store` against dcrwallet's udb (`purse-udb`'s `tests/measure.rs`) |
 | `PURSE_REQUIRE_FLINT` | the `purse-mixsolver` comparison against the FLINT-backed reference solver fails instead of skipping when that oracle is missing; it needs FLINT installed and the oracle built with `-tags flint` into `PURSE_ORACLE_DIR` |
 
 Fuzz targets build on nightly with
@@ -161,6 +163,17 @@ sizes, which the test suite does. The CI gate is the same driver with
 `--gate crates/purse-bench/gate-baseline.tsv`: it fails when a ratio of
 Rust's time to Go's is more than twice its baseline. The workloads and
 their criteria are listed in `crates/purse-bench/src/lib.rs`.
+
+The store is measured against dcrwallet's own database code (`wallet/udb`
+over bbolt, through `tools/oracle/cmd/storebench`) by an ignored test that
+builds the same wallet on both sides, checks that their exports and every
+query's answer agree, and alternates the two sides in one session (ADR-0003,
+addendum "`purse-store` against dcrwallet on the same workload"):
+
+```sh
+PURSE_STORE_BENCH_DIR=<new directory> PURSE_REQUIRE_ORACLE=1 taskset -c 12-15 \
+  cargo test --release -p purse-udb --test measure -- --ignored --nocapture --test-threads 1
+```
 
 ## Moving the pin
 

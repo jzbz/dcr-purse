@@ -615,6 +615,91 @@ backend compresses, so the byte counts do not depend on it); deep
 reorganisations (above 6 blocks) on a grown file; other platforms and file
 systems.
 
+### 2026-11-20 — `purse-store` against dcrwallet's udb on the same workload
+
+Brief §6 Phase 2 exit, last item; ADR-0014 §4's row for Phases 2 and 3.
+Recorded in ADR-0003's addendum "`purse-store` against dcrwallet on the
+same workload", which says what each side runs and why.
+
+- **Machine:** d1, shared, lightly loaded: one-minute load average 1.08
+  at the first session's start and 1.31 at its end, 1.59 and 1.56 at the
+  second's, 1.56 and 2.10 at the third's. The whole test was pinned with
+  `taskset -c 12-15` (four cores of one die; their SMT siblings were not
+  reserved), and both sides inherited that pinning. Nothing was pinned
+  away from those cores. 2026-11-20, 23:32:35 to 23:34:59, 23:35:09 to
+  23:37:33 and 23:37:33 to 23:39:58 UTC.
+- **Commits:** dcr-purse `a5cdb88` with the uncommitted changes that add
+  the remaining records and the backup path to `purse-store`, and this
+  measurement (`crates/purse-udb/tests/measure.rs`, storebench's `hot`
+  command); dcroxide `2074168`; redb 5.0.0; Rust 1.100.0, `cargo test
+  --release` (the workspace's release profile: thin LTO, one codegen
+  unit). Go: dcrwallet `54b85b33`
+  (`v5.0.1-0.20261105142009-54b85b336077`) over bbolt v1.3.12, built with
+  Go 1.27.4 (`go1.27.4-X:nodwarf5`).
+- **Workload:** generated from a fixed seed, the same in all three
+  sessions: simnet, four BIP0044 accounts, 40,000 blocks (300 at the
+  tip), 100,075 wallet transactions (70,209 receives, 29,866 sends),
+  72,242 recorded addresses, 58,382 unspent outputs at the end. The
+  canonical exports of the two databases were equal line for line in
+  every session (Go's export file, 257,160 lines, had the same MD5 in all
+  three), and every query's check value was equal in every round.
+- **Command** (three times, back to back):
+
+  ```text
+  PURSE_STORE_BENCH_DIR=<scratch directory> PURSE_REQUIRE_ORACLE=1 \
+    taskset -c 12-15 cargo test --release -p purse-udb --locked --test measure -- \
+    --ignored --nocapture --test-threads 1
+  ```
+
+  Each session runs three rounds, alternating which side goes first (Rust
+  then Go, Go then Rust, Rust then Go). A query repeats at least 5 times
+  and until a second has passed (at most 200), and a round reports its
+  median. A range query decodes and keeps every transaction on both
+  sides, and the check text is built after the timing on both sides. The
+  history sync is timed once per side per session. The figures are the
+  median of the 9 round medians per side (3 for the history sync) and
+  their range.
+- **Supersedes** a first run of the same day (22:27 to 22:36 UTC) whose
+  Go side formatted each range's transactions inside the timed loop and
+  whose Rust side did not; it recorded range ratios of 0.431 to 0.470
+  (2.13x to 2.32x), inflated by that formatting (8 to 18 per cent of Go's
+  range figures). Its other rows agree with these within their ranges.
+- **Raw:** per session, `results.tsv`, `notes.txt`, `table.md` and Go's
+  export; not retained.
+
+| figure | Go median (range) | Rust median (range) | Rust/Go | Rust/Go by session |
+|---|---|---|---|---|
+| balance, account 0, minconf 1 | 93.59 ms (91.39–101.27 ms) | 930 ns (910 ns–1.48 µs) | 9.94e-6 | 9.83e-6, 1.47e-5, 1.05e-5 |
+| balance, account 0, minconf 6 | 89.72 ms (88.08–96.37 ms) | 1.01 µs (980 ns–1.47 µs) | 1.13e-5 | 1.13e-5, 1.19e-5, 1.27e-5 |
+| balance, account 3, minconf 1 | 90.17 ms (87.83–96.18 ms) | 880 ns (860 ns–1.29 µs) | 9.76e-6 | 9.77e-6, 1.03e-5, 1.08e-5 |
+| balance, account 3, minconf 6 | 89.23 ms (87.24–92.57 ms) | 880 ns (860 ns–1.28 µs) | 9.86e-6 | 9.86e-6, 1.05e-5, 1.08e-5 |
+| balance, all accounts, minconf 1 | 88.98 ms (87.41–93.13 ms) | 2.42 µs (2.36–2.60 µs) | 2.72e-5 | 2.74e-5, 2.90e-5, 2.73e-5 |
+| range: last 1,000 blocks, backward | 7.13 ms (6.99–8.40 ms) | 3.82 ms (3.75–4.31 ms) | 0.536 | 0.605, 0.517, 0.535 |
+| range: 1,000 blocks mid-chain, forward | 7.16 ms (6.75–8.76 ms) | 3.86 ms (3.71–4.29 ms) | 0.538 | 0.540, 0.525, 0.551 |
+| range: 100 most recent transactions | 224.2 µs (219.3–235.2 µs) | 113.8 µs (109.7–118.1 µs) | 0.507 | 0.494, 0.509, 0.509 |
+| range: whole history | 413.9 ms (398.6–435.5 ms) | 201.6 ms (194.5–238.6 ms) | 0.487 | 0.488, 0.505, 0.470 |
+| 1,000 lookups by script, `Manager.Address` | 68.12 ms (68.03–70.40 ms) | 37.18 ms (36.95–38.35 ms) | 0.546 | 0.545, 0.545, 0.543 |
+| 1,000 lookups by script, `AddrAccount` | 604.5 µs (596.5–633.5 µs) | 333.9 µs (326.9–387.7 µs) | 0.552 | 0.616, 0.546, 0.545 |
+| 1,000 `LookupAccount` | 169.1 µs (167.9–170.5 µs) | 89.5 µs (87.6–96.2 µs) | 0.529 | 0.569, 0.521, 0.524 |
+| 1,000 `AccountProperties` | 872.1 µs (846.4–908.3 µs) | 219.9 µs (213.5–224.7 µs) | 0.252 | 0.252, 0.246, 0.253 |
+| commit: tip block, p50 | 13.60 ms (13.21–13.91 ms) | 8.52 ms (7.84–8.98 ms) | 0.627 | 0.622, 0.620, 0.632 |
+| commit: record one address, p50 | 10.67 ms (10.52–11.30 ms) | 5.70 ms (5.39–7.27 ms) | 0.534 | 0.527, 0.527, 0.540 |
+| ingest: history sync, per block | 488.4 µs (483.9–502.7 µs) | 288.1 µs (287.1–290.9 µs) | 0.590 | 0.593, 0.590, 0.579 |
+
+On every row the ranges do not overlap, and in every session Rust was the
+faster on every row. The tip-block commit's p90 was 15.54 ms
+(15.07–16.98 ms) on Go and 10.30 ms (9.63–11.11 ms) on Rust. File sizes
+after the history sync: bbolt 217,260,032 bytes, redb 159,780,864 bytes.
+Go's history sync wrote 882,655,232 to 884,457,472 bytes (`write_bytes`);
+the Rust side's bytes were not counted.
+
+**What this entry does not show.** A dedicated machine's figures; cold
+reads; the Rust side's transaction-store logic as Phase 3 will write it
+(the test composes those rows itself, see the ADR addendum); stake,
+coinbase, unmined and reorganisation paths and input selection; store
+open, backup and crash recovery; memory; other platforms and file
+systems.
+
 ## purse-txrules and purse-txauthor
 
 The crates' ignored `tests/bench.rs` time their main entry points against

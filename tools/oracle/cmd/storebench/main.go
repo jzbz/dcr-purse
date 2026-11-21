@@ -40,6 +40,13 @@
 //	        committed filters of about filter_len bytes through
 //	        ExtendMainChain, batch headers per write transaction (SPV
 //	        initial sync). Returns timings and bytes written.
+//	hot     {db, ...} (see hotArgs in hot.go)
+//	        Times the hot paths of brief section 6 Phase 2 that the
+//	        measurement of purse-store against dcrwallet compares
+//	        (crates/purse-udb/tests/measure.rs): balances, ranges over
+//	        blocks, address and account lookups, and one-address commits.
+//	        Returns the timings and, per query, a check value the Rust side
+//	        must give too.
 //
 // The workload format is the spike's (spikes/store-redb/src/workload.rs).
 package main
@@ -97,6 +104,7 @@ func main() {
 		"backup":  cmdBackup,
 		"cursor":  cmdCursor,
 		"headers": cmdHeaders,
+		"hot":     cmdHot,
 	})
 }
 

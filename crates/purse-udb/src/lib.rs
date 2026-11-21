@@ -228,6 +228,12 @@
 //! - `tests/export.rs`: the export parses under `purse-export-check`, its
 //!   registry equals the parser's, it refuses a store holding rows it
 //!   does not export, and its options' `Debug` hides the passphrases.
+//! - `tests/measure.rs`: not a parity test, but the measurement of
+//!   `purse-store` and this address manager against dcrwallet's udb over
+//!   bbolt on the same generated wallet (ADR-0003, addendum "`purse-store`
+//!   against dcrwallet on the same workload"). Its small run holds the two
+//!   wallets' canonical exports equal line for line and every timed
+//!   query's answer equal, in every test run; the measured run is ignored.
 
 #![forbid(unsafe_code)]
 

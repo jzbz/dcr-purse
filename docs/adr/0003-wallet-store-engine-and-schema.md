@@ -1465,3 +1465,187 @@ export (ADR-0001) of these records is `purse-udb`'s, not built.
   (QK-0054, candidate). The store can hold either outcome. Recommended:
   decide in Phase 3 with an oracle run of `redeemmultisigouts`, under
   ADR-0012 Rule 1 (the tree reaches a client in that result).
+
+## Addendum, 2026-11-20 — `purse-store` against dcrwallet on the same workload
+
+The brief's Phase 2 exit ends with "the schema ADR records the measured
+gains against dcrwallet on the same workload" (brief §6 Phase 2), and
+ADR-0014's exit row for Phases 2 and 3 asks for "no slower than Go on
+ADR-0003's workload" and "≥N times faster on balance, range queries (N
+from ADR-0003)" (ADR-0014 §4). The spike's figures above were the
+prototype's; this addendum records the store as built, on the hot paths
+the brief names (balances recomputed by a full scan of the unspent
+outputs, range queries that walk every block record, address and account
+lookups) and on commit cost. The ledger entry is
+[`docs/bench-ledger.md`](../bench-ledger.md), "2026-11-20 —
+`purse-store` against dcrwallet's udb on the same workload".
+
+**The two sides.** Go is `tools/oracle/cmd/storebench`, which links
+dcrwallet's `wallet/udb` at the parity pin over bbolt v1.3.12, opened as
+dcrwallet opens it (every commit synchronous): its `setup` and `ingest`
+commands, unchanged since the spike, feed the wallet with the call
+sequence of `extendMainChain` and `processTransactionRecord`, and a new
+`hot` command (`tools/oracle/cmd/storebench/hot.go`) times the queries
+through udb's own API and returns a check value for each. Rust is
+`crates/purse-udb/tests/measure.rs`: `purse-udb`'s address manager over
+`purse-store`, every commit `Durability::Immediate`. The transaction store
+of `purse-udb` is Phase 3's and not written, so the test writes each
+block's transaction-store rows itself (`blocks`, `history`, `tx_mined`,
+`credits`, `debits`, `unspent`, `balances`, `balance_heights`,
+`acct_history`), as Decision items 2 and 4 say the write path writes
+them, and reads them as the schema intends: the balance from the running
+sums plus the per-height rows of the depth window, the range from
+`history`. That code is the spike's `account_balance` and
+`range_transactions` moved onto `purse-store`'s typed tables. Address
+lookups, `MarkUsed`, the gap-limit sync, account lookups and
+`AccountProperties` are `purse-udb`'s own code. What the figures measure
+is therefore the schema, the store and the address manager as built. The
+transaction store's code must be measured again when Phase 3 writes it.
+
+**The same data.** A generator in the test builds a simnet history from a
+fixed seed: 40,000 blocks, the last 300 at the tip, 100,075 wallet
+transactions (70,209 receives to fresh or reused external addresses,
+29,866 sends of one to three of the wallet's outputs with change to a
+fresh internal address), over four Zipf-weighted BIP0044 accounts; every
+block approves its parent; no stake, coinbase or unmined transactions and
+no reorganisations. Those paths need the transaction store's logic, which
+is Phase 3's. Its 72,242 addresses are derived from the seed with
+`purse-hdkeychain`, and each side records them through its address
+manager and checks every one at the generator's account, branch and
+index. The history goes to both sides in the spike's `PURSEWL1` format:
+the history sync in write transactions of 2,000 blocks, then one write
+transaction per tip block. Before anything is timed, both databases are
+compared through storebench's canonical export, which must be equal line
+for line: tip, unspent count (58,382 at the end), every account's
+counters, balances at minconf 0, 1 and 6, every unspent output with its
+script, the four ranges below with every credit and debit, the outpoint
+walk, and each account's addresses in `ForEachAccountAddress` order
+(105,293 transaction lines, 23.8 MB). Every timed query's answer must
+also equal Go's in every round. The test's non-ignored half
+(`same_data_and_answers_on_both_sides`) runs this pipeline at 240 blocks
+in every test run.
+
+**Method.** One session generates the workload, sets up both wallets,
+ingests the history sync once per side (timed), then runs three rounds,
+alternating which side goes first. Each round copies the side's file,
+ingests the tip blocks (each commit timed) and runs the queries. Go runs
+in a fresh oracle process each round, and Rust on a freshly opened store.
+A query repeats at least 5 times and until a second has passed (at most
+200), and a round reports its median. The timed work is the same on both
+sides: a range query decodes and keeps every transaction it returns
+(storebench copies udb's batches out of its callback, since udb reuses the
+slice), and the text its check compares is built after the timing on both
+sides; a lookup batch builds its check text inside the timing on both
+sides. Three sessions were run, so each figure below is the median of 9
+round medians per side (3 for the history sync), with their range. The
+test binary was a release build. The whole test was pinned with `taskset
+-c 12-15`, so both sides ran on the same four cores. The machine was the
+bench ledger's d1, a shared desktop, lightly loaded during these sessions
+(one-minute load average 1.08 at the first one's start, 2.10 at the
+third's end); nothing was pinned away from the measured cores. The figures
+are wall-clock times on a shared machine, not a dedicated one.
+
+**Correction, same day.** A first run of this measurement, three sessions
+earlier on 2026-11-20, timed different work for the ranges on the two
+sides: storebench formatted every transaction of a range into its check
+text inside the timed loop, and the Rust side only after it. That
+formatting was 8 to 18 per cent of Go's range figures, and the first run
+recorded range gains of 2.13x to 2.32x, which overstated them. Review
+found it; storebench's `hot` now keeps the batches and formats them after
+the timing, and every figure below, the other rows included, is from three
+new sessions with that change. The other rows of the first run had the
+same work on both sides and agreed with these within their ranges.
+
+| figure | dcrwallet, bbolt | purse-store | dcrwallet ÷ purse-store | ranges overlap |
+|---|---:|---:|---:|---|
+| balance, account 0, minconf 1 | 93.59 ms (91.39–101.27) | 0.93 µs (0.91–1.48) | 100,600x | no |
+| balance, account 0, minconf 6 | 89.72 ms (88.08–96.37) | 1.01 µs (0.98–1.47) | 88,800x | no |
+| balance, account 3, minconf 1 | 90.17 ms (87.83–96.18) | 0.88 µs (0.86–1.29) | 102,500x | no |
+| balance, account 3, minconf 6 | 89.23 ms (87.24–92.57) | 0.88 µs (0.86–1.28) | 101,400x | no |
+| balance, all accounts, minconf 1 | 88.98 ms (87.41–93.13) | 2.42 µs (2.36–2.60) | 36,800x | no |
+| range: last 1,000 blocks, backward | 7.13 ms (6.99–8.40) | 3.82 ms (3.75–4.31) | 1.87x | no |
+| range: 1,000 blocks mid-chain, forward | 7.16 ms (6.75–8.76) | 3.86 ms (3.71–4.29) | 1.86x | no |
+| range: 100 most recent transactions | 224.2 µs (219.3–235.2) | 113.8 µs (109.7–118.1) | 1.97x | no |
+| range: whole history | 413.9 ms (398.6–435.5) | 201.6 ms (194.5–238.6) | 2.05x | no |
+| 1,000 address lookups by script, `Manager.Address` | 68.12 ms (68.03–70.40) | 37.18 ms (36.95–38.35) | 1.83x | no |
+| 1,000 address lookups by script, `AddrAccount` | 604.5 µs (596.5–633.5) | 333.9 µs (326.9–387.7) | 1.81x | no |
+| 1,000 account lookups by name | 169.1 µs (167.9–170.5) | 89.5 µs (87.6–96.2) | 1.89x | no |
+| 1,000 `AccountProperties` | 872.1 µs (846.4–908.3) | 219.9 µs (213.5–224.7) | 3.97x | no |
+| commit: block at the tip, p50 | 13.60 ms (13.21–13.91) | 8.52 ms (7.84–8.98) | 1.60x | no |
+| commit: record one address, p50 | 10.67 ms (10.52–11.30) | 5.70 ms (5.39–7.27) | 1.87x | no |
+| ingest: history sync, per block | 488.4 µs (483.9–502.7) | 288.1 µs (287.1–290.9) | 1.70x | no |
+
+Each session's ratios are in the ledger entry; in every session,
+purse-store was the faster on every row. The tip-block commit's p90 was
+15.54 ms (15.07–16.98) against 10.30 ms (9.63–11.11). After the history
+sync the bbolt file was 207.2 MiB and the redb file 152.4 MiB.
+
+**Read against the schema.**
+
+- *Balances*, 36,800 to 102,500 times faster. dcrwallet walks all 58,382
+  unspent outputs on every call, and for each one reads the credit and
+  the transaction record and resolves the account. Its cost is the same
+  for every account and grows with the wallet (5.8, 70 and 758 ms at the
+  spike's three sizes). The store reads one account's class sums and, for
+  minconf above 1, the per-height rows of the depth window (here 0 to 5
+  rows). The spike's prototype was at 1.5 to 2.6 µs, and the store at
+  about 0.9 µs.
+- *Ranges*, 1.86 to 2.05 times faster, at the low end of the prototype's
+  1.9x to 3.5x. Both sides decode and keep every transaction they return,
+  and neither formats it inside the timing; that decoding bounds the
+  gain. The store's `history` index skips blocks without wallet
+  transactions, but five blocks in six of this workload carry some (2.5
+  on average), so it shows little of that part of the gain.
+- *Address and account lookups*, 1.8 to 4 times faster, not the 190x to
+  420x the spike recorded. The spike's prototype answered a lookup by
+  script from one index row. `purse-udb`'s `Manager::address`, like
+  dcrwallet's, derives the child's public key for a derived address
+  (whether `addr_by_hash` stores public keys is Open point 7, to be
+  decided in Phase 3), so derivation dominates
+  both sides (about 37 µs per lookup in Rust, 68 µs in Go). Where nothing
+  is derived (`AddrAccount`, `LookupAccount`), the store is 1.8 to 1.9
+  times faster: each is one B-tree lookup on both sides, so the gain is
+  the engine's and the code's, not the schema's. `AccountProperties` is 4
+  times faster: one row and a cached account against dcrwallet's cached
+  account info, its account row and variables, and its passphrase
+  check.
+- *Commits*, 1.6 to 1.9 times faster, fsync-bound on both sides: bbolt
+  syncs twice per commit and redb once. This agrees with the spike's
+  1.2x to 2.0x, which ranged with the machine's sync time. The history
+  sync's 1.70x includes the gap-limit derivations both sides do per
+  credit.
+
+**Where the store is slower.** On none of the sixteen figures. The paths
+where the spike found the prototype slower were not measured here for
+the store as built: opening for writing (5 to 16 ms against 0.7 to 2.8
+ms), hot backup (4 to 8 times slower; `Store::backup` as built was not
+timed, ADR-0018, addendum "The `purse-store` part, as built"), recovery
+after a killed writer, and a file larger than bbolt's at the 1m size. At
+this size the redb file is the smaller.
+
+**What this does not show.** A dedicated machine's figures (ADR-0014 §4
+decides exit criteria there); cold reads (the page cache was not dropped);
+the spike's 1m size; stake, coinbase, unmined, stake-invalidation and
+reorganisation paths, and input selection, which need the transaction
+store; the transaction store's own code (Phase 3); memory; bytes written
+on the Rust side; Windows, macOS and other file systems.
+
+**Open points**, each for the owner, with a recommendation:
+
+- M1. *N for ADR-0014's row for Phases 2 and 3* ("≥N times faster on
+  balance, range queries (N from ADR-0003)"), which no record has set.
+  Recommended: N = 1,000 for a balance query and N = 1.5 for a range
+  query, against the measured 36,800x and 1.86x on a 100,000-transaction
+  wallet, both of which hold at every size the spike measured. The row's
+  "no slower than Go on ADR-0003's workload" holds on every figure above.
+- M2. *A run on a dedicated machine.* ADR-0014 §4 decides exit criteria
+  and wall-clock figures there, and this entry is from the shared
+  desktop. Recommended: run the same command there before Phase 3's exit,
+  together with the Phase 1 run that is still owed. The several-fold rows
+  are far outside the noise seen here. The commit rows, which are bound by
+  the machine's sync time, are the ones a dedicated run could move.
+- M3. *Measure again when Phase 3 writes the transaction store*, with
+  the same test calling `purse-udb`'s transaction-store functions instead
+  of its own composition, and with stake, unmined and reorganisation
+  operations added to the workload. Recommended: yes, as part of Phase
+  3's exit.

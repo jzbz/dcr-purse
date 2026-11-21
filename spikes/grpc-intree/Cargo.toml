@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 # TLS: rustls 0.23 on dcroxide's in-tree provider, at the revision the main
 # workspace pins, with no default features (no ring, no aws-lc).
-dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
 
 [dev-dependencies]

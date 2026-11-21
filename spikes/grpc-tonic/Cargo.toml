@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 # TLS: the same provider and rustls as the in-tree variant, with
 # tokio-rustls on top, all without default features (no ring, no aws-lc).
-dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "2074168ddda31bf49da34e8d20688359931b7a77" }
+dcroxide-tlscrypto = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["tls12"] }
 # The runtime, confined to the listener.

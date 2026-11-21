@@ -34,7 +34,8 @@ chaincfg = ["dep:dcroxide-chaincfg"]
 
 [dev-dependencies]
 # The general base58 codec the crate's own fixed-buffer codec is tested
-# against (the crate does not use it: its working vectors are not wiped).
+# against (the crate does not use it: it wipes neither its working limbs
+# nor its output).
 dcroxide-base58.workspace = true
 # The wallet-level differential (tests/wallet_diff.rs) and the upstream
 # examples: each network's coin types and address prefixes, and the P2PKH

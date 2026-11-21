@@ -4,11 +4,12 @@
 // Use of this source code is governed by an ISC license that can be found in
 // the LICENSE file.
 
-//! Base58 (decred/base58 v1.0.6 `Encode`/`Decode`, the algorithm of
-//! `dcroxide-base58`) specialised to the 82-byte extended key, over fixed
-//! buffers that are wiped, so neither direction leaves a private key's
-//! bytes or digits in freed memory. Equivalence with `dcroxide-base58` is
-//! tested over the parse corpus and random and mutated strings.
+//! Base58 (decred/base58 v1.0.6 `Encode`/`Decode`, whose outputs
+//! `dcroxide-base58` gives) specialised to the 82-byte extended key, over
+//! fixed buffers that are wiped, so neither direction leaves a private
+//! key's bytes or digits in freed memory. Equivalence with
+//! `dcroxide-base58` is tested over the parse corpus and random and mutated
+//! strings.
 
 use alloc::string::String;
 
@@ -129,7 +130,7 @@ pub(crate) fn encode_extended_key(input: &[u8; DECODED_DATA_LEN]) -> Zeroizing<S
 
 #[cfg(test)]
 mod tests {
-    //! Equivalence with `dcroxide_base58` (decred/base58's algorithm): the
+    //! Equivalence with `dcroxide_base58` (decred/base58's outputs): the
     //! decoder must accept exactly the strings whose general decoding is
     //! 82 bytes, with the same bytes, and the encoder must give the same
     //! string.

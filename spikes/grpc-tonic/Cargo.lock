@@ -256,7 +256,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-crypto"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
+source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
@@ -266,7 +266,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-tlscrypto"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=2074168ddda31bf49da34e8d20688359931b7a77#2074168ddda31bf49da34e8d20688359931b7a77"
+source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",

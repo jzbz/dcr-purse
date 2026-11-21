@@ -106,8 +106,9 @@
 //!   HMAC-SHA512 output (Il and Ir) and padded key, the HMAC preimage of a
 //!   hardened child, the 82-byte serialization, and the base58 digits in
 //!   both directions (the crate decodes and encodes extended keys itself,
-//!   over fixed wiped buffers, rather than with `dcroxide-base58`, whose
-//!   working vectors are freed unwiped).
+//!   over fixed wiped buffers, rather than with `dcroxide-base58`, which
+//!   wipes neither its working limbs, on the stack at these lengths since
+//!   dcroxide `48f5b5e`, nor the plain `Vec` and `String` it returns).
 //! - The HMAC and SHA-512 states, wiped on drop by the `zeroize` features
 //!   of `hmac`, `sha2` and `digest`.
 //!

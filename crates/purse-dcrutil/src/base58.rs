@@ -4,13 +4,13 @@
 // Use of this source code is governed by an ISC license that can be found in
 // the LICENSE file.
 
-//! Base58 (decred/base58 v1.0.6 `Encode`/`Decode`, the algorithm of
-//! `dcroxide-base58`) over buffers that are wiped, so neither direction
-//! leaves a WIF's private key bytes or digits in freed memory. The decoder
-//! is specialised to the 39 bytes of a WIF; the encoder takes any length,
-//! since Go's `WIF.String` encodes a private key of whatever length
-//! `NewWIF` was given. Equivalence with `dcroxide-base58` is tested over
-//! random and mutated strings and payloads.
+//! Base58 (decred/base58 v1.0.6 `Encode`/`Decode`, whose outputs
+//! `dcroxide-base58` gives) over buffers that are wiped, so neither
+//! direction leaves a WIF's private key bytes or digits in freed memory.
+//! The decoder is specialised to the 39 bytes of a WIF; the encoder takes
+//! any length, since Go's `WIF.String` encodes a private key of whatever
+//! length `NewWIF` was given. Equivalence with `dcroxide-base58` is tested
+//! over random and mutated strings and payloads.
 //!
 //! The algorithm is purse-hdkeychain's codec (its `src/base58.rs`) with the
 //! lengths changed.
@@ -141,7 +141,7 @@ pub(crate) fn encode(input: &[u8]) -> Zeroizing<String> {
 
 #[cfg(test)]
 mod tests {
-    //! Equivalence with `dcroxide_base58` (decred/base58's algorithm).
+    //! Equivalence with `dcroxide_base58` (decred/base58's outputs).
 
     #![allow(
         clippy::arithmetic_side_effects,

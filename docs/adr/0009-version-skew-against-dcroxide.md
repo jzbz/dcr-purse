@@ -30,8 +30,9 @@ directly and four more indirectly (dcrwallet `go.mod:7-28`, `:50-53`),
 with no `replace` (spec 23 §5.4.2 item 1). dcr-purse consumes dcroxide as
 git dependencies at one revision since the first crates (`3237b79`); the
 revision was `5c6742f` from `b40513c`, `f4b3d2e` from the pin move of
-2026-11-19, and is `2074168` since the pin move of 2026-11-20
-(`Cargo.toml`, `[workspace.dependencies]`; addenda below). Its dcrd pin is master `46e9df48` (dcroxide
+2026-11-19, `2074168` from the pin move of 2026-11-20, and is `48f5b5e`
+since the pin move of 2026-11-21 (`Cargo.toml`,
+`[workspace.dependencies]`; addenda below). Its dcrd pin is master `46e9df48` (dcroxide
 `docs/PARITY.md:3-4`). dcroxide moves that pin at upstream milestones and
 on its owner's word, and each move brings frozen batteries due (dcroxide
 `docs/PARITY.md:5-7`; dcroxide `docs/adr/README.md`, ADR-0001 entry). An
@@ -335,3 +336,20 @@ range (`80423a0`): taken without default features, as `dcroxide-gcs`
 takes it, `dcroxide-stake` links neither `dcroxide-database` nor redb, so
 the last sentence of the addendum of 2026-11-19 no longer holds (ADR-0006
 rule 5).
+
+## Addendum, 2026-11-21 — pin moved to dcroxide `48f5b5e`
+
+The pin moved from `2074168` to `48f5b5e`, eight dcroxide commits, six of
+which touch a crate dcr-purse builds: `48f5b5e` (`dcroxide-base58`
+converts in limbs of several digits, with decred/base58 v1.0.6's outputs
+and errors and an unchanged public API), `00da86c` and `9e0a05c`
+(`dcroxide-dcrec`'s Ed25519 secret key keeps its derived values and
+`dcroxide-txscript` signs Ed25519 through it; EC-Schnorr-DCRv0 negates its
+nonce by a constant-time select; every signature unchanged), `7ca0882`
+(a manifest comment in `dcroxide-crypto`), and `55e8c2e` and `0cc0caa`
+(test-only modules and fixtures in `dcroxide-dcrec` and
+`dcroxide-tlscrypto`). These are changes in dcroxide's own code, not in
+the dcrd revision it ports: dcroxide's dcrd pin and reference Go are
+unchanged, so no ledger row's delta moved. `docs/SKEW.md` records the move
+in its 2026-11-21 section and notes it in the Disposition cells of the
+`base58`, `dcrec/secp256k1` and `dcrec/edwards` rows.

@@ -10,7 +10,10 @@
   The owner's decisions on the Phase 1 speed row and the first
   measurements' findings (2026-11-19) are the addendum at the end.
   *Phase 1's speed row was measured again on 2026-11-20 at the dcroxide
-  pin `2074168`: the addendum of that date.*
+  pin `2074168`: the addendum of that date. The pin moved to `48f5b5e` on
+  2026-11-21, which changes `dcroxide-base58`'s conversion and not its
+  outputs (`docs/SKEW.md`, 2026-11-21 section); the row has no
+  measurement of record at that pin.*
 - **Date:** 2026-11-19
 
 ## Context

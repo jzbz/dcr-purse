@@ -11,6 +11,14 @@
 # Left out: the memory-bound derivations (snacl.derive, kdf.*), whose ratio
 # depends on the runner's memory system and core count, and mix.*, whose
 # Go side needs FLINT, which CI's runner does not have.
+#
+# Since 2026-11-21, crypto.base58check_encode, crypto.base58check_decode,
+# hd.xpub_string and hd.parse_xpub cycle through 16,384 different inputs;
+# their baselines below were measured when they repeated one input (the
+# decode and extended-key rows one string, the encode row 256 hashes that
+# differ in their last byte only), and stand until a ledger entry measures
+# the cycling rows. crypto.base58check_decode_one, the decode row as it was,
+# has no baseline.
 hd.master	0.861
 hd.hardened_child	0.837
 hd.priv_child	0.853

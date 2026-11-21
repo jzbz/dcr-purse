@@ -44,7 +44,7 @@ fn smoke_session_agrees_with_go() {
     let rust_out = report::parse(&rust_run, Side::Rust).expect("parse rust");
     assert!(rust_out.skips.is_empty(), "{:?}", rust_out.skips);
     let rust_names: Vec<&str> = rust_out.results.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(rust_names.len(), 24, "{rust_names:?}");
+    assert_eq!(rust_names.len(), 25, "{rust_names:?}");
     for (name, _) in &go_out.results {
         assert!(rust_names.contains(&name.as_str()), "{name}");
     }
@@ -57,6 +57,33 @@ fn smoke_session_agrees_with_go() {
     }
     assert!(rust_out.checks.len() >= 20, "{:?}", rust_out.checks);
     assert_eq!(rust_out.checks, go_out.checks);
+
+    // The base58 workloads' string sets: the same strings on both sides,
+    // and the same answers from each side's decoder (the sets' digests and
+    // the digests of what each side decodes them to), the addresses at
+    // their full size, the extended keys at smoke mode's.
+    let set_checks = [
+        (
+            "crypto.base58check_set_count",
+            Some(purse_bench::workloads::ADDRESS_SET_SIZE),
+        ),
+        ("crypto.base58check_set_sha256", None),
+        ("crypto.base58check_set_decoded_sha256", None),
+        (
+            "hd.xpub_set_count",
+            Some(purse_bench::workloads::xpub_set_size(true)),
+        ),
+        ("hd.xpub_set_sha256", None),
+        ("hd.xpub_set_parsed_sha256", None),
+    ];
+    for (name, count) in set_checks {
+        let rust = rust_out.checks.get(name);
+        assert!(rust.is_some(), "no CHECK {name} on the Rust side");
+        assert_eq!(rust, go_out.checks.get(name), "{name}");
+        if let Some(count) = count {
+            assert_eq!(rust, Some(&count.to_string()), "{name}");
+        }
+    }
 
     if std::env::var_os("PURSE_REQUIRE_ORACLE").is_some() {
         let version = go_out
@@ -142,6 +169,66 @@ fn gate_baseline_names_measured_workloads() {
             "{name} is in the baseline but not a workload"
         );
     }
+}
+
+/// The `bench-gate` job's selection (`--only` in `.github/workflows/ci.yml`)
+/// reaches every baselined workload, and the "CI." paragraph of
+/// `docs/PHASE1-EXIT.md` gives the number of workloads that job runs and
+/// the number it gates. A workload added under a selected prefix without a
+/// baseline (as `crypto.base58check_decode_one` was) changes the first
+/// number and not the second.
+#[test]
+fn ci_gate_selection_matches_its_record() {
+    let root = purse_testutil::skew::workspace_root();
+    let ci =
+        purse_testutil::skew::read_text(&root.join(".github").join("workflows").join("ci.yml"));
+    let lists: Vec<&str> = ci
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("--only "))
+        .collect();
+    assert_eq!(lists.len(), 1, "ci.yml's --only lists: {lists:?}");
+    let only: Vec<String> = lists[0]
+        .trim()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+
+    let mut out = Vec::new();
+    let mut h = purse_bench::harness::Harness::new(
+        purse_bench::harness::Config {
+            smoke: true,
+            only,
+            ..Default::default()
+        },
+        &mut out,
+    );
+    purse_bench::workloads::run_all(&mut h);
+    let _ = h.finish();
+    let text = String::from_utf8(out).expect("utf-8");
+    let run = report::parse(&text, Side::Rust).expect("parse");
+    let selected: Vec<&str> = run.results.iter().map(|(n, _)| n.as_str()).collect();
+
+    let baseline = report::parse_baseline(include_str!("../gate-baseline.tsv")).expect("baseline");
+    for (name, _) in &baseline {
+        assert!(
+            selected.contains(&name.as_str()),
+            "{name} is baselined but CI's selection does not run it: {selected:?}"
+        );
+    }
+
+    let record = purse_testutil::skew::read_text(&root.join("docs").join("PHASE1-EXIT.md"));
+    let ci_paragraph = record
+        .lines()
+        .find(|l| l.starts_with("**CI.**"))
+        .expect("PHASE1-EXIT.md has a \"CI.\" paragraph");
+    let runs = format!("runs the same driver on {} micro workloads", selected.len());
+    let gates = format!("any of the {} with a baseline", baseline.len());
+    assert!(
+        ci_paragraph.contains(&runs) && ci_paragraph.contains(&gates),
+        "PHASE1-EXIT.md's CI paragraph should say {runs:?} and {gates:?} \
+         (selected: {selected:?}):\n{ci_paragraph}"
+    );
 }
 
 #[test]

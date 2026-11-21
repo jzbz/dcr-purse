@@ -41,6 +41,40 @@ pub fn argon2_memory(smoke: bool) -> u32 {
     }
 }
 
+/// The number of different addresses the base58check workloads
+/// (`crypto.base58check_encode`, `crypto.base58check_decode`) cycle
+/// through: 16,384, as dcroxide's own base58 benchmark draws, far more
+/// strings than a branch predictor can learn. Not reduced in smoke mode:
+/// drawing them is cheap, so the test suite holds the whole set to Go's.
+pub const ADDRESS_SET_SIZE: u32 = 16_384;
+
+/// The number of different extended public keys `hd.xpub_string` and
+/// `hd.parse_xpub` cycle through: 16,384, as for the addresses (256 in smoke
+/// mode, where each key's derivation runs unoptimised).
+pub fn xpub_set_size(smoke: bool) -> u32 {
+    if smoke { 256 } else { 16_384 }
+}
+
+/// The base58check workloads' inputs: [`ADDRESS_SET_SIZE`] 20-byte hashes
+/// drawn from SplitMix64 with a seed of their own, and each hash's
+/// base58check string with the version `ver` (with mainnet's P2PKH
+/// version, a mainnet address).
+pub fn address_set(ver: [u8; 2]) -> (Vec<[u8; 20]>, Vec<String>) {
+    let mut rng = SplitMix64(0x6235_3861);
+    let hashes: Vec<[u8; 20]> = (0..ADDRESS_SET_SIZE)
+        .map(|_| {
+            let mut h = [0u8; 20];
+            rng.fill(&mut h);
+            h
+        })
+        .collect();
+    let strings = hashes
+        .iter()
+        .map(|h| dcroxide_base58::check_encode(h, ver))
+        .collect();
+    (hashes, strings)
+}
+
 /// The solver's degrees: a small mix, a 64-peer mix and ADR-0010's gate
 /// size (4, 8 and 32 in smoke mode).
 pub fn mix_degrees(smoke: bool) -> [usize; 3] {
@@ -190,17 +224,42 @@ fn hd<W: Write>(bench: &mut Harness<W>) {
     }
     bench.bench_once("hd.addr20k", || addrs().len() as u64);
 
+    // The extended-key workloads cycle through the first keys of the
+    // public branch, each a different string, so that neither side's
+    // branch predictor replays one string's base58 work.
+    if !bench.any_selected(&["hd.xpub_string", "hd.parse_xpub"]) {
+        return;
+    }
+    let count = xpub_set_size(bench.config().smoke);
+    let mask = u64::from(count - 1);
+    let keys: Vec<ExtendedKey> = (0..count)
+        .map(|i| branch_pub.child(i).expect("child"))
+        .collect();
+    let strings: Vec<String> = keys.iter().map(|k| k.string().to_string()).collect();
+    let parsed: Vec<String> = strings
+        .iter()
+        .zip(&keys)
+        .map(|(s, k)| {
+            let p = ExtendedKey::new_key_from_string(s, &versions).expect("parse");
+            assert_eq!(p.serialized_pub_key(), k.serialized_pub_key(), "{s}");
+            hex(p.serialized_pub_key())
+        })
+        .collect();
+    bench.check("hd.xpub_set_count", count);
+    bench.check("hd.xpub_set_sha256", sha256_lines(&strings));
+    bench.check("hd.xpub_set_parsed_sha256", sha256_lines(&parsed));
     bench.bench("hd.xpub_string", |n| {
         let mut x = 0u64;
-        for _ in 0..n {
-            x ^= u64::from(acct_pub.string().as_bytes()[5]);
+        for i in 0..n {
+            x ^= u64::from(keys[(i & mask) as usize].string().as_bytes()[5]);
         }
         x
     });
     bench.bench("hd.parse_xpub", |n| {
         let mut x = 0u64;
-        for _ in 0..n {
-            let k = ExtendedKey::new_key_from_string(&acct_pub_string, &versions).expect("parse");
+        for i in 0..n {
+            let s = &strings[(i & mask) as usize];
+            let k = ExtendedKey::new_key_from_string(s, &versions).expect("parse");
             x ^= u64::from(k.serialized_pub_key()[1]);
         }
         x
@@ -214,7 +273,7 @@ fn primitives<W: Write>(bench: &mut Harness<W>) {
     let mut msg = rng.bytes(37);
     let mut pub_key = vec![0x02];
     pub_key.extend_from_slice(&rng.bytes(32));
-    let mut payload = rng.bytes(20);
+    let payload = rng.bytes(20);
     let ver = params.pub_key_hash_addr_id;
 
     let hmac = |msg: &[u8]| {
@@ -243,15 +302,48 @@ fn primitives<W: Write>(bench: &mut Harness<W>) {
         }
         x
     });
-    bench.bench("crypto.base58check_encode", |n| {
-        let mut x = 0u64;
-        for i in 0..n {
-            payload[19] = i as u8;
-            x ^= u64::from(dcroxide_base58::check_encode(&payload, ver).as_bytes()[5]);
-        }
-        x
-    });
-    bench.bench("crypto.base58check_decode", |n| {
+    // The criterion's rows cycle through ADDRESS_SET_SIZE different
+    // addresses (encode: their hashes; decode: their strings).
+    if bench.any_selected(&["crypto.base58check_encode", "crypto.base58check_decode"]) {
+        let (hashes, strings) = address_set(ver);
+        let mask = u64::from(ADDRESS_SET_SIZE - 1);
+        let decoded: Vec<String> = strings
+            .iter()
+            .zip(&hashes)
+            .map(|(s, h)| {
+                let (p, v) = dcroxide_base58::check_decode(s).expect("decode");
+                assert_eq!((&p[..], v), (&h[..], ver), "{s}");
+                format!("{}{}", hex(&v), hex(&p))
+            })
+            .collect();
+        bench.check("crypto.base58check_set_count", ADDRESS_SET_SIZE);
+        bench.check("crypto.base58check_set_sha256", sha256_lines(&strings));
+        bench.check(
+            "crypto.base58check_set_decoded_sha256",
+            sha256_lines(&decoded),
+        );
+        bench.bench("crypto.base58check_encode", |n| {
+            let mut x = 0u64;
+            for i in 0..n {
+                let h = &hashes[(i & mask) as usize];
+                x ^= u64::from(dcroxide_base58::check_encode(h, ver).as_bytes()[5]);
+            }
+            x
+        });
+        bench.bench("crypto.base58check_decode", |n| {
+            let mut x = 0u64;
+            for i in 0..n {
+                let s = &strings[(i & mask) as usize];
+                let (p, _) = dcroxide_base58::check_decode(s).expect("decode");
+                x ^= u64::from(p[0]);
+            }
+            x
+        });
+    }
+    // The decode row as it was until 2026-11-21: one string decoded again
+    // and again. Held to no criterion; kept so that a session shows what
+    // the repetition does to each side.
+    bench.bench("crypto.base58check_decode_one", |n| {
         let mut x = 0u64;
         for _ in 0..n {
             let (p, _) = dcroxide_base58::check_decode(&encoded).expect("decode");
@@ -476,6 +568,30 @@ mod tests {
             assert_eq!(mul_mod(a, b), mul_mod(b, a));
             assert_eq!(mul_mod(a, add_mod(b, 1)), add_mod(mul_mod(a, b), a));
         }
+    }
+
+    #[test]
+    fn address_set_is_distinct_valid_addresses() {
+        let params = dcroxide_chaincfg::mainnet_params();
+        let (hashes, strings) = address_set(params.pub_key_hash_addr_id);
+        assert!(ADDRESS_SET_SIZE.is_power_of_two());
+        assert_eq!(strings.len(), ADDRESS_SET_SIZE as usize);
+        let distinct: std::collections::BTreeSet<&String> = strings.iter().collect();
+        assert_eq!(distinct.len(), strings.len());
+        // Each string is the mainnet P2PKH address of its hash, as stdaddr
+        // writes it, and decodes as one.
+        for (s, h) in strings.iter().zip(&hashes) {
+            let a = stdaddr::new_address_pub_key_hash_ecdsa_secp256k1_v0(h, &params)
+                .expect("a 20-byte hash");
+            assert_eq!(a.encode(), *s);
+            assert_eq!(stdaddr::decode_address(s, &params), Ok(a), "{s}");
+        }
+    }
+
+    #[test]
+    fn xpub_set_sizes_are_powers_of_two() {
+        assert!(xpub_set_size(false).is_power_of_two());
+        assert!(xpub_set_size(true).is_power_of_two());
     }
 
     #[test]

@@ -256,6 +256,44 @@ times Go's time, against 1.59, 1.58 and 1.57 in this entry. base58
 decoding measured 1.01 there and stays undecided, so the speed clause is
 not closed (ADR-0014, addendum of 2026-11-20).
 
+**Note, 2026-11-21: the base58 workloads repeated one input.** The
+workloads behind every base58 figure in this entry, its notes and the
+entry at `2074168` did not vary their input, on either side
+(`crates/purse-bench/src/workloads.rs` and `tools/oracle/cmd/bench/main.go`
+as of dcr-purse `d61cb9a`). `crypto.base58check_decode` decoded one
+string, the address the check `crypto.base58check` names, on every call:
+the string is made once before the timed loops (`workloads.rs` line 227,
+`main.go` line 442) and decoded in the loop of that row (`workloads.rs`
+lines 254 to 261, `main.go` lines 471 to 479). `crypto.base58check_encode`
+set the last of its 20 hash bytes to the call's counter (`workloads.rs`
+lines 246 to 253, `main.go` lines 463 to 470), so it encoded 256 hashes in
+turn that differ in their last byte only. `hd.xpub_string` and
+`hd.parse_xpub` wrote and parsed one account key's string
+(`workloads.rs` lines 193 to 207, `main.go` lines 411 to 426). With one
+string repeated, the per-character branches of a conversion are learnt by
+the branch predictor and replayed. dcroxide-base58 before dcroxide
+`48f5b5e`, the version every entry here measured, found each character by
+a linear search of the alphabet, whose branches such a repetition trains,
+where decred/base58 looks it up in a table; purse-hdkeychain's own
+decoder of extended keys (`crates/purse-hdkeychain/src/base58.rs`,
+`digit_of`) searches the same way. dcroxide's ledger (its entry
+"dcroxide-base58's limb-based conversion against decred/base58",
+2026-11-20), with a different address on every call, in its own harness,
+measured that crate's `check_decode` before the change at 1.53 to 1.55
+times Go's time. The decode ratios recorded in this file (0.98 in this
+entry, 0.98 to 1.02 in its note of 2026-11-19, 1.01 in the entry at
+`2074168`) are therefore ratios for one address decoded again and again,
+not for decoding addresses, and are not evidence of parity on varied
+input; how much the repetition favoured either side was not measured with
+`purse-bench`. The same holds, less markedly, for the encode ratios and
+the two extended-key workloads. Since the change that adds this note, the
+four workloads cycle through 16,384 different inputs, built alike on both
+sides and cross-checked (`crates/purse-bench/src/lib.rs`, "Workloads"),
+and `crypto.base58check_decode_one` keeps the old decode workload under a
+new name. No session has been timed with them yet: the Phase 1 row's
+decode clause is to be decided by a new entry, at dcroxide `48f5b5e` or
+later.
+
 ### The CI gate on an unpinned, loaded machine (2026-11-19)
 
 The CI gate (`purse-bench drive --gate crates/purse-bench/gate-baseline.tsv`,
@@ -449,6 +487,14 @@ taken); other processors and ARM; more than 4 threads.
 Raw: `s1/`, `s2/`, `s3/` (`run-1-rust.txt` to `run-5-go.txt` with the
 driver's start and end notes and load averages, `table.md`), and the
 pooling script's output `pooled.txt`.
+
+**Note, 2026-11-21: the base58 workloads repeated one input.** The
+`crypto.base58check_*`, `hd.xpub_string` and `hd.parse_xpub` figures in
+this entry come from workloads that decoded or wrote one string again and
+again (the encode workload 256 hashes differing in their last byte), so
+the decode ratio of 1.01 is a ratio for one address repeated; the first
+entry's note of the same date gives the code and the reasons. A session
+with the cycling workloads is still to be timed.
 
 ## purse-store
 

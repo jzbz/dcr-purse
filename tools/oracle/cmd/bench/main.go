@@ -32,6 +32,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -408,17 +409,44 @@ func hd() {
 	}
 	benchOnce("hd.addr20k", func() uint64 { return uint64(len(addrs())) })
 
+	// The extended-key workloads cycle through the first keys of the
+	// public branch, each a different string, so that neither side's
+	// branch predictor replays one string's base58 work.
+	if !anySelected("hd.xpub_string", "hd.parse_xpub") {
+		return
+	}
+	xcount := xpubSetSize()
+	mask := uint64(xcount - 1)
+	keys := make([]*hdkeychain.ExtendedKey, xcount)
+	strs := make([]string, xcount)
+	parsed := make([]string, xcount)
+	for i := range keys {
+		keys[i], err = branchPub.Child(uint32(i))
+		must(err)
+		strs[i] = keys[i].String()
+	}
+	for i, s := range strs {
+		k, err := hdkeychain.NewKeyFromString(s, params)
+		must(err)
+		if !bytes.Equal(k.SerializedPubKey(), keys[i].SerializedPubKey()) {
+			panic("hd: " + s + " does not parse to its key")
+		}
+		parsed[i] = hex.EncodeToString(k.SerializedPubKey())
+	}
+	check("hd.xpub_set_count", xcount)
+	check("hd.xpub_set_sha256", sha256Lines(strs))
+	check("hd.xpub_set_parsed_sha256", sha256Lines(parsed))
 	bench("hd.xpub_string", func(n uint64) uint64 {
 		var x uint64
 		for i := uint64(0); i < n; i++ {
-			x ^= uint64(acctPub.String()[5])
+			x ^= uint64(keys[i&mask].String()[5])
 		}
 		return x
 	})
 	bench("hd.parse_xpub", func(n uint64) uint64 {
 		var x uint64
 		for i := uint64(0); i < n; i++ {
-			k, err := hdkeychain.NewKeyFromString(acctPubString, params)
+			k, err := hdkeychain.NewKeyFromString(strs[i&mask], params)
 			must(err)
 			x ^= uint64(k.SerializedPubKey()[1])
 		}
@@ -460,15 +488,44 @@ func primitives() {
 		}
 		return x
 	})
-	bench("crypto.base58check_encode", func(n uint64) uint64 {
-		var x uint64
-		for i := uint64(0); i < n; i++ {
-			payload[19] = byte(i)
-			x ^= uint64(base58.CheckEncode(payload, ver)[5])
+	// The criterion's rows cycle through addressSetSize different
+	// addresses (encode: their hashes; decode: their strings).
+	if anySelected("crypto.base58check_encode", "crypto.base58check_decode") {
+		hashes, strs := addressSet(ver)
+		mask := uint64(addressSetSize - 1)
+		decoded := make([]string, len(strs))
+		for i, s := range strs {
+			p, v, err := base58.CheckDecode(s)
+			must(err)
+			if !bytes.Equal(p, hashes[i][:]) || v != ver {
+				panic("crypto: " + s + " does not decode to its hash")
+			}
+			decoded[i] = hex.EncodeToString(v[:]) + hex.EncodeToString(p)
 		}
-		return x
-	})
-	bench("crypto.base58check_decode", func(n uint64) uint64 {
+		check("crypto.base58check_set_count", addressSetSize)
+		check("crypto.base58check_set_sha256", sha256Lines(strs))
+		check("crypto.base58check_set_decoded_sha256", sha256Lines(decoded))
+		bench("crypto.base58check_encode", func(n uint64) uint64 {
+			var x uint64
+			for i := uint64(0); i < n; i++ {
+				x ^= uint64(base58.CheckEncode(hashes[i&mask][:], ver)[5])
+			}
+			return x
+		})
+		bench("crypto.base58check_decode", func(n uint64) uint64 {
+			var x uint64
+			for i := uint64(0); i < n; i++ {
+				p, _, err := base58.CheckDecode(strs[i&mask])
+				must(err)
+				x ^= uint64(p[0])
+			}
+			return x
+		})
+	}
+	// The decode row as it was until 2026-11-21: one string decoded again
+	// and again. Held to no criterion; kept so that a session shows what
+	// the repetition does to each side.
+	bench("crypto.base58check_decode_one", func(n uint64) uint64 {
 		var x uint64
 		for i := uint64(0); i < n; i++ {
 			p, _, err := base58.CheckDecode(encoded)
@@ -477,6 +534,35 @@ func primitives() {
 		}
 		return x
 	})
+}
+
+// addressSetSize is the number of different addresses the base58check
+// workloads cycle through: 16,384, as dcroxide's own base58 benchmark draws,
+// far more strings than a branch predictor can learn. Not reduced in smoke
+// mode, as on the Rust side.
+const addressSetSize = 16384
+
+// xpubSetSize is the number of different extended public keys hd.xpub_string
+// and hd.parse_xpub cycle through: 16,384 (256 in smoke mode).
+func xpubSetSize() int {
+	if cfg.smoke {
+		return 256
+	}
+	return 16384
+}
+
+// addressSet is the base58check workloads' inputs: addressSetSize 20-byte
+// hashes drawn from SplitMix64 with a seed of their own, and each hash's
+// base58check string with the version ver, as purse-bench's address_set.
+func addressSet(ver [2]byte) ([][20]byte, []string) {
+	rng := splitMix(0x6235_3861)
+	hashes := make([][20]byte, addressSetSize)
+	strs := make([]string, addressSetSize)
+	for i := range hashes {
+		rng.fill(hashes[i][:])
+		strs[i] = base58.CheckEncode(hashes[i][:], ver)
+	}
+	return hashes, strs
 }
 
 func snaclN() int {

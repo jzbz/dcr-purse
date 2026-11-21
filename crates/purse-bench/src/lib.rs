@@ -47,12 +47,13 @@
 //! | `hd.address` | public child, then its P2PKH address string | no slower |
 //! | `hd.script` | public child, then its P2PKH script | no slower |
 //! | `hd.addr20k` (once) | the first 20,000 addresses of a branch, one thread | ≥ 1.5× faster |
-//! | `hd.xpub_string` | an account's extended public key as a string | — |
-//! | `hd.parse_xpub` | parse of that string | — |
+//! | `hd.xpub_string` | an extended public key as a string, cycling through the first 16,384 keys of the public branch | — |
+//! | `hd.parse_xpub` | parse of those keys' strings, in turn | — |
 //! | `crypto.hmac_sha512` | HMAC-SHA512, 32-byte key, 37-byte message (one derivation step) | no slower |
 //! | `crypto.hash160` | RIPEMD160(BLAKE256) of a 33-byte key | no slower |
-//! | `crypto.base58check_encode` | base58check of a 20-byte hash, 2-byte version | no slower |
-//! | `crypto.base58check_decode` | the reverse | no slower |
+//! | `crypto.base58check_encode` | base58check of a 20-byte hash, 2-byte version (a mainnet address), cycling through 16,384 drawn hashes | no slower |
+//! | `crypto.base58check_decode` | the reverse, cycling through those 16,384 addresses | no slower |
+//! | `crypto.base58check_decode_one` | the reverse of one address, the same string every time (what `crypto.base58check_decode` timed until 2026-11-21) | — |
 //! | `snacl.derive` (once) | a master key's scrypt derivation at snacl's defaults (N = 16384, r = 8, p = 1) and digest check | — |
 //! | `snacl.seal_32`, `snacl.seal_111` | secretbox seal under a crypto key, fresh nonce from the default source | — |
 //! | `snacl.open_32`, `snacl.open_111` | secretbox open | — |
@@ -60,8 +61,19 @@
 //! | `dcrutil.amount_string` | `Amount`'s string form, amounts of every magnitude | — |
 //! | `mix.roots_20`, `mix.roots_64`, `mix.roots_512` (once) | the mixing root solver at three degrees | — |
 //!
-//! Smoke mode reduces 20,000 addresses to 200, scrypt's N to 1024,
-//! Argon2id's memory to 1 MiB and the solver's degrees to 4, 8 and 32.
+//! The base58 workloads (`crypto.base58check_*` and the two `hd.*xpub*`)
+//! take a different string, or the input of a different string, on every
+//! call, cycling through a fixed set the two sides build alike and
+//! cross-check (`*_set_*` checks: the strings' digest and the digest of
+//! what each side decodes them to): with one string repeated, the
+//! per-character branches of a conversion are learnt by the branch
+//! predictor and replayed, which favours a decoder whose cost lies in
+//! such branches (dcroxide's ledger, the base58 entry of 2026-11-20).
+//!
+//! Smoke mode reduces 20,000 addresses to 200, the extended keys the
+//! `hd.*xpub*` workloads cycle through to 256 (the 16,384 addresses of the
+//! base58check workloads are not reduced), scrypt's N to 1024, Argon2id's
+//! memory to 1 MiB and the solver's degrees to 4, 8 and 32.
 //!
 //! # Output
 //!

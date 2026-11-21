@@ -119,7 +119,10 @@ the owner decided, as recommended:
    includes it (ADR-0014, addendum of 2026-11-19).
    *In the pin since 2026-11-20 and measured again the same day: the
    secret paths meet Phase 1's row; the clause stays open on base58
-   decoding (ADR-0014, addendum of 2026-11-20).*
+   decoding (ADR-0014, addendum of 2026-11-20).* *Met later on
+   2026-11-21 on the dedicated machine at the pin `48f5b5e`: base58check
+   decode 0.78 and every other clause of the row met (ADR-0014, addendum
+   "Phase 1's run of record").*
 3. **Small additions found while porting are queued**
    in dcroxide: bounded draws `Uint32N` and `Int32N` among
    `dcroxide-crypto`'s global random functions (spec 24, `rand.Int32N`);

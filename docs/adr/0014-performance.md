@@ -20,7 +20,10 @@
   measurement of record at that pin.* *On 2026-11-21 the owner set N
   for the row of Phases 2 and 3 and decided what counts as the dedicated
   machine; no timed run of record is started until the owner says when
-  and where: the addendum of that date.*
+  and where: the addendum of that date.* *Phase 1's dedicated-machine run
+  was made later on 2026-11-21 and met every clause of the row, base58check
+  decode at 0.78: the addendum "Phase 1's run of record". The row of
+  Phases 2 and 3 has not had its dedicated-machine run.*
 - **Date:** 2026-11-19
 
 ## Context
@@ -275,6 +278,9 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   for a range query; the dedicated-machine run before Phase 3's exit,
   when and where the owner says (addendum of that date).*
 
+  *2026-11-21: Phase 1's row met on every clause on the dedicated machine
+  (addendum "Phase 1's run of record").*
+
   Phase 5 runs both sides on a mainnet-scale scripted backend; served from
   memory it gates local work, and the wire gains are gated at Phase 10.
 - **Regressions.** CI gates exactly only deterministic counters (filter
@@ -425,6 +431,9 @@ it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
    multiplication of the generator without those tables. *Measured
    again on 2026-11-20 (addendum of that date): the secret paths meet the
    row at 0.84 to 0.86; the clause stays open on base58 decoding (item 2).*
+   *Met later on 2026-11-21 on the dedicated machine: base58check decode
+   0.78 and every other clause met, so the speed clause is met (addendum
+   "Phase 1's run of record").*
 2. **base58 decoding** measured at parity with Go (0.98 to 1.02 over ten
    sessions on a shared desktop). It is settled by a measurement on a
    dedicated machine first; only if that misses does it call for a
@@ -433,7 +442,10 @@ it, and the Phase 2 measurements answered Open point 6 (ADR-0003). On
    (0.99 to 1.02 by session); still to be settled on a dedicated machine
    (addendum of 2026-11-20).* *2026-11-21: what counts as the dedicated
    machine is decided, and the run waits for the owner's word on when and
-   where (addendum of 2026-11-21, item 2).*
+   where (addendum of 2026-11-21, item 2).* *Settled later on 2026-11-21:
+   0.78 on the dedicated machine, cycling through 16,384 addresses; met,
+   so no dcroxide change is called for (addendum "Phase 1's run of
+   record").*
 3. **secretbox at about 3 times Go's time** (2.9 to 4.0; the `poly1305`
    crate's AVX2 backend calls its intrinsics out of line) is accepted for
    now. It was recommended that the RustCrypto project be told later;
@@ -490,7 +502,9 @@ Under item 2 of the addendum of 2026-11-19 it is settled by a measurement
 on a dedicated machine first, which is also to confirm the rest of the row
 (item 4, "Exit criteria"); no such machine has measured it yet. *What
 counts as the dedicated machine was decided on 2026-11-21 (addendum of
-that date, item 2); the run has not been made.*
+that date, item 2); the run has not been made.* *Made later on
+2026-11-21: base58check decode 0.78 and every other clause of the row
+met, so the speed clause is met (addendum "Phase 1's run of record").*
 
 The CI gate's baselines for the three secret paths
 (`crates/purse-bench/gate-baseline.tsv`) are lowered to the entry's
@@ -517,7 +531,9 @@ apart from the dated pointers added to it.
    ran on it (lightly loaded) and are not the run of record. That run is the one of item 2, before Phase 3's
    exit (ADR-0003 Open point M2), together with the Phase 1 run still
    owed; the store is measured again with Phase 3's transaction store as
-   part of Phase 3's exit (Open point M3).
+   part of Phase 3's exit (Open point M3). *Later on 2026-11-21 the
+   Phase 1 run was made (addendum "Phase 1's run of record"); the store's
+   is not made and stays owed.*
 2. **What counts as the dedicated machine.** A run on the shared desktop
    on which the measurements so far were taken (the bench ledger's
    machine d1) counts as the dedicated-machine run when nothing else is
@@ -526,7 +542,87 @@ apart from the dated pointers added to it.
    - Phase 1's speed clause stays open on base58check decode
      (`docs/PHASE1-EXIT.md`, "Speed"; item 2 of the addendum of
      2026-11-19). Phase 1 is not closed, and no timing figure is recorded
-     by this addendum.
+     by this addendum. *Later the same day the owner said when and where,
+     and the run was made: the addendum below.*
    - The row of Phases 2 and 3 is not yet measured on such a run.
 
 This addendum records decisions; it measures nothing.
+
+## Addendum, 2026-11-21 — Phase 1's run of record
+
+On 2026-11-21 the project owner said the shared desktop was quiet and
+told the run of record to be made on it. The run was made that day under
+item 2 of the addendum above: on the bench ledger's machine d1 with no
+other job running on it (the entry lists the processes a `top` snapshot
+showed), the dedicated-machine run for Phase 1's exit criteria that
+item 4 ("Exit criteria"; "Regressions" puts exit criteria on a dedicated
+machine at each phase exit) and item 2 of the addendum of 2026-11-19
+call for. It is the ledger's entry "Phase 1's row on the
+dedicated machine at dcroxide `48f5b5e`": dcr-purse `1f7316e`, three
+sessions of the ledger's command back to back, 08:40:11 to 08:54:01 UTC,
+15 processes per side alternating, measured processes pinned to four
+cores, one-minute load average 0.63 at the start and 0.76 to 1.14
+during the sessions (the measured processes themselves). The base58 and
+extended-key workloads cycle through 16,384 different inputs on both
+sides, so the decode clause is measured on varied input for the first
+time with `purse-bench`.
+
+| clause | criterion | first entry (2026-11-19) | 2026-11-20 | 2026-11-21, dedicated machine | verdict |
+|---|---|---|---|---|---|
+| master key | ≤ 1.15 | 1.59 | 0.86 | 0.86 | met |
+| hardened child | ≤ 1.15 | 1.58 | 0.84 | 0.85 | met |
+| private child | ≤ 1.15 | 1.57 | 0.85 | 0.85 | met |
+| public derivation | ≤ 1.00 | 0.55 | 0.54 | 0.55 | met |
+| address | ≤ 1.00 | 0.56 | 0.56 | 0.55 | met |
+| script | ≤ 1.00 | 0.55 | 0.55 | 0.56 | met |
+| HMAC-SHA512 | ≤ 1.00 | 0.86 | 0.83 | 0.87 | met |
+| hash160 | ≤ 1.00 | 0.84 | 0.81 | 0.85 | met |
+| base58check encode | ≤ 1.00 | 0.95 (256 hashes, last byte varied) | 0.94 (the same) | 0.45 (16,384 inputs) | met |
+| base58check decode | ≤ 1.00 | 0.98 (one address) | 1.01 (one address) | 0.78 (16,384 addresses) | met |
+| 20,000 addresses | ≥ 1.5x faster | 1.80x | 1.80x | 1.80x | met |
+
+Figures are Rust's time over Go's (below 1, Rust is faster), the pooled
+medians of each entry; on 2026-11-21 every session's own ratio gives the
+same verdict, base58check decode being 0.78 in each. **Phase 1's speed
+row is met on every clause on the dedicated machine.** The 2026-11-19
+and 2026-11-20 base58check figures are for workloads that repeated one
+input and were measured before the dcroxide pin reached `48f5b5e`'s limb
+conversion, so they are not comparable with the last column; the old
+decode workload, kept as `crypto.base58check_decode_one`, measured 0.78
+in this run. Outside the criteria, secretbox (2.86 to 3.99 times Go's
+time), `Amount`'s string form (2.26) and Argon2id with 4 lanes (1.14)
+remain slower than Go, as items 3, 4 and 7 of the addendum of 2026-11-19
+record. The closing of Phase 1 on these figures is recorded in
+`docs/PHASE1-EXIT.md` ("Speed").
+
+The CI gate's baselines for the four cycling workloads
+(`crates/purse-bench/gate-baseline.tsv`) are the entry's pooled ratios:
+base58check encode 0.454, decode 0.780, `hd.xpub_string` 0.955 and
+`hd.parse_xpub` 0.576. The file's rules (lower a value on a lasting gain)
+do not call for re-deriving the other fourteen from this run, and they
+are unchanged.
+
+**Not applied: the 15%-warn and 25%-fail ratio gates.** Item 4
+("Regressions") puts them on the dedicated machine at each phase exit
+too. None was applied to this run: no earlier dedicated-machine run
+exists to compare it with, and this run is the first such reference.
+Set informally against the two earlier entries, both from the same
+desktop while other work ran on it, the largest rise is
+`hd.parse_xpub`'s, a workload that now cycles through 16,384 keys
+instead of repeating one, by about 15%: 0.576 against the first entry's
+0.501 (15.0%, between 14.9% and 15.1% within the rounding of 0.501, so
+whether it passes 15% cannot be settled) and 14.1% to 14.6% against the
+entry of 2026-11-20 (whose medians put its ratio between 0.503 and
+0.505); the two-decimal ratios, 0.58 against 0.50, overstate it. Of the
+others the largest rise is `dcrutil.amount_string`, whose code is
+unchanged, 2.260 against 1.997 in the first entry (13.2%) and 2.16 on
+2026-11-20. None rose by 25% or more.
+
+**Not made: the dedicated-machine run for the row of Phases 2 and 3**
+(the store against dcrwallet's udb; ADR-0003 Open point M2, item 1 of the
+addendum above). It stays owed, before Phase 3's exit. Not measured by
+this run: other machines and processors, other architectures and
+operating systems, more than 4 threads, and GitHub's runners, on which
+the CI gate runs.
+
+This addendum records a measurement; it decides nothing.

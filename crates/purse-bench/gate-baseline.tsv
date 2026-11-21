@@ -3,22 +3,25 @@
 # (docs/bench-ledger.md, 2026-11-19), except the three secret paths
 # (hd.master, hd.hardened_child, hd.priv_child), lowered on 2026-11-20 to
 # the pooled ratios of the entry "The secret paths at dcroxide `2074168`"
-# (k256's basepoint table, a lasting gain). `purse-bench drive --gate`
-# fails when a session's ratio is more than twice its baseline. Lower a
-# value when a ledger entry records a lasting gain; never raise one to make
-# a red gate green without a ledger entry that explains why.
+# (k256's basepoint table, a lasting gain), and the four workloads that
+# cycle through 16,384 inputs (below). `purse-bench drive --gate` fails
+# when a session's ratio is more than twice its baseline. Lower a value
+# when a ledger entry records a lasting gain; never raise one to make a red
+# gate green without a ledger entry that explains why.
 #
 # Left out: the memory-bound derivations (snacl.derive, kdf.*), whose ratio
 # depends on the runner's memory system and core count, and mix.*, whose
 # Go side needs FLINT, which CI's runner does not have.
 #
 # Since 2026-11-21, crypto.base58check_encode, crypto.base58check_decode,
-# hd.xpub_string and hd.parse_xpub cycle through 16,384 different inputs;
-# their baselines below were measured when they repeated one input (the
-# decode and extended-key rows one string, the encode row 256 hashes that
-# differ in their last byte only), and stand until a ledger entry measures
-# the cycling rows. crypto.base58check_decode_one, the decode row as it was,
-# has no baseline.
+# hd.xpub_string and hd.parse_xpub cycle through 16,384 different inputs.
+# Their baselines are the pooled ratios, to three places, of the ledger's
+# entry "Phase 1's row on the dedicated machine at dcroxide `48f5b5e`"
+# (2026-11-21), the first to time the cycling workloads. They replace
+# values measured when the workloads repeated one input (0.950, 0.982,
+# 0.943 and 0.501), a different workload, so the two extended-key values
+# rise. crypto.base58check_decode_one, the decode row as it was, has no
+# baseline.
 hd.master	0.861
 hd.hardened_child	0.837
 hd.priv_child	0.853
@@ -26,12 +29,12 @@ hd.pub_child	0.554
 hd.address	0.561
 hd.script	0.551
 hd.addr20k	0.554
-hd.xpub_string	0.943
-hd.parse_xpub	0.501
+hd.xpub_string	0.955
+hd.parse_xpub	0.576
 crypto.hmac_sha512	0.856
 crypto.hash160	0.838
-crypto.base58check_encode	0.950
-crypto.base58check_decode	0.982
+crypto.base58check_encode	0.454
+crypto.base58check_decode	0.780
 snacl.seal_32	3.105
 snacl.open_32	3.958
 snacl.seal_111	2.921

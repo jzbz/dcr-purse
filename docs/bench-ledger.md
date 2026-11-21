@@ -294,6 +294,13 @@ new name. No session has been timed with them yet: the Phase 1 row's
 decode clause is to be decided by a new entry, at dcroxide `48f5b5e` or
 later.
 
+**Note, 2026-11-21, later: base58 decode is met on the dedicated
+machine.** The entry "Phase 1's row on the dedicated machine at dcroxide
+`48f5b5e`" below, three sessions with the cycling workloads on machine d1
+with no other job running on it, measured `crypto.base58check_decode` at
+0.78 times Go's time, pooled and in each session, and met every other
+clause of the row.
+
 ### The CI gate on an unpinned, loaded machine (2026-11-19)
 
 The CI gate (`purse-bench drive --gate crates/purse-bench/gate-baseline.tsv`,
@@ -495,6 +502,189 @@ again (the encode workload 256 hashes differing in their last byte), so
 the decode ratio of 1.01 is a ratio for one address repeated; the first
 entry's note of the same date gives the code and the reasons. A session
 with the cycling workloads is still to be timed.
+
+**Note, 2026-11-21, later: timed.** The entry below measured the cycling
+workloads in three sessions on the dedicated machine: base58check decode
+0.78 and encode 0.45 times Go's time, `hd.xpub_string` 0.96 and
+`hd.parse_xpub` 0.58.
+
+### Phase 1's row on the dedicated machine at dcroxide `48f5b5e` (2026-11-21)
+
+**Session.** Machine d1 with no other job running on it (what a `top`
+snapshot showed is under "Load and what was running" below), which
+counts as the dedicated machine (ADR-0014, addendum of 2026-11-21,
+item 2); on 2026-11-21 the project owner said the machine was quiet and
+told the run of record to be made on it. dcr-purse `1f7316e`, a clean checkout (the
+driver recorded no uncommitted or untracked paths); dcroxide `48f5b5e`,
+whose `dcroxide-base58` converts in limbs of several digits
+(`docs/SKEW.md`, 2026-11-21 section). Go side at dcrwallet `54b85b33`,
+built by the first session with Go 1.27.4 (`go1.27.4-X:nodwarf5`) and the
+build tag `flint`, linking hdkeychain v3.1.3, dcrec/secp256k1 v4.4.1,
+txscript v4.1.2, base58 v1.0.6, x/crypto v0.57.0 and cspp v2.4.0, one
+binary for all three sessions; Rust 1.100.0, the workspace's release
+profile. Since the entry at `2074168`, the dcroxide pin moved to
+`48f5b5e`, and `crypto.base58check_encode`, `crypto.base58check_decode`,
+`hd.xpub_string` and `hd.parse_xpub` cycle through 16,384 different
+inputs on both sides (`crates/purse-bench/src/lib.rs`, "Workloads";
+`crypto.base58check_decode_one` keeps the old decode workload, one
+address repeated); no other workload's code changed on either side.
+Three sessions back to back, each the ledger's command, the second and
+third with the first session's Go side:
+
+```text
+cargo build --release -p purse-bench --locked
+target/release/purse-bench drive --runs 5 --reps 5 --ms 200 \
+    --cpus 12-15 --go-tags flint --out <session directory>
+target/release/purse-bench drive --runs 5 --reps 5 --ms 200 \
+    --cpus 12-15 --go-bin <the first session's Go side> --out <session directory>
+```
+
+Every workspace crate in the Rust binary was rebuilt from that checkout
+immediately before the sessions. A first attempt about a minute earlier
+stopped before timing anything, the binary looking for the oracle
+directory in a worktree that no longer existed, and left no data.
+
+Five processes per side and session, alternating, 5 repetitions of about
+200 ms per calibrated workload; every measured process pinned with
+`taskset -c 12-15` as in the first entry (their SMT siblings not
+reserved, and nothing else pinned away from those cores), so GOMAXPROCS
+was 4 and Rust saw 4 threads. 2026-11-21, 08:40:11 to 08:54:01 UTC
+(sessions 08:40:11 to 08:44:47, 08:44:47 to 08:49:24 and 08:49:24 to
+08:54:01). All 27 cross-checked outputs (21 before the cycling workloads,
+which add the count and two digests of each input set) were equal in all
+thirty processes.
+
+**Load and what was running.** The sessions were started once the
+one-minute load average was below 0.8; it was 0.63 at 08:40:10 UTC
+(five- and fifteen-minute 0.65 and 0.74). In the driver's records at the
+start and end of every process it then lay between 0.76 and 1.14, and
+was 1.02 at the end (five- and fifteen-minute 1.02 and 0.94): about one
+runnable task, the measured process itself. A `top` snapshot taken
+before each session and after the third listed, before the first
+session, three processes of a desktop application at 33.5%, 14.3% and
+4.8% of one CPU, a VPN daemon and the desktop compositor at 4.8% each,
+and `top` itself; before the second and third sessions and after the
+third, no process but `top` above 0.0%. Each Rust process ran for
+25.4 s and each Go process for 29.8 to 29.9 s, in every session.
+
+The table pools the three sessions as the entry at `2074168` does: per
+side, the median of the fifteen processes' medians and their range; "by
+session" gives each session's own ratio, in session order.
+
+| workload | Go median (range), 15 processes | Rust median (range), 15 processes | Rust/Go | by session | Phase 1 criterion | verdict |
+|---|---|---|---|---|---|---|
+| hd.master | 22.08 µs (22.03–22.22 µs) | 18.93 µs (18.89–18.99 µs) | 0.86 | 0.86, 0.86, 0.86 | secret path ≤ 1.15 | met |
+| hd.hardened_child | 22.58 µs (22.54–22.69 µs) | 19.24 µs (19.20–19.30 µs) | 0.85 | 0.85, 0.85, 0.85 | secret path ≤ 1.15 | met |
+| hd.priv_child | 22.59 µs (22.55–22.66 µs) | 19.26 µs (19.20–19.30 µs) | 0.85 | 0.85, 0.85, 0.85 | secret path ≤ 1.15 | met |
+| hd.pub_child | 36.09 µs (36.05–36.18 µs) | 20.01 µs (19.99–20.04 µs) | 0.55 | 0.55, 0.55, 0.55 | public derivation ≤ 1.00 | met |
+| hd.address | 37.15 µs (37.09–37.25 µs) | 20.61 µs (20.57–20.62 µs) | 0.55 | 0.55, 0.55, 0.55 | address ≤ 1.00 | met |
+| hd.script | 36.48 µs (36.36–36.62 µs) | 20.29 µs (20.27–20.32 µs) | 0.56 | 0.56, 0.56, 0.56 | script ≤ 1.00 | met |
+| hd.addr20k | 744.33 ms (742.99–745.39 ms) | 412.62 ms (411.54–413.24 ms) | 0.55 | 0.55, 0.55, 0.55 | 20,000 addresses ≥ 1.5x faster | met (1.80x) |
+| hd.xpub_string | 4.63 µs (4.62–4.65 µs) | 4.42 µs (4.40–4.43 µs) | 0.96 | 0.95, 0.96, 0.96 | — | — |
+| hd.parse_xpub | 7.54 µs (7.52–7.56 µs) | 4.34 µs (4.32–4.35 µs) | 0.58 | 0.58, 0.58, 0.58 | — | — |
+| crypto.hmac_sha512 | 769 ns (745–787 ns) | 672 ns (668–686 ns) | 0.87 | 0.88, 0.87, 0.87 | HMAC ≤ 1.00 | met |
+| crypto.hash160 | 319 ns (318–320 ns) | 270 ns (269–281 ns) | 0.85 | 0.85, 0.85, 0.85 | hash160 ≤ 1.00 | met |
+| crypto.base58check_encode | 679 ns (676–684 ns) | 308 ns (307–312 ns) | 0.45 | 0.45, 0.45, 0.45 | base58 ≤ 1.00 | met |
+| crypto.base58check_decode | 351 ns (350–352 ns) | 274 ns (272–275 ns) | 0.78 | 0.78, 0.78, 0.78 | base58 ≤ 1.00 | **met** |
+| crypto.base58check_decode_one | 352 ns (349–353 ns) | 273 ns (272–274 ns) | 0.78 | 0.78, 0.78, 0.78 | — | — |
+| snacl.derive | 21.50 ms (20.84–22.13 ms) | 13.93 ms (13.87–14.02 ms) | 0.65 | 0.64, 0.65, 0.65 | — | — |
+| snacl.seal_32 | 273 ns (271–278 ns) | 846 ns (843–850 ns) | 3.10 | 3.07, 3.11, 3.11 | — | — |
+| snacl.open_32 | 204 ns (204–205 ns) | 815 ns (812–817 ns) | 3.99 | 3.99, 3.99, 3.99 | — | — |
+| snacl.seal_111 | 449 ns (446–453 ns) | 1.29 µs (1.28–1.29 µs) | 2.86 | 2.86, 2.88, 2.86 | — | — |
+| snacl.open_111 | 386 ns (382–389 ns) | 1.26 µs (1.26–1.27 µs) | 3.26 | 3.29, 3.26, 3.25 | — | — |
+| kdf.argon2id_t1 | 105.03 ms (104.76–105.46 ms) | 99.93 ms (99.33–100.81 ms) | 0.95 | 0.95, 0.95, 0.96 | — | — |
+| kdf.argon2id_t4 | 37.76 ms (37.58–37.95 ms) | 43.04 ms (42.95–43.70 ms) | 1.14 | 1.14, 1.14, 1.14 | — | — |
+| dcrutil.amount_string | 67 ns (67–68 ns) | 152 ns (150–158 ns) | 2.26 | 2.26, 2.26, 2.26 | — | — |
+| mix.roots_20 | 5.32 ms (5.29–5.35 ms) | 658.11 µs (656.92–665.12 µs) | 0.12 | 0.12, 0.12, 0.12 | — | — |
+| mix.roots_64 | 27.97 ms (27.92–28.12 ms) | 4.68 ms (4.67–4.70 ms) | 0.17 | 0.17, 0.17, 0.17 | — | — |
+| mix.roots_512 | 439.16 ms (433.63–440.35 ms) | 213.31 ms (213.26–213.58 ms) | 0.49 | 0.49, 0.49, 0.49 | — | — |
+
+The figures were recomputed from the thirty `run-*.txt` files, not taken
+from the sessions' `table.md`, and are rounded half up from the exact
+medians. The driver formats each median as a binary floating-point
+number with Rust's `{:.0}` in ns or, after dividing by 1,000, `{:.2}` in
+µs: a value exactly halfway in binary, such as 350.5 ns, rounds to even
+(350), and a quotient that is not exact in binary rounds the way its
+binary value lies (19,235.0 ns over 1,000 is stored just below 19.235 and
+prints as 19.23). The per-session medians agree with those tables except
+in the last digit of four that lie exactly halfway between two displayed
+values: Go's `crypto.base58check_decode` in the second session (350.5 ns),
+Go's `snacl.open_32` in the first (204.5 ns), Go's `snacl.seal_32` in the
+third (272.5 ns) and Rust's `hd.hardened_child` in the first (19,235.0
+ns), shown there as 350, 204, 272 and 19.23 µs; six ends of the sessions'
+ranges differ in the same way. Three pooled medians above lie exactly
+halfway: Go's `snacl.seal_32` (272.5 ns, 273 here, 272 in the driver's
+format), Rust's `hd.hardened_child` (19,235.0 ns, 19.24 µs here, 19.23 in
+the driver's format) and Rust's `crypto.base58check_decode` (273.5 ns,
+274 under both). Ratios are computed from the unrounded medians. No
+process stands out as in the entries above: the widest range relative to
+its median is Go's `snacl.derive` (20.84–22.13 ms, about 6%).
+
+**Phase 1's row: met on every clause.** **base58check decode**, the one
+clause open since the first entry, measured 0.78 pooled and 0.78 in each
+session, cycling through 16,384 different mainnet addresses: Go 351 ns and
+Rust 274 ns per decode, and Rust's slowest process (275 ns) faster than
+Go's fastest (350 ns). The secret paths measured master 0.86, hardened
+child 0.85 and private child 0.85 times Go's time, against at most 1.15;
+public derivation 0.55, address 0.55, script 0.56, HMAC 0.87, hash160
+0.85 and base58check encode 0.45, against at most 1.00; and 20,000
+addresses were derived 1.80 times as fast (criterion 1.5). Every
+session's ratio gives the same verdicts. The old decode workload, one
+address decoded again and again (`crypto.base58check_decode_one`, no
+criterion), also measured 0.78, against 1.01 at `2074168`; between the
+two, `dcroxide-base58` changed to the limb conversion and the machine went
+from loaded to quiet, and how much of the difference each accounts for
+was not separated. The extended-key workloads (no criterion) measured
+0.96 (`hd.xpub_string`) and 0.58 (`hd.parse_xpub`) cycling through 16,384
+keys, against 0.95 and 0.50 at `2074168` for one key repeated.
+
+**Slower than Go, outside the criteria.** Six workloads without a Phase 1
+criterion took longer in Rust than in Go in this run: secretbox,
+`snacl.seal_32` 3.10, `snacl.open_32` 3.99, `snacl.seal_111` 2.86 and
+`snacl.open_111` 3.26 times Go's time (the first entry, "Outside the
+criteria"; ADR-0014, addendum of 2026-11-19, item 3);
+`dcrutil.amount_string` 2.26 (the first entry, "Outside the criteria";
+ADR-0014, addendum of 2026-11-19, item 4); and `kdf.argon2id_t4` 1.14
+(the first entry, "Outside the criteria", and the entry "Argon2id with
+parallel lanes"; ADR-0014, addendum of 2026-11-19, item 7). This entry
+adds nothing about them beyond the figures in the table.
+
+**The CI gate's baselines.** The four cycling workloads' baselines in
+`crates/purse-bench/gate-baseline.tsv` are this entry's pooled ratios to
+three places: `crypto.base58check_encode` 0.454 (was 0.950),
+`crypto.base58check_decode` 0.780 (was 0.982), `hd.xpub_string` 0.955
+(was 0.943) and `hd.parse_xpub` 0.576 (was 0.501); the old values were
+measured on one repeated input, a different workload. The other fourteen
+baselines are unchanged.
+
+**What this entry does not show.** Other machines: one desktop, one
+x86_64 processor, Linux only; no other x86_64 processor, no ARM, no
+macOS or Windows, and not GitHub's runners, on which the CI gate runs.
+More than 4 threads, and a run with the measured cores' SMT siblings
+reserved.
+Memory use; the account blobs' XChaCha20-Poly1305 seal and open (not a
+workload); profiles (none taken).
+The 15%-warn and 25%-fail ratio gates (ADR-0014, section 4,
+"Regressions"): none was applied, since no earlier dedicated-machine run
+exists to compare with; this entry is the first such reference. Against
+the first entry and the entry at `2074168`, from the same machine while
+other work ran on it, no ratio rose by 25% or more. The largest rise is
+`hd.parse_xpub`, whose workload changed to cycling, by about 15%: 0.576
+against 0.501 in the first entry (its ratio to three places, the gate
+baseline before this entry), 15.0%, which the rounding of 0.501 leaves
+between 14.9% and 15.1%, so whether it passes 15% cannot be settled;
+and 14.1% to 14.6% against `2074168`, whose medians (7.88 and 3.97 µs)
+put its ratio between 0.503 and 0.505. (The two-decimal ratios, 0.58
+against 0.50, overstate it.) The largest other rise is
+`dcrutil.amount_string`, whose code is unchanged: 2.260 against 1.997 in
+the first entry, 13.2%, and 2.16 at `2074168`.
+
+Raw: `s1/`, `s2/`, `s3/` (`run-1-rust.txt` to `run-5-go.txt` with the
+driver's start and end notes and load averages, `table.md`), the Go side
+`s1/purse-bench-go`, the driver's logs `s1.log` to `s3.log`, `state.txt`
+(the load average and a `top` snapshot before each session and after the
+third), `binary.sha256` (the Rust binary's SHA-256), and the pooling
+script `pool.py` with its output `pooled.txt`.
 
 ## purse-store
 

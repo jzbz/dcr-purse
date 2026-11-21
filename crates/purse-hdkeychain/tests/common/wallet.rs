@@ -29,8 +29,12 @@
 //!
 //! or the single line `E|<error>` when `HDKeysFromSeed` fails.
 //!
-//! No wallet crate exists yet: when `purse-udb` derives accounts and
-//! addresses, these tests should call it instead of composing the steps.
+//! These tests compose the steps themselves: no wallet crate existed when
+//! they were written. `purse-udb` derives accounts and addresses since
+//! 2026-11-20 (`addrmgr::hd_keys_from_seed`, `Manager::new_account`,
+//! `Manager::account_extended_pub_key`), and these tests should call it
+//! instead; that switch is carried to Phase 3 (`docs/PHASE1-EXIT.md`,
+//! section 1, the dated note under "Not covered").
 
 use dcroxide_chaincfg::Params;
 use dcroxide_txscript::stdaddr;

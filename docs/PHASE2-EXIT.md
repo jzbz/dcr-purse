@@ -294,7 +294,10 @@ the dedicated-machine run before Phase 3's exit, together with the Phase 1
 run still owed, started only when the owner says when and where (what
 counts as the dedicated machine: ADR-0014, addendum of 2026-11-21); the
 store measured again with Phase 3's transaction store as part of Phase 3's
-exit. None of these runs has been made.*
+exit. None of these runs has been made.* *Later on 2026-11-21 the
+Phase 1 run was made (ADR-0014, addendum "Phase 1's run of record");
+the store's dedicated-machine run and its measurement with Phase 3's
+transaction store are not made.*
 
 ## What else the Phase 2 section lists
 
@@ -347,7 +350,9 @@ point of items 1 and 2 as recommended and closed Phase 2 on these terms
      of outputs dcrwallet may choose: Phase 3;
    - the dedicated-machine run (M2): before Phase 3's exit, together with
      Phase 1's, when and where the owner says (ADR-0014, addendum of
-     2026-11-21);
+     2026-11-21); *Phase 1's was made on its own later on 2026-11-21
+     (ADR-0014, addendum "Phase 1's run of record"); this one is not
+     made and stays owed, before Phase 3's exit;*
    - the measurement with the transaction store's own code (M3): Phase
      3's exit;
    - the large model run and the cursor conformance test's seed sweep:

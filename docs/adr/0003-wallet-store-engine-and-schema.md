@@ -1667,9 +1667,12 @@ the addendum of that date records them.*
   owner's word (ADR-0014, addendum of 2026-11-21).** ADR-0014 §4 decides
   exit criteria and wall-clock figures there, and this entry is from the shared
   desktop. Recommended: run the same command there before Phase 3's exit,
-  together with the Phase 1 run that is still owed. The several-fold rows
-  are far outside the noise seen here. The commit rows, which are bound by
-  the machine's sync time, are the ones a dedicated run could move.
+  together with the Phase 1 run that is still owed. *Phase 1's was made
+  on its own later on 2026-11-21 (ADR-0014, addendum "Phase 1's run of
+  record"); this one stays owed (item 2 of the addendum below, M2).*
+  The several-fold rows are far outside the noise seen here. The commit
+  rows, which are bound by the machine's sync time, are the ones a
+  dedicated run could move.
 - M3. *Measure again when Phase 3 writes the transaction store*,
   **decided as recommended (project owner, 2026-11-21)**, with
   the same test calling `purse-udb`'s transaction-store functions instead
@@ -1711,7 +1714,9 @@ added to it.
      exit, together with the Phase 1 run still owed. What counts as the
      dedicated machine was decided the same day, and no timed run of
      record is started until the owner says when and where (ADR-0014,
-     addendum of 2026-11-21). The run has not been made.
+     addendum of 2026-11-21). The run has not been made. *Later on
+     2026-11-21 the Phase 1 run was made on its own (ADR-0014, addendum
+     "Phase 1's run of record"); this one stays owed.*
    - M3: the store is measured again when Phase 3 writes the transaction
      store, as part of Phase 3's exit, with the same test calling
      `purse-udb`'s transaction-store functions instead of its own

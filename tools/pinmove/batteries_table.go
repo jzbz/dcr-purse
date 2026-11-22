@@ -69,12 +69,6 @@ var RepoTable = Table{
 			Note:       "the header names \"dcrwallet 54b85b336077\" in prose; tests/frozen.rs checks the entry count and body digest only",
 		},
 		{
-			Crate: "purse-hdkeychain", Files: []string{"wallet_lines.txt"},
-			Kind: KindGoGenerated, Commands: []string{"hdkeychain"},
-			Regenerate: "PURSE_HD_REGEN=1 cargo test --release -p purse-hdkeychain --test wallet_diff -- --ignored regenerate_wallet_vectors",
-			PinCheck:   "crates/purse-hdkeychain/tests/wallet_diff.rs (the \"# dcrwallet commit:\" header field)",
-		},
-		{
 			Crate: "purse-dcrutil", Files: []string{"amount_vectors.txt", "txsort_vectors.txt", "wif_vectors.txt"},
 			Kind: KindGoGenerated, Commands: []string{"dcrutil"},
 			Regenerate: "PURSE_DCRUTIL_REGEN=1 cargo test -p purse-dcrutil --test oracle -- --ignored regenerate_frozen_vectors",
@@ -160,6 +154,13 @@ var RepoTable = Table{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",
+		},
+		{
+			Crate: "purse-udb", Files: []string{"wallet_lines.txt"},
+			Kind: KindGoGenerated, Commands: []string{"hdkeychain"},
+			Regenerate: "PURSE_HD_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test --release -p purse-udb --test wallet_diff -- --ignored regenerate_wallet_vectors",
+			PinCheck:   "crates/purse-udb/tests/wallet_diff.rs `frozen_wallet_lines` (the \"# dcrwallet commit:\" header field)",
+			Note:       "moved from purse-hdkeychain on 2026-11-22 with the seed differential, body unchanged",
 		},
 		{
 			Crate: "purse-txrules", Files: []string{"txrules_vectors.txt"},

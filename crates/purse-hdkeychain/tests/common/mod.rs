@@ -26,8 +26,6 @@
     reason = "test code: index arithmetic on small, bounded values"
 )]
 
-pub mod wallet;
-
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

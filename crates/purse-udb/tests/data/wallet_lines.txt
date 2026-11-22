@@ -7,9 +7,10 @@
 #
 # Every expected value is the output of the Go oracle tools/oracle/cmd/hdkeychain
 # (command wallet: dcrwallet's udb.HDKeysFromSeed, hdkeychain v3.1.3, stdaddr),
-# written by `PURSE_HD_REGEN=1 cargo test --release -p purse-hdkeychain --test
+# written by `PURSE_HD_REGEN=1 cargo test --release -p purse-udb --test
 # wallet_diff -- --ignored regenerate_wallet_vectors`, which also checked the Rust
-# side equal. Format: crates/purse-hdkeychain/tests/common/wallet.rs.
+# side (purse-udb's address manager) equal. Format:
+# tools/oracle/cmd/hdkeychain/wallet.go.
 # dcrwallet commit: 54b85b336077587eaf20112dc695355ce06fc76e
 # entries: 58
 # body-sha256: a1e36d78cf984273795dc2a743db3530ea0b3cf6987e3b72c5181503c86d26c1

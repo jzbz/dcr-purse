@@ -61,6 +61,10 @@ purse-export-check = { path = "../purse-export-check" }
 purse-testutil.workspace = true
 # The operation-script runner of the tests reads and writes ADR-0002's JSON.
 serde_json.workspace = true
+# redb's `InMemoryBackend` (the release purse-store links, so no new crate):
+# the seed differential (tests/wallet_diff.rs) creates two wallets per seed,
+# each on its own store in memory.
+redb.workspace = true
 
 [lints]
 workspace = true

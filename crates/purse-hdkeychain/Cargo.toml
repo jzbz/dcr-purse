@@ -37,14 +37,13 @@ chaincfg = ["dep:dcroxide-chaincfg"]
 # against (the crate does not use it: it wipes neither its working limbs
 # nor its output).
 dcroxide-base58.workspace = true
-# The wallet-level differential (tests/wallet_diff.rs) and the upstream
-# examples: each network's coin types and address prefixes, and the P2PKH
-# address encoding dcr-purse uses (stdaddr), at the dcroxide pin;
-# dcroxide-txscript without `std`, which adds only the signature cache.
+# The upstream examples (tests/upstream_examples.rs): each network's
+# address prefixes, and the P2PKH address encoding dcr-purse uses (stdaddr),
+# at the dcroxide pin; dcroxide-txscript without `std`, which adds only the
+# signature cache. (The wallet-level differential that also used them moved
+# to purse-udb's tests/wallet_diff.rs on 2026-11-22.)
 dcroxide-chaincfg.workspace = true
 dcroxide-txscript.workspace = true
-# Renders the one wallet-level error dcrwallet wraps (an unusable seed).
-purse-errors.workspace = true
 purse-testutil.workspace = true
 
 [lints]

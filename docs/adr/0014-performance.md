@@ -26,7 +26,11 @@
   Phases 2 and 3 has not had its dedicated-machine run.* *Also on
   2026-11-21 the owner decided that the store is to keep no committed
   filter the wallet fetches below its birthday, which widens S15 (Open
-  point 5): ADR-0019, decided, not implemented.*
+  point 5): ADR-0019, decided, not implemented.* *On 2026-11-22 the owner
+  decided ADR-0019's FB1 and FB2 as recommended: the initial sync fetches
+  no filter below the birthday however set, and rescans and discoveries
+  from below it in SPV mode fetch on demand and keep none (Open point
+  5).*
 - **Date:** 2026-11-19
 
 ## Context
@@ -166,7 +170,7 @@ change), **TIMING** (more in flight), **SHAPE** (another pattern),
 | S12 | Peers kept after sync, heights from headers | M: 7 of 8 dropped | SHAPE | DO |
 | S13 | getcfsv2 always, never 2,000 pipelined getcfilterv2 (`p2p/peering.go:1787-1811`) | avoids dcroxide's drop | SHAPE | DO |
 | S14 | Several connections to a node the user names | E | SHAPE | opt-in: ≤5 to a loopback or whitelisted node, else ≤3, ≥5 s apart |
-| S15 | No filters below a typed birthday (`spv/sync.go:1736-1748`) | E: most of 453 MB for a recent date | SHAPE | DO (Open point 5) *(2026-11-21, decided, not implemented: the store is to keep no fetched filter below the wallet's birthday however set, ADR-0019; whether the sync fetches them for a birthday nobody typed is its open question FB1)* |
+| S15 | No filters below a typed birthday (`spv/sync.go:1736-1748`) | E: most of 453 MB for a recent date | SHAPE | DO (Open point 5) *(2026-11-21, decided, not implemented: the store is to keep no fetched filter below the wallet's birthday however set, ADR-0019; whether the sync fetches them for a birthday nobody typed is its open question FB1)* *(2026-11-22: it does not, in either mode, FB1, project owner; not implemented)* |
 | S16 | Several connections to a public node; >100 filters; second getinitstate; getdata >505 | none | OUT | REJECT |
 | S17 | Protocol 12; SIMD BLAKE-256 | none; 0.03 s | — | REJECT |
 
@@ -377,7 +381,16 @@ Most valuable first.
    birthday", which widens S15 from a typed birthday to the wallet's
    birthday however set, and from what the sync fetches to what the store
    keeps; ADR-0019, whose open questions FB1 and FB2 ask whether the
-   fetching and the on-demand rule follow it.*
+   fetching and the on-demand rule follow it.* *2026-11-22 (project
+   owner): both follow it, FB1 and FB2 decided as recommended. The
+   initial sync, in SPV and RPC mode, requests no filter below the
+   wallet's birthday however set, a birthday pending above the tip
+   included; rescans and discoveries from below the birthday in SPV mode
+   fetch the filters of that range from peers, check them against the
+   stored headers where DCP0005's commitment applies, use them and keep
+   none. The cost of such a rescan with dcrwallet's defaults, about a
+   million filters fetched on mainnet each time, was not measured.
+   ADR-0019, addendum of 2026-11-22; not implemented.*
 6. *S4 against ADR-0003 item 2* **Decided as recommended (project owner, 2026-11-19).** (Phase 2 keys by hash). Recommended:
    decide in Phase 2 from a grown-file measurement of both, detached rows
    by hash (ADR-0003 Open point 5). *Measured (ADR-0003, addendum of

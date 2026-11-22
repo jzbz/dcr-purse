@@ -656,7 +656,7 @@ to allow it is Open point 4.
 
    | table | key | value | dcrwallet access path it serves |
    |---|---|---|---|
-   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker *(as built: no unspent count, which is the length of `unspent`; birth state and have-cfilters added; addendum of 2026-11-19)* *(2026-11-21: what have-cfilters means for a store without the filters below the birthday is open, ADR-0019 FB9)* | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
+   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker *(as built: no unspent count, which is the length of `unspent`; birth state and have-cfilters added; addendum of 2026-11-19)* *(2026-11-21: what have-cfilters means for a store without the filters below the birthday is open, ADR-0019 FB9)* *(2026-11-22: "no filter at or above the birthday height is missing", 1 in every store dcr-purse creates; a store with no birth state counts as born at genesis; ADR-0019 FB9 option (a) and FB10, project owner; not implemented)* | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
    | `wallet` *(added, addendum of 2026-11-19)* | name | master-key parameters, sealed crypto keys, coin-type keys, slip0044 account 0, watch-only, last account, last imported account | the address manager's wallet-wide rows (`waddrmgr/main`, `waddrmgr/meta`) |
    | `accounts` | account u32 **LE** | last used and last returned child per branch; name | account iteration in dcrwallet's order, `AccountProperties`, `MarkUsedChildIndex` |
    | `account_names` | name | account | `LookupAccount` |
@@ -1796,7 +1796,11 @@ once ADR-0019 is implemented:
   height; the genesis block's filter, which dcrwallet writes at creation,
   is kept only when the birthday is genesis. Filters a client supplies
   (`importcfiltersv2`, `repaircfilters`) are ADR-0019's open question FB5.
-  `headers`, `headers_detached`, `blocks` and `block_by_hash` are
+  *(2026-11-22: they are written as dcrwallet writes them, at any height,
+  FB5; the syncers, not the store, decide which filters they pass, and
+  `purse-udb`'s `ExtendMainChain` accepts a block without a filter only
+  below the birthday, FB4; project owner, ADR-0019, addendum of that
+  date.)* `headers`, `headers_detached`, `blocks` and `block_by_hash` are
   unchanged. A wallet whose birthday is the genesis block keeps every
   filter, as dcrwallet does.
 - No table, key, value or invariant changes, and schema version 1 stands:
@@ -1815,7 +1819,19 @@ once ADR-0019 is implemented:
   check of the parent's filter, and its write of 1 at the tip, with
   another way for the pass's loop to stop. The doc comments in
   `purse-store` that give dcrwallet's meaning stay until FB9 is answered
-  and the code implementing ADR-0019 is written.
+  and the code implementing ADR-0019 is written. *(2026-11-22: FB9
+  answered as recommended, option (a), project owner: the row is 1 in
+  every store dcr-purse creates, the missing-filter pass and
+  `InsertMissingCFilters` are ported unchanged, and `MissingCFiltersHeight`
+  walks from the birthday height. A store with no `birth` row counts as
+  born at genesis (FB10). The doc comments change with that code. Which
+  write records the birthday block's filter when the block is connected
+  before its child is known under a pending time birthday is ADR-0019's
+  FB11, **Proposed**; its recommendation uses the built `put_cfilter_at`
+  and adds no table or store operation. Where `MissingCFiltersHeight`
+  starts while a birthday is pending, and whether a height-0 birthday's
+  genesis filter is written at creation, is ADR-0019's FB12,
+  **Proposed**.)*
 - The measurements above stand as made: every one of them stored a filter
   for every block. The file size of a store that keeps headers for every
   block and filters only from a recent birthday on was not measured.

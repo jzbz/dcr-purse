@@ -10,6 +10,20 @@
   no longer holds for those filters, and the projection open item 2 asks
   for also covers a wallet born after genesis (ADR-0019, open question
   FB6). The format is unchanged.
+- **Pointer, 2026-11-22:** FB6 decided as recommended (project owner,
+  2026-11-22; ADR-0019, addendum of that date). Comparisons of a wallet
+  born after genesis drop, on both sides, the `[cfilters]` records of
+  heights below the `birth` record's height (a side filter's height read
+  from its `sideheader`) and compare the segment holding the birthday in
+  full mode; `havecfilters` stays compared (1 on both sides, ADR-0019
+  FB9); and `[cfilters]` gains a record stating a range of heights without
+  a filter once, which raises its version under §10. Decided, to be
+  specified in §6.10 and §8 with the Rust producer of `[cfilters]` (the
+  sync phases), together with `purse-export-check`'s registry and the Go
+  exporter. Until then §6.10 describes `[cfilters]` version 1 as built,
+  and the format is unchanged. The `birth` record's height names the
+  birthday only once it is resolved; what the projection drops while a
+  birthday is pending is ADR-0019's FB12, **Proposed**.
 - **Date:** 2026-11-19 (format 1 drafted; revised the same day to format 2
   after an adversarial review and the owner's decisions of 2026-11-18 and
   2026-11-19, ADR-0013 above all)
@@ -1275,7 +1289,9 @@ section 9, each resting on the absence of a reader at the pin.
    specified. *(2026-11-21: the store is to keep no fetched filter below
    the wallet's birthday, ADR-0019, decided and not implemented; a
    comparison of a wallet born after genesis will need the projection for
-   `[cfilters]` too, ADR-0019 open question FB6.)*
+   `[cfilters]` too, ADR-0019 open question FB6.)* *(2026-11-22: that
+   projection decided, FB6 as recommended, project owner; not yet
+   specified: the pointer of that date under the Status line.)*
 3. `[orphans]` and `[bad]` describe Go-written fixtures and fault
    injections only: dcr-purse's store never holds such states (ADR-0013,
    Consequences), so a Rust producer emits them empty, and no policy for
@@ -1329,7 +1345,9 @@ rest"):
    longer so for filters once ADR-0019 is implemented: the store is to
    keep every header, and the committed filters the wallet fetches only
    from the wallet's birthday on, project owner, ADR-0019; not yet
-   implemented.)*
+   implemented.)* *(2026-11-22: filters a client supplies are written as
+   dcrwallet writes them, below the birthday included, ADR-0019 FB5; the
+   projection for `[cfilters]` is decided, FB6, and not yet specified.)*
 
 The other items of "What remains open" stand as open.
 

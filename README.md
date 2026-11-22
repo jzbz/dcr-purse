@@ -50,7 +50,11 @@ own flow. ADR-0013 records the decision and these costs. The store is
 also to keep the committed filters the wallet fetches only from the
 wallet's birthday on, where dcrwallet keeps one for every block, which
 makes a new wallet's file smaller by an amount not yet measured (project
-owner, 2026-11-21; ADR-0019); this is not implemented yet.
+owner, 2026-11-21; ADR-0019); this is not implemented yet. Under the
+rules decided on 2026-11-22, a rescan or discovery in SPV mode that
+starts below the birthday fetches from peers the filters the store does
+not hold, about a million on mainnet for a rescan from height 0, at a
+cost not yet measured.
 
 ## What exists
 

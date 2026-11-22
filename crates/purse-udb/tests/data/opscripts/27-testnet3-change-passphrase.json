@@ -1,0 +1,12 @@
+{
+  "format": "purse-opscript 1",
+  "name": "ChangePassphrase on testnet3: the full scrypt cost rewritten for both master keys",
+  "setup": {"network": "testnet3", "seed": "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567", "pubpass": "_DJr{fL4H0O}*-0\n:V1izc)(6BomK", "privpass": "81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj", "rand": "2929292929292929292929292929292929292929292929292929292929292929", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.change_passphrase", "old": "81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj", "new": "@#$asdf", "private": true},
+    {"op": "mgr.change_passphrase", "old": "_DJr{fL4H0O}*-0\n:V1izc)(6BomK", "new": "-0NV4P~VSJBWbunw}%<Z]fuGpbN[ZI", "private": false},
+    {"op": "rt.reopen"},
+    {"op": "mgr.unlock", "pass": "@#$asdf"},
+    {"op": "mgr.account_extended_priv_key", "account": 0}
+  ]
+}

@@ -28,6 +28,11 @@
 //! (`divergences_from_go_are_as_recorded` covers those), and never upgrade
 //! the coin type after recording an address of account 0
 //! (`coin_type_upgrade_rederives_legacy_rows` covers that, QK-0760).
+//! Generated watching-only scripts, generated passphrase scripts (per-
+//! account passphrases and imported voting accounts) and generated
+//! passphrase-change scripts run the same way (`PURSE_UDB_WO_SCRIPTS`,
+//! `PURSE_UDB_PASS_SCRIPTS`, `PURSE_UDB_CHANGE_SCRIPTS`), each family
+//! excluding exactly the inputs of the divergences its pinning tests cover.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -43,7 +48,10 @@ use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{SplitMix64, hex, oracle_or_skip};
 use purse_udb::addrmgr::ChainParams;
 use support::compare::{comparable, corpus, differential, go_run};
-use support::generator::{GEN_OPS, Shape, generate};
+use support::generator::{
+    CHANGE_OPS, GEN_OPS, PASS_OPS, Shape, WATCH_OPS, change_kind, generate, generate_change,
+    generate_passphrase, generate_watching, watch_kind,
+};
 use support::runner::{self, SUPPORTED};
 use support::scratch;
 
@@ -129,19 +137,150 @@ fn generated_scripts_match_go() {
 }
 
 /// Every operation a generated script draws is one the Rust runner
-/// implements, and every implemented `mgr.` operation but the one that
-/// needs a watching-only wallet is drawn.
+/// implements, and every implemented `mgr.` operation but `chain_params`
+/// is drawn: by the seed scripts, by the watching-only ones (public key
+/// imports, which only a watching-only wallet accepts, and conversion), by
+/// the passphrase ones (per-account passphrases and voting accounts), or by
+/// the passphrase-change ones.
 #[test]
 fn generated_scripts_draw_every_ported_operation() {
-    for op in GEN_OPS {
+    let lists = [GEN_OPS, WATCH_OPS, PASS_OPS, CHANGE_OPS];
+    for op in lists.iter().copied().flatten() {
         assert!(SUPPORTED.contains(op), "{op} is drawn but not ported");
     }
     for op in SUPPORTED.iter().filter(|op| op.starts_with("mgr.")) {
-        if ["mgr.import_public_key", "mgr.chain_params"].contains(op) {
+        if *op == "mgr.chain_params" {
             continue;
         }
-        assert!(GEN_OPS.contains(op), "{op} is ported but never drawn");
+        assert!(
+            lists.iter().any(|l| l.contains(op)),
+            "{op} is ported but never drawn"
+        );
     }
+}
+
+/// Passphrase changes: generated scripts on all four networks, on wallets
+/// created from a seed (either coin type, with per-account passphrases), from
+/// an account extended public key, or from a seed and converted
+/// (`PURSE_UDB_CHANGE_SCRIPTS` sets how many).
+#[test]
+fn generated_change_scripts_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let count: usize = std::env::var("PURSE_UDB_CHANGE_SCRIPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12);
+    let mut rng = SplitMix64::from_env("purse-udb-addrmgr-change");
+    let mut ops = 0;
+    let mut tally = BTreeMap::new();
+    // Changes that succeeded, by half, so a campaign shows it reached them
+    // and not only their refusals.
+    let mut changed: BTreeMap<&str, usize> = BTreeMap::new();
+    for id in 0..count {
+        let script = generate_change(&mut rng, id, Shape::default());
+        let results = differential(&mut o, &format!("generated {id}: {script}"), &script);
+        ops += results.len();
+        let script_ops = script["ops"].as_array().expect("ops");
+        for r in &results {
+            if r["op"] == "mgr.change_passphrase" && r.get("err").is_none() {
+                let i = usize::try_from(r["i"].as_u64().expect("i")).expect("index");
+                let half = if script_ops[i]["private"] == true {
+                    "private"
+                } else {
+                    "public"
+                };
+                *changed.entry(half).or_default() += 1;
+            }
+        }
+        let net = script["setup"]["network"]
+            .as_str()
+            .expect("network")
+            .to_owned();
+        *tally.entry((net, change_kind(&script))).or_insert(0usize) += 1;
+    }
+    eprintln!(
+        "{count} generated passphrase-change scripts, {ops} operations equal; by network and \
+         kind: {tally:?}; successful changes: {changed:?}"
+    );
+}
+
+/// Per-account passphrases and imported voting accounts: generated
+/// scripts on all four networks, on wallets created from a seed (either
+/// coin type) or from an account extended public key
+/// (`PURSE_UDB_PASS_SCRIPTS` sets how many).
+#[test]
+fn generated_passphrase_scripts_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let count: usize = std::env::var("PURSE_UDB_PASS_SCRIPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12);
+    let mut rng = SplitMix64::from_env("purse-udb-addrmgr-passphrase");
+    let mut ops = 0;
+    let mut tally: BTreeMap<(String, &str), usize> = BTreeMap::new();
+    // Successful calls of each passphrase operation, so a campaign shows it
+    // reached them and not only their refusals.
+    let mut succeeded: BTreeMap<String, usize> = BTreeMap::new();
+    for id in 0..count {
+        let script = generate_passphrase(&mut rng, id, Shape::default());
+        let results = differential(&mut o, &format!("generated {id}: {script}"), &script);
+        ops += results.len();
+        for r in &results {
+            let op = r["op"].as_str().expect("op");
+            if PASS_OPS.contains(&op) && r.get("err").is_none() {
+                *succeeded.entry(op.to_owned()).or_default() += 1;
+            }
+        }
+        let net = script["setup"]["network"]
+            .as_str()
+            .expect("network")
+            .to_owned();
+        let kind = if script["setup"]["xpub"].is_null() {
+            "seed"
+        } else {
+            "xpub"
+        };
+        *tally.entry((net, kind)).or_default() += 1;
+    }
+    eprintln!(
+        "{count} generated passphrase scripts, {ops} operations equal; by network and wallet: \
+         {tally:?}; successful passphrase operations: {succeeded:?}"
+    );
+}
+
+/// Watching-only wallets: generated scripts of every kind (created from
+/// an account extended public key of either coin type, or created from a
+/// seed on either coin type and converted) on all four networks
+/// (`PURSE_UDB_WO_SCRIPTS` sets how many).
+#[test]
+fn generated_watching_only_scripts_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let count: usize = std::env::var("PURSE_UDB_WO_SCRIPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
+    let mut rng = SplitMix64::from_env("purse-udb-addrmgr-watching");
+    let mut ops = 0;
+    let mut tally = BTreeMap::new();
+    for id in 0..count {
+        let script = generate_watching(&mut rng, id, Shape::default());
+        let results = differential(&mut o, &format!("generated {id}: {script}"), &script);
+        ops += results.len();
+        let net = script["setup"]["network"]
+            .as_str()
+            .expect("network")
+            .to_owned();
+        *tally.entry((net, watch_kind(&script))).or_insert(0usize) += 1;
+    }
+    eprintln!(
+        "{count} generated watching-only scripts, {ops} operations equal; by network and kind: {tally:?}"
+    );
 }
 
 /// A setup Go refuses fails both runs, with the same text.
@@ -159,20 +298,50 @@ fn refused_setups_fail_both_runs_alike() {
                   "clock": 1_794_990_000},
         "ops": [],
     });
+    // An extended key passed unparsed to InitializeWatchOnly: empty,
+    // malformed, a character outside base58's alphabet, another network's,
+    // a bad checksum.
+    let raw = |k: &str| json!({"raw": k});
+    let mainnet_xpub = "dpubZF4LSCdF9YKZfNzTVYhz4RBxsjYXqms8AQnMBHXZ8GUKoRSigG7kQnKiJt5pzk93Q8FxcdVBEkQZruSXduGtWnkwXzGnjbSovQ97dCxqaXc";
+    let bad_checksum = "sprvZGFP8jrEcU3JA2qJYKSGTFf9oVXhfnc7invEQZuLUbuztXS6MnzkzQYse5N1mn1E7mn9vvG6BkSP3AkR9JzSKLKqMmL4498yABFQffCcCVa";
     for (field, value, want) in [
         (
             "privpass",
-            "",
+            json!(""),
             "invalid operation: private passphrase may not be empty",
         ),
         (
             "seed",
-            "000102030405060708090a0b0c0d0e",
+            json!("000102030405060708090a0b0c0d0e"),
             "seed length must be between 128 and 512 bits",
         ),
+        (
+            "xpub",
+            raw(""),
+            "the provided serialized extended key length is invalid",
+        ),
+        (
+            "xpub",
+            raw("xyz"),
+            "the provided serialized extended key length is invalid",
+        ),
+        (
+            "xpub",
+            raw("\u{20ac}"),
+            "the provided serialized extended key length is invalid",
+        ),
+        (
+            "xpub",
+            raw(mainnet_xpub),
+            "the provided serialized extended key is for the wrong network",
+        ),
+        ("xpub", raw(bad_checksum), "bad extended key checksum"),
     ] {
         let mut s = base.clone();
-        s["setup"][field] = json!(value);
+        if field == "xpub" {
+            s["setup"].as_object_mut().expect("setup").remove("seed");
+        }
+        s["setup"][field] = value;
         let dir = scratch("refused");
         let go = o
             .try_call(
@@ -310,6 +479,97 @@ fn divergences_from_go_are_as_recorded() {
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// QK-0763 and QK-0764 (PARITY.md, `purse-udb`): after
+/// `ConvertToWatchingOnly`, and until a reopen, Go's `PrivateKey` answers
+/// from memory that no longer matches its store. For an imported key it
+/// dereferences the nil private crypto key and panics (recorded by
+/// `oprunner` with kind `Panic`; ADR-0012 Rule 2(a)); for an account it had
+/// cached it finds the sealed private key it emptied in memory, which the
+/// store keeps (QK-0761), and fails with `no private key for
+/// <name>/<branch>/<index>`, where an account it had not cached fails with
+/// the locked account's text. dcr-purse answers from the store, as Go does
+/// after a reopen. Every other operation and the exports are equal.
+#[test]
+fn private_keys_after_a_conversion_answer_from_the_store() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0763, QK-0764: PrivateKey after a conversion",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "6363636363636363636363636363636363636363636363636363636363636363",
+                  "clock": 1_794_990_000},
+        "ops": [
+            {"op": "mgr.unlock", "pass": "private"},
+            {"op": "mgr.new_account", "name": "second"},
+            {"op": "mgr.account_extended_priv_key", "account": 1},
+            {"op": "mgr.sync_account_to_addr_index", "account": 1, "index": 2, "branch": 0},
+            {"op": "mgr.import_private_key",
+             "key": "0000000000000000000000000000000000000000000000000000000000000002",
+             "label": "k"},
+            {"op": "mgr.import_script", "script": "51", "label": "s"},
+            {"op": "mgr.convert_to_watching_only"},
+            {"op": "mgr.private_key", "addr": {"ref": "k"}},
+            {"op": "mgr.import_private_key",
+             "key": "0000000000000000000000000000000000000000000000000000000000000003",
+             "label": "k3"},
+            {"op": "mgr.private_key", "addr": {"ref": "k3"}},
+            {"op": "mgr.private_key", "addr": {"ref": "s"}},
+            {"op": "mgr.private_key", "addr": {"acct": 1, "branch": 0, "index": 2}},
+            // Account 0 is first loaded (and, by Go, cached) after the
+            // conversion.
+            {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 0, "branch": 0},
+            {"op": "mgr.private_key", "addr": {"acct": 0, "branch": 0, "index": 0}},
+            {"op": "rt.reopen"},
+            {"op": "mgr.private_key", "addr": {"ref": "k"}},
+            {"op": "mgr.private_key", "addr": {"ref": "k3"}},
+            {"op": "mgr.private_key", "addr": {"acct": 1, "branch": 0, "index": 2}},
+        ],
+    });
+    let dir = support::scratch("qk0763");
+    let (go, go_pe) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(go.len(), rust.results.len());
+    let r = &rust.results;
+    let missing_nonce = "encryption/decryption error: decrypt imported privkey: \
+                         cryptokey.Decrypt: invalid operation: missing nonce";
+    // QK-0763: an imported key, imported before and after the conversion.
+    for i in [7, 9] {
+        assert_eq!(go[i]["err"]["kind"], "Panic", "Go panics: {}", go[i]);
+        assert_eq!(r[i]["err"]["kind"], "Crypto", "{}", r[i]);
+        assert_eq!(r[i]["err"]["text"], missing_nonce);
+    }
+    // QK-0764: account 1, cached before the conversion.
+    assert_eq!(go[11]["err"]["kind"], "Other", "Go: {}", go[11]);
+    assert_eq!(go[11]["err"]["text"], "no private key for second/0/2");
+    assert_eq!(r[11]["err"]["kind"], "Locked", "{}", r[11]);
+    assert_eq!(r[11]["err"]["text"], "wallet locked: second");
+    // Account 0, which Go had not cached, and everything after the reopen.
+    assert_eq!(
+        go[13]["err"]["text"], "wallet locked: default",
+        "Go: {}",
+        go[13]
+    );
+    for i in [15, 16] {
+        assert_eq!(go[i]["err"]["text"], missing_nonce, "Go: {}", go[i]);
+    }
+    assert_eq!(
+        go[17]["err"]["text"], "wallet locked: second",
+        "Go: {}",
+        go[17]
+    );
+    for (i, (g, rr)) in go.iter().zip(r).enumerate() {
+        if [7, 9, 11].contains(&i) {
+            continue;
+        }
+        assert_eq!(comparable(g), comparable(rr), "op {i}");
+    }
+    support::compare::compare_exports("QK-0763, QK-0764", &go_pe, &rust.export);
 }
 
 /// QK-0760 (ADR-0012 Rule 7; PARITY.md, `purse-udb`): the SLIP0044 upgrade
@@ -471,5 +731,408 @@ fn coin_type_upgrade_rederives_legacy_rows() {
             continue;
         }
         assert_eq!(comparable(g), comparable(rr), "op {i}");
+    }
+}
+
+/// QK-0765 and QK-0766 (PARITY.md, `purse-udb`): per-account keys after
+/// `ConvertToWatchingOnly`, until a reopen. Go locks the manager only if
+/// the wallet is unlocked, so a key `UnlockAccount` opened while the wallet
+/// was locked (a BIP0044 account with its own passphrase, a voting account)
+/// stays in memory and keeps answering; it empties the sealed private key
+/// of every cached account, so a cached voting account then fails to
+/// unlock (`ciphertext too short (len 0)`) while the store keeps its key
+/// (QK-0761); and `ImportVotingAccount` seals with the nil private crypto
+/// key and panics (recorded by `oprunner` with kind `Panic`). dcr-purse
+/// locks every account at a conversion and answers from the store, as Go
+/// does after a reopen. Every other operation is equal; the exports are
+/// not compared (dcr-purse's holds the account Go's panic did not import).
+#[test]
+fn account_keys_after_a_conversion_answer_from_the_store() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let key = |i: u32| {
+        json!({"seed": "2525252525252525252525252525252525252525252525252525252525252525",
+                              "path": ["44'", "115'", format!("{i}'")]})
+    };
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0765, QK-0766: account keys after a conversion",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "6565656565656565656565656565656565656565656565656565656565656565",
+                  "clock": 1_794_990_000},
+        "ops": [
+            {"op": "mgr.unlock", "pass": "private"},
+            {"op": "mgr.new_account", "name": "one"},
+            {"op": "mgr.set_account_passphrase", "account": 1, "pass": "one-pass"},
+            {"op": "mgr.import_voting_account", "name": "vote", "pass": "abc", "xpriv": key(1)},
+            {"op": "mgr.import_voting_account", "name": "cached", "pass": "c", "xpriv": key(2)},
+            // Caches account 0x80000001 (locked) on both sides.
+            {"op": "mgr.account_has_passphrase", "account": 0x8000_0001_u32},
+            {"op": "mgr.lock"},
+            {"op": "mgr.unlock_account", "account": 1, "pass": "one-pass"},
+            {"op": "mgr.unlock_account", "account": 0x8000_0000_u32, "pass": "abc"},
+            {"op": "mgr.convert_to_watching_only"},
+            {"op": "mgr.account_has_passphrase", "account": 1},
+            {"op": "mgr.account_extended_priv_key", "account": 1},
+            {"op": "mgr.account_has_passphrase", "account": 0x8000_0000_u32},
+            {"op": "mgr.account_extended_priv_key", "account": 0x8000_0000_u32},
+            {"op": "mgr.unlock_account", "account": 0x8000_0001_u32, "pass": "c"},
+            {"op": "mgr.import_voting_account", "name": "late", "pass": "l", "xpriv": key(3)},
+            {"op": "rt.reopen"},
+            {"op": "mgr.account_has_passphrase", "account": 1},
+            {"op": "mgr.account_extended_priv_key", "account": 1},
+            {"op": "mgr.account_has_passphrase", "account": 0x8000_0000_u32},
+            {"op": "mgr.unlock_account", "account": 0x8000_0001_u32, "pass": "c"},
+        ],
+    });
+    let dir = support::scratch("qk0766");
+    let (go, _) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(go.len(), rust.results.len());
+    let r = &rust.results;
+    let locked_pair = json!({"has": true, "unlocked": false});
+    let unlocked_pair = json!({"has": true, "unlocked": true});
+    // QK-0766: the keys UnlockAccount opened while the wallet was locked.
+    for i in [10, 12] {
+        assert_eq!(go[i]["ok"], unlocked_pair, "Go: {}", go[i]);
+        assert_eq!(r[i]["ok"], locked_pair, "{}", r[i]);
+    }
+    for i in [11, 13] {
+        assert!(
+            go[i]["ok"].as_str().is_some_and(|k| k.starts_with("sprv")),
+            "Go: {}",
+            go[i]
+        );
+    }
+    assert_eq!(r[11]["err"]["kind"], "Locked", "{}", r[11]);
+    assert_eq!(
+        r[11]["err"]["text"],
+        "wallet locked: unable to access account extended privkey"
+    );
+    assert_eq!(r[13]["err"]["kind"], "Invalid", "{}", r[13]);
+    assert_eq!(
+        r[13]["err"]["text"],
+        "invalid operation: imported xpub account has no extended privkey"
+    );
+    // QK-0766: the cached voting account's emptied sealed key.
+    assert_eq!(go[14]["err"]["kind"], "Crypto", "Go: {}", go[14]);
+    assert_eq!(
+        go[14]["err"]["text"],
+        "encryption/decryption error: ciphertext too short (len 0) to encode nonce and MAC tag"
+    );
+    assert_eq!(r[14]["ok"], Value::Null, "{}", r[14]);
+    assert!(r[14].get("err").is_none(), "{}", r[14]);
+    // QK-0765: the nil private crypto key.
+    assert_eq!(go[15]["err"]["kind"], "Panic", "Go panics: {}", go[15]);
+    assert_eq!(r[15]["ok"], 0x8000_0002_u32, "{}", r[15]);
+    // After the reopen Go answers as dcr-purse did.
+    assert_eq!(go[17]["ok"], locked_pair, "Go: {}", go[17]);
+    assert_eq!(go[19]["ok"], locked_pair, "Go: {}", go[19]);
+    assert_eq!(go[20]["ok"], Value::Null, "Go: {}", go[20]);
+    for (i, (g, rr)) in go.iter().zip(r).enumerate() {
+        if (10..=15).contains(&i) {
+            continue;
+        }
+        assert_eq!(comparable(g), comparable(rr), "op {i}");
+    }
+}
+
+/// QK-0767 (ADR-0012 Rule 7; PARITY.md, `purse-udb`): the SLIP0044 upgrade
+/// of a wallet whose account 0 has its own passphrase. Go writes the
+/// SLIP0044 account 0 row, sealed by the private crypto key, and leaves the
+/// account's Argon2id parameters, so account 0 still claims its own
+/// passphrase while no passphrase opens its key: `UnlockAccount` fails,
+/// the wallet's unlock skips it, the passphrase cannot be removed, and
+/// after a restart nothing signs for account 0's addresses. dcr-purse's
+/// upgrade writes the row without the parameters: account 0 is protected by
+/// the wallet passphrase, as the parked row was. Both answers are pinned for
+/// each divergent operation; every other operation is equal. The exports
+/// are not compared: Go's keeps account 0's parameters.
+#[test]
+fn coin_type_upgrade_drops_account_0s_own_passphrase() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0767: SLIP0044 upgrade of an account 0 with its own passphrase",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "6666666666666666666666666666666666666666666666666666666666666666",
+                  "clock": 1_794_990_000},
+        "export": {"privcheck": false},
+        "ops": [
+            {"op": "mgr.unlock", "pass": "private"},
+            {"op": "mgr.set_account_passphrase", "account": 0, "pass": "zero"},
+            {"op": "mgr.upgrade_to_slip0044_coin_type"},
+            {"op": "mgr.account_has_passphrase", "account": 0},
+            {"op": "mgr.account_extended_priv_key", "account": 0},
+            {"op": "mgr.lock"},
+            {"op": "mgr.unlock_account", "account": 0, "pass": "zero"},
+            {"op": "rt.reopen"},
+            {"op": "mgr.unlock", "pass": "private"},
+            {"op": "mgr.account_has_passphrase", "account": 0},
+            {"op": "mgr.account_extended_priv_key", "account": 0},
+            {"op": "mgr.unlock_account", "account": 0, "pass": "zero"},
+            {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 0, "branch": 0},
+            {"op": "mgr.private_key", "addr": {"acct": 0, "branch": 0, "index": 0}},
+            {"op": "mgr.set_account_passphrase", "account": 0, "pass": ""},
+        ],
+    });
+    let dir = support::scratch("qk0767");
+    let (go, _) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(go.len(), rust.results.len());
+    let r = &rust.results;
+    let none = json!({"has": false, "unlocked": false});
+    let not_unique =
+        "encryption/decryption error: account is not encrypted with a unique passphrase";
+    // 3: live, Go's cache keeps the parameters and the opened key.
+    assert_eq!(
+        go[3]["ok"],
+        json!({"has": true, "unlocked": true}),
+        "Go: {}",
+        go[3]
+    );
+    assert_eq!(r[3]["ok"], none, "{}", r[3]);
+    // 6 and 11: no passphrase opens Go's key; dcr-purse's has none.
+    for i in [6, 11] {
+        assert_eq!(go[i]["err"]["kind"], "Passphrase", "Go: {}", go[i]);
+        assert_eq!(r[i]["err"]["kind"], "Crypto", "{}", r[i]);
+        assert_eq!(r[i]["err"]["text"], not_unique);
+    }
+    // 9 and 10: after the restart Go's account 0 is locked for good.
+    assert_eq!(
+        go[9]["ok"],
+        json!({"has": true, "unlocked": false}),
+        "Go: {}",
+        go[9]
+    );
+    assert_eq!(r[9]["ok"], none, "{}", r[9]);
+    assert_eq!(go[10]["err"]["kind"], "Locked", "Go: {}", go[10]);
+    assert_eq!(r[10]["ok"], go[4]["ok"], "{}", r[10]);
+    // 13: Go cannot sign for account 0's address.
+    assert_eq!(go[13]["err"]["kind"], "Locked", "Go: {}", go[13]);
+    assert_eq!(
+        go[13]["err"]["text"],
+        "wallet locked: account with unique passphrase is locked"
+    );
+    assert!(r[13]["ok"]["key"].is_string(), "{}", r[13]);
+    // 14: nor remove the passphrase.
+    assert_eq!(go[14]["err"]["kind"], "Locked", "Go: {}", go[14]);
+    assert_eq!(r[14]["ok"], Value::Null, "{}", r[14]);
+    assert!(r[14].get("err").is_none(), "{}", r[14]);
+    for (i, (g, rr)) in go.iter().zip(r).enumerate() {
+        if [3, 6, 9, 10, 11, 13, 14].contains(&i) {
+            continue;
+        }
+        assert_eq!(comparable(g), comparable(rr), "op {i}");
+    }
+}
+
+/// Opens account 0's public (`which` = `pub`) or private (`priv`) field
+/// from a logical export with `pass`, as a holder of the wallet file would:
+/// the master key of that half from its stored parameters, then the sealed
+/// crypto key, then the field. `None` when `pass` does not derive the
+/// master key.
+fn open_account0_field(pe: &str, which: &str, pass: &[u8]) -> Option<String> {
+    use purse_snacl::{CryptoKey, Limits, Parameters, SecretKey};
+    let ex = purse_export_check::parse(pe).expect("export parses");
+    let row = |section: &str, kind: &str, key: (&str, &str), fields: &[&str]| -> Vec<String> {
+        let s = ex.section(section).expect(section);
+        let r = s
+            .records_of(kind)
+            .find(|r| s.value(r, key.0) == Some(key.1))
+            .unwrap_or_else(|| panic!("[{section}] {kind} {}={}", key.0, key.1));
+        fields
+            .iter()
+            .map(|f| s.value(r, f).expect("field").to_owned())
+            .collect()
+    };
+    let m = row(
+        "masterkeys",
+        "masterkey",
+        ("which", which),
+        &["salt", "digest", "n", "r", "p"],
+    );
+    let int = |v: &str| v.parse::<i64>().expect("integer");
+    let mut master = SecretKey::from_parameters(Parameters {
+        salt: purse_testutil::unhex(&m[0]).try_into().expect("salt"),
+        digest: purse_testutil::unhex(&m[1]).try_into().expect("digest"),
+        n: int(&m[2]),
+        r: int(&m[3]),
+        p: int(&m[4]),
+    });
+    master.derive_key_with(pass, &Limits::DEFAULT).ok()?;
+    let sealed_crypto = row("cryptokeys", "cryptokey", ("which", which), &["sealed"]);
+    let crypto = master
+        .decrypt(&purse_testutil::unhex(&sealed_crypto[0]))
+        .expect("crypto key opens under its master key");
+    let crypto = CryptoKey::from_bytes(crypto.as_bytes().try_into().expect("32 bytes"));
+    let field = if which == "priv" { "encpriv" } else { "encpub" };
+    let sealed = row("accounts", "account", ("num", "0"), &[field]);
+    let plain = crypto
+        .decrypt(&purse_testutil::unhex(&sealed[0]))
+        .expect("account 0's field opens under its crypto key");
+    Some(String::from_utf8(plain.as_bytes().to_vec()).expect("a key string"))
+}
+
+/// QK-0037 and QK-0762 (reproduced; QK-0762 pending the owner): a
+/// watching-only wallet's private master key derives from the public
+/// passphrase given at creation, and a public `ChangePassphrase` rewrites
+/// only the public master key and crypto key. After two public changes the
+/// creation's passphrase no longer opens the wallet's public half, but it
+/// still opens the private crypto key and with it account 0's private
+/// field, which holds the key string the wallet was created from: the
+/// account's `sprv` itself when the wallet was made from it (QK-0762), its
+/// `spub` otherwise. Shown from Go's export and dcr-purse's alike; the
+/// operations and the masked exports are equal.
+#[test]
+fn public_change_leaves_account_0_open_to_the_creation_passphrase() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let chain = ChainParams::by_name("simnet").expect("simnet");
+    let keys = purse_udb::addrmgr::hd_keys_from_seed(
+        &purse_testutil::unhex("000102030405060708090a0b0c0d0e0f"),
+        &chain,
+    )
+    .expect("seed");
+    let sprv = keys.account0_legacy.string().to_string();
+    let spub = keys.account0_legacy.neuter().string().to_string();
+    assert!(sprv.starts_with("sprv") && spub.starts_with("spub"));
+    for key in [&sprv, &spub] {
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": "QK-0037, QK-0762: a public change leaves account 0's private field",
+            "setup": {"network": "simnet", "xpub": {"raw": key},
+                      "pubpass": "public", "privpass": "",
+                      "rand": "7676767676767676767676767676767676767676767676767676767676767676",
+                      "clock": 1_794_990_000},
+            "ops": [
+                {"op": "mgr.change_passphrase", "old": "public",
+                 "new": "a strong public passphrase", "private": false},
+                {"op": "mgr.change_passphrase", "old": "a strong public passphrase",
+                 "new": "another", "private": false},
+                {"op": "rt.reopen"},
+                {"op": "mgr.watching_only"},
+                {"op": "mgr.account_extended_pub_key", "account": 0},
+                {"op": "mgr.change_passphrase", "old": "public", "new": "x", "private": false},
+                {"op": "mgr.change_passphrase", "old": "another", "new": "x", "private": true},
+            ],
+        });
+        let dir = support::scratch("qk0037");
+        let (go, go_pe) = go_run(&mut o, &script, &dir.join("go"));
+        let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(go.len(), rust.results.len());
+        for (i, (g, r)) in go.iter().zip(&rust.results).enumerate() {
+            assert_eq!(comparable(g), comparable(r), "op {i}");
+        }
+        assert_eq!(go[4]["ok"], json!(key), "AccountExtendedPubKey: {}", go[4]);
+        assert_eq!(go[5]["err"]["kind"], "Passphrase", "{}", go[5]);
+        assert_eq!(go[6]["err"]["kind"], "WatchingOnly", "{}", go[6]);
+        support::compare::compare_exports("QK-0037", &go_pe, &rust.export);
+        for (side, pe) in [("Go", &go_pe), ("dcr-purse", &rust.export)] {
+            assert_eq!(
+                open_account0_field(pe, "pub", b"another").as_deref(),
+                Some(key.as_str()),
+                "{side}: the public field under the current passphrase"
+            );
+            assert_eq!(
+                open_account0_field(pe, "pub", b"public"),
+                None,
+                "{side}: the creation's passphrase no longer opens the public half"
+            );
+            assert_eq!(
+                open_account0_field(pe, "priv", b"public").as_deref(),
+                Some(key.as_str()),
+                "{side}: the private field under the creation's passphrase"
+            );
+            for pass in [&b"another"[..], b"a strong public passphrase"] {
+                assert_eq!(
+                    open_account0_field(pe, "priv", pass),
+                    None,
+                    "{side}: a later public passphrase does not open the private half"
+                );
+            }
+        }
+    }
+}
+
+/// The processor count new Argon2id parameters record (Go's
+/// `runtime.NumCPU()`, the script's `setup.ncpu`, `Manager::with_num_cpu`):
+/// the masked comparison masks `kdfthreads`, so here each account's
+/// parameters are compared unmasked but for the salt. At 256 processors
+/// Go's `uint8(min(NumCPU, 256))` stores 0 threads and its Argon2id panics
+/// (QK-0630, recorded by `oprunner` with kind `Panic`, the transaction
+/// rolled back); dcr-purse returns Argon2id's refusal and writes nothing
+/// (ADR-0012 Rule 2(a)). Every other operation and the exports are equal.
+#[test]
+fn argon2_parameters_record_the_processor_count() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let kdf = |pe: &str| -> Vec<(String, String, String, String)> {
+        let ex = purse_export_check::parse(pe).expect("export parses");
+        let s = ex.section("accounts").expect("[accounts]");
+        s.records_of("account")
+            .map(|r| {
+                let v = |f: &str| s.value(r, f).unwrap_or_default().to_owned();
+                (v("num"), v("kdftime"), v("kdfmem"), v("kdfthreads"))
+            })
+            .collect()
+    };
+    for ncpu in [1u32, 3, 255, 256, 300] {
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": format!("Argon2id parameters at {ncpu} processors"),
+            "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "6767676767676767676767676767676767676767676767676767676767676767",
+                      "clock": 1_794_990_000, "ncpu": ncpu},
+            "ops": [
+                {"op": "mgr.unlock", "pass": "private"},
+                {"op": "mgr.set_account_passphrase", "account": 0, "pass": "zero"},
+                {"op": "mgr.import_voting_account", "name": "vote", "pass": "abc",
+                 "xpriv": {"seed": "2525252525252525252525252525252525252525252525252525252525252525",
+                           "path": ["44'", "115'", "1'"]}},
+                {"op": "mgr.account_has_passphrase", "account": 0},
+                {"op": "mgr.last_imported_account"},
+            ],
+        });
+        let dir = support::scratch("ncpu");
+        let (go, go_pe) = go_run(&mut o, &script, &dir.join("go"));
+        let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+        let _ = std::fs::remove_dir_all(&dir);
+        let r = &rust.results;
+        let zero_threads = ncpu >= 256;
+        for (i, (g, rr)) in go.iter().zip(r).enumerate() {
+            if zero_threads && (i == 1 || i == 2) {
+                assert_eq!(g["err"]["kind"], "Panic", "Go panics: {g}");
+                assert_eq!(rr["err"]["kind"], "Other", "{rr}");
+                assert_eq!(rr["err"]["text"], "argon2: parallelism degree too low");
+                continue;
+            }
+            assert_eq!(comparable(g), comparable(rr), "ncpu {ncpu}: op {i}");
+        }
+        support::compare::compare_exports(&format!("ncpu {ncpu}"), &go_pe, &rust.export);
+        let (gk, rk) = (kdf(&go_pe), kdf(&rust.export));
+        assert_eq!(gk, rk, "ncpu {ncpu}: Argon2id parameters");
+        let threads: Vec<&str> = gk
+            .iter()
+            .filter(|k| k.1 != "-")
+            .map(|k| k.3.as_str())
+            .collect();
+        if zero_threads {
+            assert!(threads.is_empty(), "ncpu {ncpu}: {gk:?}");
+        } else {
+            let want = ncpu.to_string();
+            assert_eq!(threads, [want.as_str(), want.as_str()], "ncpu {ncpu}");
+        }
     }
 }

@@ -1,0 +1,21 @@
+{
+  "format": "purse-opscript 1",
+  "name": "a SLIP0044 wallet converted to watching-only on mainnet",
+  "setup": {"network": "mainnet", "seed": "19191919191919191919191919191919191919191919191919191919191919", "pubpass": "", "privpass": "private", "rand": "1919191919191919191919191919191919191919191919191919191919191919", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.import_script", "script": "51"},
+    {"op": "mgr.convert_to_watching_only"},
+    {"op": "mgr.coin_type"},
+    {"op": "mgr.coin_type_priv_key"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.import_private_key", "key": "0000000000000000000000000000000000000000000000000000000000000005"},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2, "branch": 0},
+    {"op": "mgr.for_each_account_address", "account": 0},
+    {"op": "rt.reopen"},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.address", "addr": {"acct": 0, "branch": 0, "index": 2}}
+  ]
+}

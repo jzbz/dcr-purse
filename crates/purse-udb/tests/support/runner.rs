@@ -14,7 +14,9 @@
 //! Each operation runs in its own transaction, as Go's top-level
 //! operations do: a read transaction for Go's `readTx` operations, a write
 //! transaction committed on success and rolled back on an error for its
-//! `writeTx` ones. Address arguments take Go's reference forms (an encoded
+//! `writeTx` ones. A conversion and a passphrase change run in the write
+//! transaction the manager begins itself, committed and rolled back the
+//! same way. Address arguments take Go's reference forms (an encoded
 //! address, `{"ref": label}`, `{"acct", "branch", "index"}`, `{"p2sh":
 //! hex}`), resolved inside the operation's transaction with Go's texts.
 //!
@@ -23,7 +25,7 @@
 //! the two sides are not aligned yet, ADR-0002 open item 2), so the
 //! differential compares exports under the masked profile.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use dcroxide_txscript::stdaddr::{self, hash160};
@@ -57,6 +59,11 @@ pub const SUPPORTED: &[&str] = &[
     "mgr.lock",
     "mgr.unlock",
     "mgr.unlocked_with_passphrase",
+    "mgr.unlock_account",
+    "mgr.lock_account",
+    "mgr.set_account_passphrase",
+    "mgr.change_passphrase",
+    "mgr.convert_to_watching_only",
     "mgr.last_account",
     "mgr.last_imported_account",
     "mgr.account_name",
@@ -70,6 +77,7 @@ pub const SUPPORTED: &[&str] = &[
     "mgr.new_account",
     "mgr.rename_account",
     "mgr.import_xpub_account",
+    "mgr.import_voting_account",
     "mgr.address",
     "mgr.addr_account",
     "mgr.exists_hash160",
@@ -145,7 +153,17 @@ struct Runner {
     mgr: Option<Manager>,
     chain: ChainParams,
     pub_pass: Vec<u8>,
-    priv_pass: Vec<u8>,
+    /// The private passphrase the export's `[privcheck]` uses: none for a
+    /// wallet created from an extended key, as Go's runner passes none.
+    priv_pass: Option<Vec<u8>>,
+    /// The passphrases of accounts with their own, by account (Go's
+    /// `runner.acctPass`): set by a successful `SetAccountPassphrase` (an
+    /// empty one removes the entry) or `ImportVotingAccount`, cleared by a
+    /// conversion; the export's `[privcheck]` unlocks those accounts with
+    /// them.
+    acct_pass: BTreeMap<u32, Vec<u8>>,
+    /// `setup.ncpu`: the processor count new Argon2id parameters record.
+    ncpu: usize,
     rng: SplitMix64,
     clock: i64,
     /// The addresses of labelled imports (Go's `runner.addrs`).
@@ -447,7 +465,7 @@ impl Runner {
         let opened =
             self.view(|tx| Manager::open(tx, &self.chain, &self.pub_pass, rng, Limits::DEFAULT))?;
         Ok(opened.map(|m| {
-            self.mgr = Some(m);
+            self.mgr = Some(m.with_num_cpu(self.ncpu));
             Value::Null
         }))
     }
@@ -520,6 +538,64 @@ impl Runner {
                 let p = a.str("pass")?.as_bytes().to_vec();
                 // Go runs it in a View, for the bucket it never reads.
                 self.view(|_| self.mgr().unlock(&p))?.map(|()| Value::Null)
+            }
+            "mgr.convert_to_watching_only" => {
+                a.check(&[])?;
+                // The one method that commits its own transaction (it
+                // changes the manager's memory only after the commit). As
+                // Go's runner, a converted wallet's exports get no private
+                // passphrase.
+                let r = self.mgr().convert_to_watching_only(self.store());
+                if r.is_ok() {
+                    self.priv_pass = None;
+                    self.acct_pass.clear();
+                }
+                ok_null(r)
+            }
+            "mgr.change_passphrase" => {
+                a.check(&["old", "new", "private"])?;
+                let old = a.str("old")?.as_bytes().to_vec();
+                let new = a.str("new")?.as_bytes().to_vec();
+                let private = a
+                    .value("private")?
+                    .as_bool()
+                    .ok_or_else(|| fault(format!("{}: private must be a boolean", a.op)))?;
+                // Commits its own transaction, as a conversion does. As
+                // Go's runner, a successful change replaces the passphrase
+                // later reopens and the export use.
+                let r = self
+                    .mgr()
+                    .change_passphrase(self.store(), &old, &new, private);
+                if r.is_ok() {
+                    if private {
+                        self.priv_pass = Some(new);
+                    } else {
+                        self.pub_pass = new;
+                    }
+                }
+                ok_null(r)
+            }
+            "mgr.unlock_account" => {
+                a.check(&["account", "pass"])?;
+                let (acct, p) = (a.u32("account")?, a.str("pass")?.as_bytes().to_vec());
+                ok_null(self.view(|tx| self.mgr().unlock_account(tx, acct, &p))?)
+            }
+            "mgr.lock_account" => {
+                let acct = account_arg(&a)?;
+                ok_null(self.view(|tx| self.mgr().lock_account(tx, acct))?)
+            }
+            "mgr.set_account_passphrase" => {
+                a.check(&["account", "pass"])?;
+                let (acct, p) = (a.u32("account")?, a.str("pass")?.as_bytes().to_vec());
+                let r = self.update(|tx| self.mgr().set_account_passphrase(tx, acct, &p))?;
+                if r.is_ok() {
+                    if p.is_empty() {
+                        self.acct_pass.remove(&acct);
+                    } else {
+                        self.acct_pass.insert(acct, p);
+                    }
+                }
+                ok_null(r)
             }
             "mgr.unlocked_with_passphrase" => {
                 a.check(&["pass"])?;
@@ -643,6 +719,19 @@ impl Runner {
                 let name = a.str("name")?.as_bytes().to_vec();
                 let xpub = key_spec(a.value("xpub")?, &self.chain, false)?;
                 ok_null(self.update(|tx| self.mgr().import_xpub_account(tx, &name, &xpub))?)
+            }
+            "mgr.import_voting_account" => {
+                a.check(&["name", "pass", "xpriv"])?;
+                let name = a.str("name")?.as_bytes().to_vec();
+                let p = a.str("pass")?.as_bytes().to_vec();
+                let key = key_spec(a.value("xpriv")?, &self.chain, true)?;
+                let r = self.update(|tx| self.mgr().import_voting_account(tx, &key, &p, &name))?;
+                if let Ok(acct) = r
+                    && !p.is_empty()
+                {
+                    self.acct_pass.insert(acct, p);
+                }
+                r.map(|v| json!(v))
             }
             "mgr.address" => {
                 a.check(&["addr"])?;
@@ -884,6 +973,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         if ![
             "network",
             "seed",
+            "xpub",
             "pubpass",
             "privpass",
             "rand",
@@ -903,7 +993,22 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             .ok_or_else(|| fault(format!("setup.{k} must be a string")))
     };
     let chain = network(get_str("network")?)?;
-    let seed = unhex(get_str("seed")?);
+    // Go's setup: exactly one of a seed (Initialize) and an extended key
+    // (InitializeWatchOnly): a key spec, neutered, or {"raw": string}
+    // passed unparsed.
+    let wallet_key = match (setup.get("seed"), setup.get("xpub")) {
+        (Some(_), None) => WalletKey::Seed(unhex(get_str("seed")?)),
+        (None, Some(x)) => match x.as_object().and_then(|o| o.get("raw")) {
+            Some(raw) if x.as_object().is_some_and(|o| o.len() == 1) => WalletKey::Xpub(
+                raw.as_str()
+                    .ok_or_else(|| fault("setup.xpub.raw must be a string"))?
+                    .as_bytes()
+                    .to_vec(),
+            ),
+            _ => WalletKey::Xpub(key_spec(x, &chain, false)?.string().as_bytes().to_vec()),
+        },
+        _ => return Err(fault("setup needs exactly one of seed and xpub")),
+    };
     let pub_pass = get_str("pubpass")?.as_bytes().to_vec();
     let priv_pass = get_str("privpass")?.as_bytes().to_vec();
     let rand_key = unhex(get_str("rand")?);
@@ -911,6 +1016,15 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         .get("clock")
         .and_then(Value::as_i64)
         .ok_or_else(|| fault("setup.clock must be an integer"))?;
+    // Go's setup.ncpu: 1 unless given, within 1 to 1024.
+    let ncpu = match setup.get("ncpu") {
+        None => 1,
+        Some(v) => v
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| (1..=1024).contains(n))
+            .ok_or_else(|| fault("setup.ncpu out of range"))?,
+    };
     let mut state = 0u64;
     for chunk in rand_key.chunks(8) {
         let mut b = [0u8; 8];
@@ -925,15 +1039,25 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
     let store = Store::create(&path).map_err(|e| fault(format!("create store: {e}")))?;
     let mut create_rng = source(&mut rng);
     let created: Result<(), RunErr> = store.update(|tx: &mut WriteTx<'_>| {
-        Manager::create(
-            tx,
-            &chain,
-            &seed,
-            &pub_pass,
-            &priv_pass,
-            &mut *create_rng,
-            &Limits::DEFAULT,
-        )
+        match &wallet_key {
+            WalletKey::Seed(seed) => Manager::create(
+                tx,
+                &chain,
+                seed,
+                &pub_pass,
+                &priv_pass,
+                &mut *create_rng,
+                &Limits::DEFAULT,
+            ),
+            WalletKey::Xpub(key) => Manager::create_watch_only(
+                tx,
+                &chain,
+                key,
+                &pub_pass,
+                &mut *create_rng,
+                &Limits::DEFAULT,
+            ),
+        }
         .map_err(RunErr::Udb)
     });
     match created {
@@ -952,7 +1076,12 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         mgr: None,
         chain,
         pub_pass,
-        priv_pass,
+        priv_pass: match wallet_key {
+            WalletKey::Seed(_) => Some(priv_pass),
+            WalletKey::Xpub(_) => None,
+        },
+        acct_pass: BTreeMap::new(),
+        ncpu,
         rng,
         clock,
         addrs: HashMap::new(),
@@ -984,9 +1113,15 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         results.push(Value::Object(rec));
     }
 
+    let acct_pass: Vec<(u32, &[u8])> = runner
+        .acct_pass
+        .iter()
+        .map(|(a, p)| (*a, p.as_slice()))
+        .collect();
     let opts = ExportOptions {
         pub_pass: Some(&runner.pub_pass),
-        priv_pass: Some(&runner.priv_pass),
+        priv_pass: runner.priv_pass.as_deref(),
+        acct_pass: &acct_pass,
         exporter: EXPORTER,
         limits: Limits::DEFAULT,
     };
@@ -1009,6 +1144,14 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         results,
         export: text,
     })
+}
+
+/// What the setup creates the wallet from.
+enum WalletKey {
+    /// A seed: `Initialize`.
+    Seed(Vec<u8>),
+    /// An extended key's string: `InitializeWatchOnly`.
+    Xpub(Vec<u8>),
 }
 
 /// The error of the creating transaction.

@@ -14,6 +14,18 @@
 //!   both coin types), each kept with Go's records and the digest of what
 //!   the export comparison compares (`covered_digest`), so a replay
 //!   compares the same thing without a 15 KB file per script.
+//! - `tests/data/addrmgr_wovectors.txt`: the same for a fixed set of
+//!   generated watching-only scripts (`generate_watching_as`: every kind,
+//!   created from an account extended public key of either coin type or
+//!   converted from a seed's wallet on either coin type, on every network).
+//! - `tests/data/addrmgr_passvectors.txt`: the same for a fixed set of
+//!   generated passphrase scripts (`generate_passphrase_as`: per-account
+//!   passphrases and imported voting accounts on wallets created from a
+//!   seed or from an account extended public key, on every network).
+//! - `tests/data/addrmgr_changevectors.txt`: the same for a fixed set of
+//!   generated passphrase-change scripts (`generate_change_as`: changes of
+//!   either passphrase on wallets created from a seed, created from an
+//!   account extended public key, or converted, on every network).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -29,19 +41,45 @@ use purse_testutil::SplitMix64;
 use purse_testutil::serde_json::{self, Value};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, REFERENCE_GO, oracle_or_skip};
 use sha2::{Digest, Sha256};
-use support::compare::{comparable, compare_exports, corpus, covered_digest, go_run};
-use support::generator::{Shape, generate};
+use support::compare::{
+    check_privcheck, comparable, compare_exports, corpus, covered_digest, go_run,
+};
+use support::generator::{
+    ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
+    generate_watching_as,
+};
 use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 464;
+const ENTRIES: usize = 928;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
 const GEN_ENTRIES: usize = 986;
 /// The seed of the generated set (fixed, not `PURSE_TEST_SEED`).
 const GEN_SEED: u64 = 0x5eed_f402_0000_0001;
+const WO_VECTORS: &str = "addrmgr_wovectors.txt";
+/// The pinned number of generated watching-only scripts and of their
+/// result lines.
+const WO_SCRIPTS: usize = 32;
+const WO_ENTRIES: usize = 656;
+/// The seed of the generated watching-only set.
+const WO_SEED: u64 = 0x5eed_f402_0000_0002;
+const PASS_VECTORS: &str = "addrmgr_passvectors.txt";
+/// The pinned number of generated passphrase scripts and of their result
+/// lines.
+const PASS_SCRIPTS: usize = 24;
+const PASS_ENTRIES: usize = 433;
+/// The seed of the generated passphrase set.
+const PASS_SEED: u64 = 0x5eed_f402_0000_0003;
+const CHANGE_VECTORS: &str = "addrmgr_changevectors.txt";
+/// The pinned number of generated passphrase-change scripts and of their
+/// result lines.
+const CHANGE_SCRIPTS: usize = 24;
+const CHANGE_ENTRIES: usize = 511;
+/// The seed of the generated passphrase-change set.
+const CHANGE_SEED: u64 = 0x5eed_f402_0000_0004;
 
 /// One script's vector.
 struct Vector {
@@ -295,8 +333,185 @@ fn generated_set() -> Vec<(String, Value)> {
 
 #[test]
 fn replay_generated_vectors() {
-    let vectors = read_vector_file(GEN_VECTORS, GEN_ENTRIES);
-    assert_eq!(vectors.len(), GEN_SCRIPTS, "script count");
+    replay_generated(GEN_VECTORS, GEN_ENTRIES, GEN_SCRIPTS);
+}
+
+/// The generated watching-only set: on regnet, testnet3 and mainnet one
+/// script of each kind (at most one costly scrypt operation beyond
+/// creation), on simnet five of each.
+fn watching_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(WO_SEED);
+    let kinds = [
+        WatchKind::XpubLegacy,
+        WatchKind::XpubSlip0044,
+        WatchKind::ConvertedLegacy,
+        WatchKind::ConvertedSlip0044,
+    ];
+    (0..WO_SCRIPTS)
+        .map(|id| {
+            let network = match id / 4 {
+                0 => "regnet",
+                1 => "testnet3",
+                2 => "mainnet",
+                _ => "simnet",
+            };
+            let shape = Shape {
+                network: Some(network),
+                costly_scrypt_ops: 1,
+            };
+            let kind = kinds[id % 4];
+            (
+                format!("generated watching-only {id}"),
+                generate_watching_as(&mut rng, id, network, kind, shape),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_watching_only_vectors() {
+    replay_generated(WO_VECTORS, WO_ENTRIES, WO_SCRIPTS);
+}
+
+/// The watching-only vectors are the set the generator makes from the
+/// fixed seed.
+#[test]
+fn watching_only_vectors_are_the_seeded_set() {
+    let vectors = read_vector_file(WO_VECTORS, WO_ENTRIES);
+    let set = watching_set();
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(&set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// Regenerates the watching-only vectors from the oracle, checking that
+/// the Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_watching_only_vectors() {
+    regenerate_generated(WO_VECTORS, &watching_set(), WO_SEED, "watching_set");
+}
+
+/// The generated passphrase set: on regnet, testnet3 and mainnet one
+/// script on a seed's wallet and one on a wallet created from an account
+/// extended public key (at most one costly scrypt operation beyond
+/// creation), on simnet nine of each.
+fn passphrase_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(PASS_SEED);
+    (0..PASS_SCRIPTS)
+        .map(|id| {
+            let network = match id / 2 {
+                0 => "regnet",
+                1 => "testnet3",
+                2 => "mainnet",
+                _ => "simnet",
+            };
+            let shape = Shape {
+                network: Some(network),
+                costly_scrypt_ops: 1,
+            };
+            (
+                format!("generated passphrase {id}"),
+                generate_passphrase_as(&mut rng, id, network, id % 2 == 1, shape),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_passphrase_vectors() {
+    replay_generated(PASS_VECTORS, PASS_ENTRIES, PASS_SCRIPTS);
+}
+
+/// The passphrase vectors are the set the generator makes from the fixed
+/// seed.
+#[test]
+fn passphrase_vectors_are_the_seeded_set() {
+    let vectors = read_vector_file(PASS_VECTORS, PASS_ENTRIES);
+    let set = passphrase_set();
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(&set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// Regenerates the passphrase vectors from the oracle, checking that the
+/// Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_passphrase_vectors() {
+    regenerate_generated(PASS_VECTORS, &passphrase_set(), PASS_SEED, "passphrase_set");
+}
+
+/// The generated passphrase-change set: on regnet, testnet3 and mainnet one
+/// script of each kind (at most one costly scrypt operation's worth, two
+/// derivations, beyond creation), on simnet five of each.
+fn change_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(CHANGE_SEED);
+    let kinds = [ChangeKind::Seed, ChangeKind::Xpub, ChangeKind::Converted];
+    (0..CHANGE_SCRIPTS)
+        .map(|id| {
+            let network = match id / 3 {
+                0 => "regnet",
+                1 => "testnet3",
+                2 => "mainnet",
+                _ => "simnet",
+            };
+            let shape = Shape {
+                network: Some(network),
+                costly_scrypt_ops: 1,
+            };
+            (
+                format!("generated change {id}"),
+                generate_change_as(&mut rng, id, network, kinds[id % 3], shape),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_change_vectors() {
+    replay_generated(CHANGE_VECTORS, CHANGE_ENTRIES, CHANGE_SCRIPTS);
+}
+
+/// The passphrase-change vectors are the set the generator makes from the
+/// fixed seed.
+#[test]
+fn change_vectors_are_the_seeded_set() {
+    let vectors = read_vector_file(CHANGE_VECTORS, CHANGE_ENTRIES);
+    let set = change_set();
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(&set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// Regenerates the passphrase-change vectors from the oracle, checking that
+/// the Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_change_vectors() {
+    regenerate_generated(CHANGE_VECTORS, &change_set(), CHANGE_SEED, "change_set");
+}
+
+/// Replays a generated vector file: Go's records against the Rust
+/// runner's, and the digest of what the export comparison compares.
+fn replay_generated(file: &str, entries: usize, scripts: usize) {
+    let vectors = read_vector_file(file, entries);
+    assert_eq!(vectors.len(), scripts, "script count");
     for v in vectors {
         let dir = scratch("frozen-gen");
         let rust = runner::run(&v.script, &dir).unwrap_or_else(|e| panic!("{}: {e}", v.name));
@@ -310,8 +525,7 @@ fn replay_generated_vectors() {
             assert_eq!(comparable(g), comparable(r), "{}: op {}", v.name, g["i"]);
         }
         let ex = purse_export_check::parse(&rust.export).expect("Rust export parses");
-        ex.check_sealed_secrets()
-            .unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
+        check_privcheck(&ex).unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
         assert_eq!(
             covered_digest(&rust.export),
             v.covered,
@@ -351,6 +565,11 @@ fn generated_vectors_are_the_seeded_set() {
 #[test]
 #[ignore = "regenerates tests/data from the Go oracle"]
 fn regenerate_generated_vectors() {
+    regenerate_generated(GEN_VECTORS, &generated_set(), GEN_SEED, "generated_set");
+}
+
+/// Writes a generated vector file from the oracle.
+fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: &str) {
     if std::env::var_os("PURSE_UDB_REGEN").is_none() {
         eprintln!("set PURSE_UDB_REGEN=1 to regenerate");
         return;
@@ -360,8 +579,7 @@ fn regenerate_generated_vectors() {
     };
     let mut body = String::new();
     let mut entries = 0usize;
-    let set = generated_set();
-    for (name, script) in &set {
+    for (name, script) in set {
         let dir = scratch("regen-gen");
         let (results, pe) = go_run(&mut o, script, &dir.join("go"));
         let rust = runner::run(script, &dir.join("rust")).expect("Rust runner");
@@ -389,11 +607,8 @@ fn regenerate_generated_vectors() {
             .to_owned(),
         "# the format of docs/adr/0002-operation-script-format.md).".to_owned(),
         "#".to_owned(),
-        format!(
-            "# The scripts are tests/support/generator.rs's, from the fixed seed {GEN_SEED:#x}"
-        ),
-        "# (crates/purse-udb/tests/frozen.rs, generated_set). Every result line is a line of"
-            .to_owned(),
+        format!("# The scripts are tests/support/generator.rs's, from the fixed seed {seed:#x}"),
+        format!("# (crates/purse-udb/tests/frozen.rs, {set_fn}). Every result line is a line of"),
         format!(
             "# the results.jsonl that tools/oracle/cmd/oprunner, built with {REFERENCE_GO}, wrote"
         ),
@@ -408,7 +623,15 @@ fn regenerate_generated_vectors() {
         "# Regenerate with:".to_owned(),
         "#   PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen \\"
             .to_owned(),
-        "#       -- --ignored regenerate_generated_vectors".to_owned(),
+        format!(
+            "#       -- --ignored {}",
+            match file {
+                GEN_VECTORS => "regenerate_generated_vectors",
+                WO_VECTORS => "regenerate_watching_only_vectors",
+                PASS_VECTORS => "regenerate_passphrase_vectors",
+                _ => "regenerate_change_vectors",
+            }
+        ),
         "# which also checks that the Rust runner agrees. Do not edit by hand.".to_owned(),
         format!("# scripts: {}", set.len()),
         format!("# entries: {entries}"),
@@ -418,6 +641,6 @@ fn regenerate_generated_vectors() {
     }
     let _ = writeln!(text, "# body-sha256: {}", body_sha256(&body));
     text.push_str(&body);
-    std::fs::write(data_dir().join(GEN_VECTORS), text).expect("write vectors");
+    std::fs::write(data_dir().join(file), text).expect("write vectors");
     eprintln!("wrote {} scripts, {entries} result lines", set.len());
 }

@@ -1,0 +1,26 @@
+{
+  "format": "purse-opscript 1",
+  "name": "ChangePassphrase before and after ConvertToWatchingOnly",
+  "setup": {"network": "simnet", "seed": "2828282828282828282828282828282828282828282828282828282828282828", "pubpass": "public", "privpass": "private", "rand": "2828282828282828282828282828282828282828282828282828282828282828", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.new_account", "name": "one"},
+    {"op": "mgr.import_private_key", "key": "0000000000000000000000000000000000000000000000000000000000000009", "label": "k"},
+    {"op": "mgr.change_passphrase", "old": "private", "new": "changed", "private": true},
+    {"op": "mgr.change_passphrase", "old": "public", "new": "pub", "private": false},
+    {"op": "mgr.unlocked_with_passphrase", "pass": "changed"},
+    {"op": "mgr.convert_to_watching_only"},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.change_passphrase", "old": "changed", "new": "again", "private": true},
+    {"op": "mgr.change_passphrase", "old": "pub", "new": "pub2", "private": false},
+    {"op": "mgr.unlock", "pass": "changed"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.change_passphrase", "old": "changed", "new": "again", "private": true},
+    {"op": "mgr.change_passphrase", "old": "pub2", "new": "pub3", "private": false},
+    {"op": "rt.reopen"},
+    {"op": "mgr.account_extended_pub_key", "account": 1},
+    {"op": "mgr.address", "addr": {"ref": "k"}},
+    {"op": "mgr.have_private_key", "addr": {"ref": "k"}}
+  ]
+}

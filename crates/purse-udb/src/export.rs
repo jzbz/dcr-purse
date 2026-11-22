@@ -316,6 +316,11 @@ pub struct ExportOptions<'a> {
     /// The private passphrase: with it (and the public one) `[privcheck]`
     /// is computed (`@privcheck=1`).
     pub priv_pass: Option<&'a [u8]>,
+    /// The passphrases of accounts with their own (Go's exporter's
+    /// `AcctPass`), by account number: with `[privcheck]`, each such
+    /// account listed here is unlocked with its passphrase and checked
+    /// (`via=account`); one not listed is `nopass`.
+    pub acct_pass: &'a [(u32, &'a [u8])],
     /// The `@exporter` meta: the producing program.
     pub exporter: &'a str,
     /// The resource bounds of the key derivations.
@@ -328,6 +333,10 @@ impl std::fmt::Debug for ExportOptions<'_> {
         f.debug_struct("ExportOptions")
             .field("pub_pass", &format_args!("{}", given(self.pub_pass)))
             .field("priv_pass", &format_args!("{}", given(self.priv_pass)))
+            .field(
+                "acct_pass",
+                &format_args!("<{} given>", self.acct_pass.len()),
+            )
             .field("exporter", &self.exporter)
             .field("limits", &self.limits)
             .finish()
@@ -603,7 +612,7 @@ pub fn export(
             },
             "privcheck" => match (&mgr, opts.priv_pass) {
                 (Some(m), Some(pass)) if privcheck => {
-                    privcheck_records(&mut r, m, pass, &accounts, &addrs.priv_keys)?
+                    privcheck_records(&mut r, m, pass, opts.acct_pass, &accounts, &addrs.priv_keys)?
                 }
                 _ => Vec::new(),
             },
@@ -1010,6 +1019,7 @@ fn privcheck_records(
     r: &mut &ReadTx,
     m: &Manager,
     pass: &[u8],
+    acct_pass: &[(u32, &[u8])],
     accounts: &[(u32, purse_store::AccountRow, AccountKeys)],
     priv_keys: &[PrivKeyAddr],
 ) -> Result<Vec<Record>, AnyError> {
@@ -1077,16 +1087,27 @@ fn privcheck_records(
         if keys.enc_priv.is_empty() {
             continue;
         }
-        if keys.kdf.is_some() {
-            // Per-account passphrases are a later slice: the runner holds
-            // none to supply.
-            out.push((
-                ACCTOK,
-                vec![vu(*n), "nopass".to_owned(), "account".to_owned()],
-            ));
-            continue;
-        }
-        let verdict = if unlocked {
+        // As Go's exporter: an account with its own passphrase is unlocked
+        // with the one given for it (a failure is `no`), checked, and
+        // locked again; one without is checked while the wallet is
+        // unlocked.
+        let own = keys.kdf.is_some();
+        let via = if own { "account" } else { "wallet" };
+        let ready = if own {
+            match acct_pass.iter().find(|(a, _)| a == n) {
+                Some((_, p)) => {
+                    if m.unlock_account(r, *n, p).is_err() {
+                        out.push((ACCTOK, vec![vu(*n), "no".to_owned(), via.to_owned()]));
+                        continue;
+                    }
+                    true
+                }
+                None => false,
+            }
+        } else {
+            unlocked
+        };
+        let verdict = if ready {
             match (
                 m.account_extended_priv_key(r, *n),
                 m.account_extended_pub_key(r, *n),
@@ -1103,10 +1124,10 @@ fn privcheck_records(
         } else {
             "nopass"
         };
-        out.push((
-            ACCTOK,
-            vec![vu(*n), verdict.to_owned(), "wallet".to_owned()],
-        ));
+        out.push((ACCTOK, vec![vu(*n), verdict.to_owned(), via.to_owned()]));
+        if own && ready {
+            let _ = m.lock_account(r, *n);
+        }
     }
     // Each imported key with a sealed private key: does the private key
     // open, and is its public key the one the API reports?

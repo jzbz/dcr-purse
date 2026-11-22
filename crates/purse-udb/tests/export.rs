@@ -65,6 +65,7 @@ fn exports_parse_with_and_without_passphrases() {
         let opts = ExportOptions {
             pub_pass,
             priv_pass,
+            acct_pass: &[],
             exporter: "crates/purse-udb/tests/export.rs",
             limits: Limits::DEFAULT,
         };
@@ -88,6 +89,7 @@ fn exports_parse_with_and_without_passphrases() {
     let opts = ExportOptions {
         pub_pass: Some(b"public"),
         priv_pass: Some(b"not it"),
+        acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
     };
@@ -114,14 +116,16 @@ fn export_options_debug_hides_the_passphrases() {
     let opts = ExportOptions {
         pub_pass: Some(b"public-secret"),
         priv_pass: Some(b"hunter2"),
+        acct_pass: &[(0x8000_0000, b"voting-secret")],
         exporter: "x",
         limits: Limits::DEFAULT,
     };
     let s = format!("{opts:?}");
     assert!(s.contains("pub_pass: <given>"), "{s}");
     assert!(s.contains("priv_pass: <given>"), "{s}");
+    assert!(s.contains("acct_pass: <1 given>"), "{s}");
     assert!(s.contains("exporter: \"x\""), "{s}");
-    for secret in [&b"public-secret"[..], b"hunter2"] {
+    for secret in [&b"public-secret"[..], b"hunter2", b"voting-secret"] {
         assert!(!s.contains(std::str::from_utf8(secret).expect("ascii")));
         let bytes = format!("{secret:?}");
         assert!(!s.contains(bytes.trim_matches(['[', ']'])), "{s}");
@@ -148,6 +152,7 @@ fn a_store_with_rows_not_exported_is_refused() {
     let opts = ExportOptions {
         pub_pass: Some(b"public"),
         priv_pass: None,
+        acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
     };
@@ -184,6 +189,7 @@ fn a_store_with_chain_rows_is_refused() {
     let opts = ExportOptions {
         pub_pass: None,
         priv_pass: None,
+        acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
     };
@@ -249,6 +255,7 @@ fn a_store_with_address_path_entries_is_refused() {
     let opts = ExportOptions {
         pub_pass: None,
         priv_pass: None,
+        acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
     };

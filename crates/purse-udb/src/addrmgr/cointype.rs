@@ -62,7 +62,7 @@ impl Manager {
         if inner.locked {
             return Err(e!(Kind::Locked).into());
         }
-        if self.watching_only {
+        if self.is_watching_only() {
             return Err(e!(Kind::WatchingOnly).into());
         }
         let (_, enc_priv) = fetch_coin_type_keys(tx)?;
@@ -106,6 +106,12 @@ impl Manager {
     /// On regnet, where both coin types are 1 and the two account keys are
     /// the same (QK-0046), the rows already derive from the new key and are
     /// left as in Go.
+    ///
+    /// Account 0 is written without Argon2id parameters: an account 0 given
+    /// its own passphrase is protected by the wallet passphrase afterwards,
+    /// as the parked key is sealed. Go leaves the parameters, after which no
+    /// passphrase opens account 0 and its funds cannot be spent after a
+    /// restart (QK-0767, ADR-0012 Rule 7; PARITY.md, `purse-udb`).
     ///
     /// Go replaces account 0's cached keys in the manager's memory at the
     /// end of the call, before the caller's transaction commits. Here the
@@ -174,6 +180,11 @@ impl Manager {
             last_used: [0, 0],
             last_returned: [0, 0],
             name: props.account_name,
+            // No Argon2id parameters, even where account 0 had its own
+            // passphrase: the parked key is sealed by the private crypto
+            // key. Go's putNewBIP0044Account leaves the old `kdf-params`,
+            // after which no passphrase opens account 0 (QK-0767, ADR-0012
+            // Rule 7).
             keys: AccountKeys {
                 enc_pub: parked.enc_pub.clone(),
                 enc_priv: parked.enc_priv.clone(),
@@ -218,6 +229,12 @@ impl Manager {
         }
         inner.accounts.remove(&DEFAULT_ACCOUNT_NUM);
         inner.coin_type_upgraded = true;
+        // The upgrade's own rule now decides when account 0 is cached
+        // again: a passphrase set on it earlier in this process committed
+        // or rolled back before this write transaction began, and the new
+        // row replaces whichever it was (without its Argon2id parameters,
+        // QK-0767).
+        inner.rekeyed.remove(&DEFAULT_ACCOUNT_NUM);
         Ok(())
     }
 }

@@ -15,17 +15,27 @@
 //! [`Manager::upgrade_to_slip0044_coin_type`]), accounts (BIP0044
 //! accounts, imported xpub accounts, renaming and lookup), addresses:
 //! derivation and recording, the used and returned indexes, lookups,
-//! private keys, and imported keys and scripts, and sealing with the crypto
-//! keys ([`Manager::encrypt_public`] and its siblings).
+//! private keys, and imported keys and scripts, sealing with the crypto
+//! keys ([`Manager::encrypt_public`] and its siblings), watching-only
+//! wallets ([`Manager::create_watch_only`],
+//! [`Manager::convert_to_watching_only`]), per-account passphrases
+//! ([`Manager::set_account_passphrase`], [`Manager::unlock_account`],
+//! [`Manager::lock_account`]), imported voting accounts
+//! ([`Manager::import_voting_account`]) and passphrase changes
+//! ([`Manager::change_passphrase`]).
 
 mod accounts;
 mod addresses;
+mod change;
 mod cointype;
 mod hd;
+mod passphrase;
 mod rows;
+mod watchonly;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
 
 use hmac::digest::Key;
@@ -143,27 +153,52 @@ pub struct AccountProperties {
 /// Go's `accountInfo` (`wallet/udb/addressmanager.go:136-154`): a cached
 /// account.
 ///
-/// Only what never changes once the account is written is kept: the name,
+/// Only what the store holds is kept, as of a committed snapshot: the name,
 /// which `RenameAccount` changes, is read from the account's row where Go
-/// reads its cached copy, so memory cannot disagree with the store after a
+/// reads its cached copy, and an account whose sealed private key this
+/// manager rewrites (`SetAccountPassphrase`) is dropped from the cache and
+/// cached again only from a snapshot that holds the new key
+/// ([`Inner::rekeyed`]), so memory cannot disagree with the store after a
 /// caller's transaction rolls back (QK-0733).
 #[derive(Clone)]
 struct AccountInfo {
     account_type: u8,
     key_encrypted: Vec<u8>,
     key_pub: ExtendedKey,
-    /// Present only while the wallet (or, later, the account) is unlocked;
-    /// wiped when dropped.
+    /// The account's extended private key, wiped when dropped. In the
+    /// cache, present only for an account the wallet passphrase protects,
+    /// while the wallet is unlocked; an account with its own passphrase is
+    /// cached without it, and [`Inner::load_account_info`] returns a copy
+    /// carrying the key [`Inner::account_unlocks`] holds for it.
     key_priv: Option<ExtendedKey>,
     unique_key: Option<Argon2idParams>,
+}
+
+/// The private key of an account with its own passphrase, opened by
+/// `UnlockAccount` or kept by `SetAccountPassphrase` (Go's `acctKeyPriv`
+/// and `uniquePassHash` of a uniquely encrypted account).
+///
+/// It is tied to the sealed key it was opened from, or sealed into: it
+/// unlocks the account only while the account's row holds that value.
+/// Sealed values carry a random nonce, so a value written by a transaction
+/// that rolled back is never the row's, and the account then reads as the
+/// store has it (QK-0733).
+struct AccountUnlock {
+    /// The sealed private key of the row this key unlocks.
+    sealed: Vec<u8>,
+    /// The account's extended private key; wiped when dropped.
+    key_priv: ExtendedKey,
+    /// The keyed hash of the account passphrase ([`Inner::account_pass_hash`]).
+    pass_hash: Zeroizing<[u8; 32]>,
 }
 
 /// The state Go's `Manager.mtx` guards.
 struct Inner {
     locked: bool,
     accounts: BTreeMap<u32, AccountInfo>,
-    /// The public master key, derived at open and kept until drop.
-    #[allow(dead_code, reason = "used by ChangePassphrase, a later slice")]
+    /// The public master key, derived at open and kept until drop; a
+    /// public passphrase change replaces it (only its parameters are read
+    /// again, by the next change).
     master_key_pub: SecretKey,
     /// The private master key's parameters, its key derived only while
     /// unlocked; `None` for a watching-only wallet.
@@ -173,8 +208,15 @@ struct Inner {
     crypto_key_priv_encrypted: Vec<u8>,
     /// The private crypto key, present only while unlocked.
     crypto_key_priv: Option<CryptoKey>,
-    /// The key of the passphrase hasher, drawn at open.
+    /// The key of the private passphrase hasher (Go's
+    /// `privPassphraseHasher`): drawn at open, replaced by a private
+    /// passphrase change, as Go replaces the hasher.
     hasher_key: Zeroizing<[u8; 32]>,
+    /// The key of the account passphrases' hasher
+    /// ([`Inner::account_pass_hash`]): the key drawn at open, kept until
+    /// drop, so that a private passphrase change leaves the hashes of
+    /// unlocked accounts valid (Go gives each account a hasher of its own).
+    account_hasher_key: Zeroizing<[u8; 32]>,
     /// The hash of the private passphrase that unlocked the wallet.
     priv_pass_hash: Option<Zeroizing<[u8; 32]>>,
     /// The source of the nonces of values the manager seals after open.
@@ -184,6 +226,22 @@ struct Inner {
     /// account 0 is cached only from a snapshot that shows the upgraded
     /// state (see [`Inner::load_account_info`]).
     coin_type_upgraded: bool,
+    /// The private keys of accounts with their own passphrase that
+    /// `UnlockAccount` opened or `SetAccountPassphrase` kept, by account,
+    /// each tied to the sealed value it belongs to. All of an account's
+    /// entries hold the same extended private key (an account's key never
+    /// changes; only its sealing does); there is more than one only after
+    /// a passphrase was set in a transaction that may have rolled back.
+    /// Emptied by every wallet lock, as Go's `lock` drops every account's
+    /// key, and per account by `LockAccount`.
+    account_unlocks: BTreeMap<u32, Vec<AccountUnlock>>,
+    /// Accounts whose sealed private key this manager rewrote
+    /// (`SetAccountPassphrase`), with the value written. Such an account is
+    /// cached again only from a snapshot whose row holds that value, so a
+    /// snapshot taken before the rewrite committed, or a rewrite that
+    /// rolled back, never puts stale key material in the cache; until then
+    /// every use reads the row.
+    rekeyed: BTreeMap<u32, Vec<u8>>,
 }
 
 impl Inner {
@@ -195,6 +253,7 @@ impl Inner {
         for info in self.accounts.values_mut() {
             info.key_priv = None;
         }
+        self.account_unlocks.clear();
         self.crypto_key_priv = None;
         if let Some(k) = self.master_key_priv.as_mut() {
             k.zero();
@@ -203,20 +262,64 @@ impl Inner {
         self.priv_pass_hash = None;
     }
 
-    /// The keyed hash of a passphrase (Go's `privPassphraseHasher`).
-    ///
-    /// HMAC-SHA256 under the 32-byte hasher key, which HMAC zero-pads to
-    /// SHA-256's 64-byte block; the padded key is passed directly, which
-    /// makes construction infallible.
+    /// The keyed hash of the private passphrase (Go's
+    /// `privPassphraseHasher`).
     fn pass_hash(&self, passphrase: &[u8]) -> Zeroizing<[u8; 32]> {
-        let mut padded = Key::<Hmac<Sha256>>::default();
-        padded[..32].copy_from_slice(&self.hasher_key[..]);
-        let mut mac = Hmac::<Sha256>::new(&padded);
-        padded.as_mut_slice().zeroize();
-        mac.update(passphrase);
-        let mut out = Zeroizing::new([0u8; 32]);
-        out.copy_from_slice(mac.finalize().as_bytes());
-        out
+        keyed_hash(&self.hasher_key, &[passphrase])
+    }
+
+    /// The keyed hash of an account passphrase (Go's per-account
+    /// `uniquePassHasher`, a BLAKE2b-256 keyed with 32 random bytes drawn
+    /// at each load of the account and at each `SetAccountPassphrase`).
+    ///
+    /// The hash only recognises the passphrase of an account that is
+    /// already unlocked, in memory, so any keyed PRF with a per-process
+    /// key serves (spec 02 section 12 hazard 3): this is the manager's
+    /// hasher under a prefix naming the account, which draws nothing.
+    fn account_pass_hash(&self, account: u32, passphrase: &[u8]) -> Zeroizing<[u8; 32]> {
+        keyed_hash(
+            &self.account_hasher_key,
+            &[b"account", &account.to_le_bytes(), passphrase],
+        )
+    }
+
+    /// The private key [`Inner::account_unlocks`] holds for `info`, an
+    /// account with its own passphrase whose row holds `info`'s sealed key.
+    fn unlocked_entry(&self, account: u32, info: &AccountInfo) -> Option<&AccountUnlock> {
+        info.unique_key?;
+        self.account_unlocks
+            .get(&account)?
+            .iter()
+            .find(|u| u.sealed == info.key_encrypted)
+    }
+
+    /// Whether an account read from a snapshot may enter the cache: not
+    /// while a rewrite of its sealed key by this manager is not visible in
+    /// the snapshot ([`Inner::rekeyed`]), nor account 0 from a snapshot
+    /// taken before a coin type upgrade of this process committed.
+    fn cacheable<S: StoreRead + ?Sized>(
+        &self,
+        tx: &mut S,
+        account: u32,
+        info: &AccountInfo,
+    ) -> Result<bool> {
+        if !tx.is_snapshot() {
+            return Ok(false);
+        }
+        if self
+            .rekeyed
+            .get(&account)
+            .is_some_and(|sealed| *sealed != info.key_encrypted)
+        {
+            return Ok(false);
+        }
+        if account == DEFAULT_ACCOUNT_NUM && self.coin_type_upgraded {
+            let legacy = tx.wallet_row::<CoinTypeLegacy>().map_err(store_err)?;
+            if legacy.is_some_and(|k| k.enc_pub.is_some()) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Whether `hash` is the hash of the passphrase that unlocked the
@@ -232,12 +335,19 @@ impl Inner {
     /// An account read from a committed snapshot is cached, as Go caches
     /// it; one read in a write transaction is returned without being
     /// cached, since that transaction may still roll back (QK-0733). What
-    /// is cached never changes once written (the keys and the type), so a
-    /// cached entry is never stale, with one exception: the coin type
-    /// upgrade replaces account 0's keys once. It drops the cached entry,
-    /// and from then on account 0 is cached only from a snapshot without
-    /// the legacy coin type key, so a snapshot taken before the upgrade
-    /// committed can never put the old keys back in the cache.
+    /// is cached is what the store held, and two operations change an
+    /// existing account's keys. The coin type upgrade replaces account 0's
+    /// keys once: it drops the cached entry, and from then on account 0 is
+    /// cached only from a snapshot without the legacy coin type key.
+    /// `SetAccountPassphrase` reseals an account's private key: it drops
+    /// the cached entry, and the account is cached again only from a
+    /// snapshot whose row holds the new sealed value ([`Inner::rekeyed`]).
+    /// So a snapshot taken before either committed can never put the old
+    /// keys back in the cache.
+    ///
+    /// An account with its own passphrase that is unlocked comes back as a
+    /// copy carrying its private key ([`Inner::account_unlocks`]); the
+    /// cache itself never holds such a key.
     fn load_account_info<S: StoreRead + ?Sized>(
         &mut self,
         tx: &mut S,
@@ -245,19 +355,25 @@ impl Inner {
         account: u32,
     ) -> Result<Cow<'_, AccountInfo>> {
         if !self.accounts.contains_key(&account) {
-            let info = self.read_account_info(tx, chain, account)?;
-            if !tx.is_snapshot() {
+            let mut info = self.read_account_info(tx, chain, account)?;
+            if !self.cacheable(tx, account, &info)? {
+                if let Some(u) = self.unlocked_entry(account, &info) {
+                    info.key_priv = Some(u.key_priv.clone());
+                }
                 return Ok(Cow::Owned(info));
             }
-            if account == DEFAULT_ACCOUNT_NUM && self.coin_type_upgraded {
-                let legacy = tx.wallet_row::<CoinTypeLegacy>().map_err(store_err)?;
-                if legacy.is_some_and(|k| k.enc_pub.is_some()) {
-                    return Ok(Cow::Owned(info));
-                }
-            }
+            self.rekeyed.remove(&account);
             self.accounts.insert(account, info);
         }
-        Ok(Cow::Borrowed(&self.accounts[&account]))
+        let info = &self.accounts[&account];
+        Ok(match self.unlocked_entry(account, info) {
+            Some(u) => {
+                let mut copy = info.clone();
+                copy.key_priv = Some(u.key_priv.clone());
+                Cow::Owned(copy)
+            }
+            None => Cow::Borrowed(info),
+        })
     }
 
     fn read_account_info<S: StoreRead + ?Sized>(
@@ -311,6 +427,22 @@ impl Inner {
     }
 }
 
+/// The keyed hash of `parts`, concatenated: HMAC-SHA256 under a 32-byte
+/// hasher key, which HMAC zero-pads to SHA-256's 64-byte block; the padded
+/// key is passed directly, which makes construction infallible.
+fn keyed_hash(key: &[u8; 32], parts: &[&[u8]]) -> Zeroizing<[u8; 32]> {
+    let mut padded = Key::<Hmac<Sha256>>::default();
+    padded[..32].copy_from_slice(&key[..]);
+    let mut mac = Hmac::<Sha256>::new(&padded);
+    padded.as_mut_slice().zeroize();
+    for p in parts {
+        mac.update(p);
+    }
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(mac.finalize().as_bytes());
+    out
+}
+
 /// The address manager of one wallet: dcrwallet's `udb.Manager`.
 ///
 /// Every method that reads or writes the store takes the caller's
@@ -320,7 +452,16 @@ impl Inner {
 /// always taken after the caller's transaction (spec 02 section 7).
 pub struct Manager {
     chain: ChainParams,
-    watching_only: bool,
+    /// The processor count new Argon2id parameters record (where Go
+    /// records `runtime.NumCPU()` in `kdf.NewArgon2idParams`; see
+    /// [`Manager::with_num_cpu`]).
+    num_cpu: usize,
+    /// Go's `watchingOnly`: written only under the write lock (by
+    /// [`Manager::convert_to_watching_only`]) and read under the lock by
+    /// every method that takes it, so it cannot change under such a method;
+    /// [`Manager::watching_only`] reads it without the lock, as Go's
+    /// `WatchingOnly` does.
+    watching_only: AtomicBool,
     limits: Limits,
     inner: RwLock<Inner>,
 }
@@ -329,7 +470,7 @@ impl std::fmt::Debug for Manager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Manager")
             .field("chain", &self.chain.name)
-            .field("watching_only", &self.watching_only)
+            .field("watching_only", &self.is_watching_only())
             .finish_non_exhaustive()
     }
 }
@@ -640,7 +781,8 @@ impl Manager {
 
         Ok(Manager {
             chain: *chain,
-            watching_only,
+            num_cpu: purse_snacl::num_cpu(),
+            watching_only: AtomicBool::new(watching_only),
             limits,
             inner: RwLock::new(Inner {
                 locked: true,
@@ -650,16 +792,46 @@ impl Manager {
                 crypto_key_pub,
                 crypto_key_priv_encrypted: cpriv.map(|c| c.0).unwrap_or_default(),
                 crypto_key_priv: None,
+                account_hasher_key: hasher_key.clone(),
                 hasher_key,
                 priv_pass_hash: None,
                 rng,
                 coin_type_upgraded: false,
+                account_unlocks: BTreeMap::new(),
+                rekeyed: BTreeMap::new(),
             }),
         })
     }
 
+    /// The manager with `n` as the processor count that the Argon2id
+    /// parameters of new per-account passphrases record
+    /// ([`Manager::set_account_passphrase`],
+    /// [`Manager::import_voting_account`]), where Go records
+    /// `runtime.NumCPU()`.
+    ///
+    /// [`Manager::open`] takes the count from `purse_snacl::num_cpu`, which
+    /// is `std::thread::available_parallelism`: the CPUs of the process's
+    /// affinity mask, further limited by a cgroup CPU quota. Go's
+    /// `runtime.NumCPU` counts the affinity mask only, so in a container
+    /// with a CPU quota below its CPU count the parameters stored here
+    /// record fewer threads than Go's would (PARITY.md, `purse-udb`). The
+    /// count is stored with the parameters (truncated to a byte as Go
+    /// truncates it, QK-0630) and caps the threads a derivation runs on;
+    /// unlocking reads the stored count, and no key changes with it. The
+    /// oracle runner sets it to the script's `setup.ncpu`.
+    #[must_use]
+    pub fn with_num_cpu(mut self, n: usize) -> Self {
+        self.num_cpu = n;
+        self
+    }
+
     fn write(&self) -> RwLockWriteGuard<'_, Inner> {
         self.inner.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The watching-only flag.
+    fn is_watching_only(&self) -> bool {
+        self.watching_only.load(Ordering::SeqCst)
     }
 
     /// Go's `ChainParams`: the parameters the manager was opened with.
@@ -669,7 +841,7 @@ impl Manager {
 
     /// Go's `WatchingOnly`.
     pub fn watching_only(&self) -> bool {
-        self.watching_only
+        self.is_watching_only()
     }
 
     /// Go's `IsLocked`: always true for a watching-only wallet, which can
@@ -681,17 +853,20 @@ impl Manager {
             .locked
     }
 
-    /// Go's `Lock` (`wallet/udb/addressmanager.go:1453-1469`).
+    /// Go's `Lock` (`wallet/udb/addressmanager.go:1453-1469`): drops every
+    /// private key the manager holds, those of accounts their own
+    /// passphrase unlocked included. A wallet that is already locked
+    /// refuses and changes nothing, so such accounts stay unlocked.
     ///
     /// # Errors
     ///
     /// A watching-only wallet: the bare `watching only wallet`; a locked
     /// wallet: the bare `wallet locked`.
     pub fn lock(&self) -> Result<()> {
-        if self.watching_only {
+        let mut inner = self.write();
+        if self.is_watching_only() {
             return Err(e!(Kind::WatchingOnly).into());
         }
-        let mut inner = self.write();
         if inner.locked {
             return Err(e!(Kind::Locked).into());
         }
@@ -706,9 +881,12 @@ impl Manager {
     /// On an unlocked wallet a matching passphrase changes nothing and a
     /// different one locks the wallet and fails, as Go does (upstream's
     /// `testLockOnBadPassphrase` pins it; spec 02 section 9 item 17). Any
-    /// other failure also leaves the wallet locked. Cached accounts are
-    /// opened in ascending account order, where Go ranges over a map; the
-    /// order decides only which of several failing accounts is reported.
+    /// other failure also leaves the wallet locked, and locking, here as in
+    /// [`Manager::lock`], also locks every account its own passphrase
+    /// unlocked; a successful unlock unlocks none of those. Cached accounts
+    /// are opened in ascending account order, where Go ranges over a map;
+    /// the order decides only which of several failing accounts is
+    /// reported.
     ///
     /// # Errors
     ///
@@ -720,10 +898,10 @@ impl Manager {
     /// ...` or `decrypt account <n> privkey: ...`; an account key that does
     /// not parse: `IO` with hdkeychain's error.
     pub fn unlock(&self, passphrase: &[u8]) -> Result<()> {
-        if self.watching_only {
+        let mut guard = self.write();
+        if self.is_watching_only() {
             return Err(e!(Kind::WatchingOnly, "cannot unlock watching wallet").into());
         }
-        let mut guard = self.write();
         let inner = &mut *guard;
         let hash = inner.pass_hash(passphrase);
         if !inner.locked {
@@ -789,10 +967,10 @@ impl Manager {
     /// not be unlocked`; a locked wallet: the bare `wallet locked`; a
     /// different passphrase: the bare `invalid passphrase`.
     pub fn unlocked_with_passphrase(&self, passphrase: &[u8]) -> Result<()> {
-        if self.watching_only {
+        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
+        if self.is_watching_only() {
             return Err(e!(Kind::WatchingOnly, "watching wallets can not be unlocked").into());
         }
-        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
         if inner.locked {
             return Err(e!(Kind::Locked).into());
         }
@@ -939,7 +1117,12 @@ impl Manager {
         }
     }
 
-    /// Go's `AccountHasPassphrase`.
+    /// Go's `AccountHasPassphrase` (`wallet/udb/addressmanager.go:1848-1868`):
+    /// whether the account's private key is sealed by its own passphrase
+    /// (Argon2id parameters stored with it), and if so whether it is
+    /// unlocked ([`Manager::unlock_account`]). An account that does not
+    /// load (no such account, the reserved imported account) answers
+    /// `(false, false)`.
     pub fn account_has_passphrase<S: StoreRead + ?Sized>(
         &self,
         tx: &mut S,
@@ -1054,7 +1237,7 @@ impl Manager {
     /// failing random source: `Crypto` wrapping snacl's error.
     pub fn encrypt_private(&self, plain: &[u8]) -> Result<Vec<u8>> {
         let mut guard = self.write();
-        let locked = guard.locked || self.watching_only;
+        let locked = guard.locked || self.is_watching_only();
         let Inner {
             crypto_key_priv,
             rng,
@@ -1095,7 +1278,10 @@ impl Manager {
     /// [`Manager::decrypt_public`].
     pub fn decrypt_private(&self, sealed: &[u8]) -> Result<purse_snacl::SecretBytes> {
         let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
-        let key = match (&inner.crypto_key_priv, inner.locked || self.watching_only) {
+        let key = match (
+            &inner.crypto_key_priv,
+            inner.locked || self.is_watching_only(),
+        ) {
             (Some(k), false) => k,
             _ => return Err(e!(Kind::Locked).into()),
         };
@@ -1116,8 +1302,15 @@ mod tests {
     //! operations that load, open or seal keys, a locked manager holds no
     //! private key, no private crypto key, no passphrase hash and a zeroed
     //! private master key, and an unlocked one holds the private key of
-    //! every cached account the wallet passphrase protects. This reads the
-    //! manager's private state, which no public method shows.
+    //! every cached account the wallet passphrase protects; the cache never
+    //! holds the key of an account with its own passphrase, and a wallet
+    //! lock (or a failed unlock) drops every key such a passphrase opened;
+    //! a private passphrase change on a locked manager leaves no derived
+    //! master key, and on an unlocked one the new key and hash, and one
+    //! whose commit's outcome is unknown keeps the invariant whatever
+    //! another thread did while the manager's lock was released.
+    //! This reads the manager's private state, which no public method
+    //! shows.
 
     #![allow(clippy::arithmetic_side_effects, reason = "test code: small counts")]
 
@@ -1164,7 +1357,18 @@ mod tests {
                 );
             }
         }
+        for (n, info) in &inner.accounts {
+            if info.unique_key.is_some() {
+                assert!(info.key_priv.is_none(), "{what}: account {n} cached key");
+            }
+        }
         (inner.locked, inner.accounts.len())
+    }
+
+    /// Whether the manager holds any key an account passphrase opened.
+    fn account_keys_held(m: &Manager) -> bool {
+        let inner = m.inner.read().unwrap_or_else(PoisonError::into_inner);
+        !inner.account_unlocks.is_empty()
     }
 
     #[test]
@@ -1213,17 +1417,66 @@ mod tests {
             .expect("child")
             .neuter();
         let mut seen = [0usize; 2];
+        // The private passphrase, which the changes below toggle.
+        let mut privpass: &[u8] = b"private";
+        let mut changed = 0;
         for step in 0..400 {
             let what = format!("step {step}");
-            match rng.below(10) {
+            match rng.below(13) {
                 0 | 1 => {
-                    let _ = m.unlock(b"private");
+                    let _ = m.unlock(privpass);
+                }
+                12 => {
+                    let new: &[u8] = if privpass == b"private" {
+                        b"other"
+                    } else {
+                        b"private"
+                    };
+                    let private = rng.below(3) != 0;
+                    let locked = m.is_locked();
+                    if private {
+                        if m.change_passphrase(&store, privpass, new, true).is_ok() {
+                            privpass = new;
+                            changed += 1;
+                        }
+                    } else {
+                        m.change_passphrase(&store, b"public", b"public", false)
+                            .expect("public change");
+                    }
+                    assert_eq!(
+                        m.is_locked(),
+                        locked,
+                        "{what}: a change kept the lock state"
+                    );
                 }
                 2 => {
                     let _ = m.unlock(b"wrong");
+                    assert!(!account_keys_held(&m), "{what}: a failed unlock");
                 }
                 3 => {
-                    let _ = m.lock();
+                    if m.lock().is_ok() {
+                        assert!(!account_keys_held(&m), "{what}: lock");
+                    }
+                }
+                10 => {
+                    let acct = match rng.below(3) {
+                        0 => 0x8000_0000,
+                        n => u32::try_from(n - 1).expect("small"),
+                    };
+                    let pass: &[u8] = if rng.below(4) == 0 { b"" } else { b"p" };
+                    let _ = store.update(|tx| {
+                        let _ = m.set_account_passphrase(tx, acct, pass);
+                        Ok::<_, purse_store::Error>(())
+                    });
+                }
+                11 => {
+                    let tx = store.read().expect("read");
+                    let acct = u32::try_from(rng.below(2)).expect("small");
+                    if rng.below(2) == 0 {
+                        let _ = m.unlock_account(&mut &tx, acct, b"p");
+                    } else {
+                        let _ = m.lock_account(&mut &tx, acct);
+                    }
                 }
                 4 => {
                     let _ = store.update(|tx| {
@@ -1285,8 +1538,209 @@ mod tests {
                 seen[usize::from(locked)] += 1;
             }
         }
-        // Both states were reached with several accounts cached.
+        // Both states were reached with several accounts cached, account
+        // passphrases were set and the private passphrase was changed.
         assert!(seen.iter().all(|n| *n > 10), "{seen:?}");
+        assert!(changed > 5, "{changed}");
+        let tx = store.read().expect("read");
+        let with_pass = (0..3)
+            .filter(|n| m.account_has_passphrase(&mut &tx, *n).0)
+            .count();
+        eprintln!(
+            "cached-account steps (unlocked, locked): {seen:?}; accounts with a passphrase: {with_pass}"
+        );
+    }
+
+    /// A conversion to watching-only, from a manager with cached accounts
+    /// and accounts unlocked by their own passphrases, leaves no secret in
+    /// memory: no private key (those passphrases opened included, which
+    /// Go keeps while its wallet is locked, QK-0766), no private crypto key
+    /// or its sealed copy, no private master key, no passphrase hash. The cached accounts keep the sealed private keys the store
+    /// keeps (QK-0761, QK-0764), sealed by the deleted crypto key.
+    #[test]
+    fn conversion_erases_secrets() {
+        let mut rng = SplitMix64::from_env("purse-udb-conversion-erases");
+        let chain = ChainParams::by_name("simnet").expect("simnet");
+        let path = std::env::temp_dir().join(format!(
+            "purse-udb-conversion-erases-{}.redb",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _cleanup = RemoveOnDrop(path.clone());
+        let store = Store::create(&path).expect("create store");
+        let mut src = source(&mut rng);
+        store
+            .update(|tx| {
+                Manager::create(
+                    tx,
+                    &chain,
+                    &[0x6bu8; 32],
+                    b"public",
+                    b"private",
+                    &mut *src,
+                    &Limits::DEFAULT,
+                )
+                .expect("create");
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit");
+        let open = |rng: &mut SplitMix64| {
+            let tx = store.read().expect("read");
+            Manager::open(&mut &tx, &chain, b"public", source(rng), Limits::DEFAULT).expect("open")
+        };
+        let m = open(&mut rng);
+        m.unlock(b"private").expect("unlock");
+        store
+            .update(|tx| {
+                m.new_account(tx, b"one").expect("new account");
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit");
+        {
+            let tx = store.read().expect("read");
+            for n in [0, 1] {
+                m.account_extended_priv_key(&mut &tx, n).expect("xpriv");
+            }
+        }
+        // Keys opened by account passphrases while the wallet is locked,
+        // which Go's conversion keeps (QK-0766).
+        let voting = ExtendedKey::new_master(&[0x7cu8; 32], &chain.hd)
+            .expect("master")
+            .child(0x8000_0003)
+            .expect("child");
+        store
+            .update(|tx| {
+                m.set_account_passphrase(tx, 1, b"p").expect("set");
+                m.import_voting_account(tx, &voting, b"v", b"vote")
+                    .expect("voting");
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit");
+        m.lock().expect("lock");
+        {
+            let tx = store.read().expect("read");
+            m.unlock_account(&mut &tx, 1, b"p").expect("unlock account");
+            m.unlock_account(&mut &tx, 0x8000_0000, b"v")
+                .expect("unlock voting account");
+        }
+        assert!(account_keys_held(&m));
+        m.convert_to_watching_only(&store).expect("convert");
+        for (what, m) in [("live", m), ("reopened", open(&mut rng))] {
+            let inner = m.inner.read().unwrap_or_else(PoisonError::into_inner);
+            assert!(m.watching_only(), "{what}");
+            assert!(inner.locked, "{what}");
+            assert!(inner.master_key_priv.is_none(), "{what}");
+            assert!(inner.crypto_key_priv.is_none(), "{what}");
+            assert!(inner.crypto_key_priv_encrypted.is_empty(), "{what}");
+            assert!(inner.priv_pass_hash.is_none(), "{what}");
+            assert!(inner.account_unlocks.is_empty(), "{what}");
+            for (n, info) in &inner.accounts {
+                assert!(info.key_priv.is_none(), "{what}: account {n}");
+            }
+        }
+    }
+
+    /// A private passphrase change whose commit's outcome is unknown is
+    /// installed after the manager's lock has been released with the
+    /// transaction and taken again, so another thread can lock or unlock
+    /// the manager in the gap. Whatever happened there, the installed state
+    /// keeps the invariant [`lock_erases_secrets`] checks, and the new
+    /// passphrase, and not the old, unlocks the manager afterwards. The
+    /// store cannot be made to report an unknown outcome from outside
+    /// `purse-store`, so this drives the two halves of
+    /// `change_passphrase` (staging under the lock, the install after it)
+    /// with each gap's operation between them; the store itself is not
+    /// written, and every check reads memory only.
+    #[test]
+    fn an_unconfirmed_change_fits_the_lock_state_it_finds() {
+        let mut rng = SplitMix64::from_env("purse-udb-unconfirmed-change");
+        let chain = ChainParams::by_name("simnet").expect("simnet");
+        let path = std::env::temp_dir().join(format!(
+            "purse-udb-unconfirmed-change-{}.redb",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _cleanup = RemoveOnDrop(path.clone());
+        let store = Store::create(&path).expect("create store");
+        let mut src = source(&mut rng);
+        store
+            .update(|tx| {
+                Manager::create(
+                    tx,
+                    &chain,
+                    &[0x3du8; 32],
+                    b"public",
+                    b"private",
+                    &mut *src,
+                    &Limits::DEFAULT,
+                )
+                .expect("create");
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit");
+        // (locked when staged, what the gap does, locked after the install)
+        let cases: [(bool, Option<bool>, bool); 4] = [
+            // No race: installed as staged.
+            (false, None, false),
+            (true, None, true),
+            // Locked in the gap: Go's derived key and hash would be left in
+            // a locked manager.
+            (false, Some(true), true),
+            // Unlocked with the old passphrase in the gap: a zeroed key and
+            // no hash would be left in an unlocked manager.
+            (true, Some(false), true),
+        ];
+        for (staged_locked, gap, locked_after) in cases {
+            let what = format!("staged locked {staged_locked}, gap {gap:?}");
+            let m = {
+                let tx = store.read().expect("read");
+                Manager::open(
+                    &mut &tx,
+                    &chain,
+                    b"public",
+                    source(&mut rng),
+                    Limits::DEFAULT,
+                )
+                .expect("open")
+            };
+            // Account 0 cached, so the check covers an account's key.
+            {
+                let tx = store.read().expect("read");
+                m.account_extended_pub_key(&mut &tx, 0).expect("xpub");
+            }
+            if !staged_locked {
+                m.unlock(b"private").expect("unlock");
+            }
+            let staged = {
+                let mut guard = m.write();
+                m.stage_change(&mut guard, b"private", b"new", true)
+                    .expect("stage")
+            };
+            match gap {
+                Some(true) => m.lock().expect("lock in the gap"),
+                Some(false) => m.unlock(b"private").expect("unlock in the gap"),
+                None => {}
+            }
+            {
+                let mut guard = m.write();
+                m.install_unconfirmed(&mut guard, staged);
+            }
+            let (locked, _) = check(&m, &what);
+            assert_eq!(locked, locked_after, "{what}");
+            if locked {
+                // `Lock` refuses only because the manager is locked, with
+                // nothing left to erase.
+                assert!(m.lock().is_err(), "{what}");
+                assert!(m.unlock(b"private").is_err(), "{what}: old passphrase");
+                m.unlock(b"new").expect("unlock with the new passphrase");
+            }
+            m.unlocked_with_passphrase(b"new")
+                .unwrap_or_else(|err| panic!("{what}: {err}"));
+            assert!(m.unlocked_with_passphrase(b"private").is_err(), "{what}");
+            check(&m, &what);
+            m.lock().expect("lock");
+            check(&m, &what);
+        }
     }
 
     /// Removes its file when dropped. A unit test has no

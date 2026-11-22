@@ -1,0 +1,29 @@
+{
+  "format": "purse-opscript 1",
+  "name": "ChangePassphrase on watching-only wallets: created from an account extended public key, and converted",
+  "setup": {"network": "simnet", "xpub": {"seed": "2727272727272727272727272727272727272727272727272727272727272727", "path": ["44'", "1'", "0'"]}, "pubpass": "public", "privpass": "", "rand": "2727272727272727272727272727272727272727272727272727272727272727", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.change_passphrase", "old": "public", "new": "x", "private": true},
+    {"op": "mgr.change_passphrase", "old": "wrong", "new": "x", "private": true},
+    {"op": "mgr.change_passphrase", "old": "", "new": "", "private": true},
+    {"op": "mgr.change_passphrase", "old": "wrong", "new": "x", "private": false},
+    {"op": "mgr.change_passphrase", "old": "public", "new": "watch", "private": false},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.is_locked"},
+    {"op": "mgr.unlock", "pass": "watch"},
+    {"op": "mgr.unlock", "pass": "public"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 2, "branch": 1},
+    {"op": "mgr.import_public_key", "pubkey": "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc", "label": "p"},
+    {"op": "rt.reopen"},
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.address", "addr": {"ref": "p"}},
+    {"op": "mgr.address", "addr": {"acct": 0, "branch": 1, "index": 1}},
+    {"op": "mgr.change_passphrase", "old": "public", "new": "x", "private": false},
+    {"op": "mgr.change_passphrase", "old": "watch", "new": "", "private": false},
+    {"op": "rt.reopen"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.change_passphrase", "old": "", "new": "public", "private": true}
+  ]
+}

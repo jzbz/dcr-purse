@@ -72,14 +72,53 @@ fn masked_lines(ex: &Export, section: &str, types: Option<&[&str]>) -> Vec<Strin
         .collect()
 }
 
+/// The `[privcheck]` an export must carry: on a wallet that is not
+/// watching-only, every verdict `yes` (`check_sealed_secrets`), which is
+/// what makes the masked comparison a proof that the sealed secrets are
+/// the same keys. A watching-only wallet can never be unlocked, so no
+/// sealed private key is opened: one created from an extended key carries
+/// no `[privcheck]` at all (no private passphrase exists, `@privcheck=0`),
+/// and one converted from a seed's wallet has the master key's verdict
+/// `error` (`Unlock` refuses) and every other verdict `nopass`. There the
+/// masked comparison proves the public keys equal through the decrypted
+/// `xpub` fields, and the private keys are checked by the property tests.
+pub fn check_privcheck(ex: &Export) -> Result<(), String> {
+    let wallet = ex.section("wallet").ok_or("no [wallet]")?;
+    let watching = wallet
+        .records
+        .first()
+        .is_some_and(|r| wallet.value(r, "watchonly") == Some("1"));
+    if !watching {
+        return ex.check_sealed_secrets();
+    }
+    let pc = ex.section("privcheck").ok_or("no [privcheck]")?;
+    if ex.meta("privcheck") != Some("1") {
+        return if pc.records.is_empty() {
+            Ok(())
+        } else {
+            Err("verdicts without a private passphrase".to_owned())
+        };
+    }
+    for r in &pc.records {
+        let ty = pc.types[r.ty].name.as_str();
+        let want = if ty == "mkeyok" { "error" } else { "nopass" };
+        if pc.value(r, "ok") != Some(want) {
+            return Err(format!("watching-only wallet: {ty} verdict not {want}"));
+        }
+    }
+    if pc.records_of("mkeyok").count() == 1 {
+        Ok(())
+    } else {
+        Err("watching-only wallet: no master key verdict".to_owned())
+    }
+}
+
 /// Checks the two exports equal over what the Rust producer covers.
 pub fn compare_exports(what: &str, go_pe: &str, rust_pe: &str) {
     let go = parse(go_pe).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
     let rust = parse(rust_pe).unwrap_or_else(|e| panic!("{what}: Rust export: {e}\n{rust_pe}"));
-    go.check_sealed_secrets()
-        .unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
-    rust.check_sealed_secrets()
-        .unwrap_or_else(|e| panic!("{what}: Rust export: {e}"));
+    check_privcheck(&go).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
+    check_privcheck(&rust).unwrap_or_else(|e| panic!("{what}: Rust export: {e}"));
     for meta in ["network", "chain", "decrypt", "derived", "privcheck"] {
         assert_eq!(go.meta(meta), rust.meta(meta), "{what}: @{meta}");
     }

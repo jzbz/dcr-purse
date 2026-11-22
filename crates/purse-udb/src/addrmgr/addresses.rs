@@ -247,7 +247,7 @@ fn put_address(tx: &mut WriteTx<'_>, h: [u8; 20], row: &AddrRow) -> Result<()> {
 }
 
 /// Whether an address row exists for `h` (Go's `existsAddress`).
-fn exists<S: StoreRead + ?Sized>(tx: &mut S, h: &[u8; 20]) -> Result<bool> {
+pub(super) fn exists<S: StoreRead + ?Sized>(tx: &mut S, h: &[u8; 20]) -> Result<bool> {
     Ok(tx
         .get::<AddrByHash>(&Hash160(*h))
         .map_err(store_err)?
@@ -503,7 +503,7 @@ impl Manager {
     pub fn import_private_key(&self, tx: &mut WriteTx<'_>, wif: &Wif) -> Result<ManagedAddress> {
         let mut guard = self.write();
         let inner = &mut *guard;
-        if !self.watching_only && inner.locked {
+        if !self.is_watching_only() && inner.locked {
             return Err(e!(Kind::Locked).into());
         }
         let pub_key = wif.pub_key();
@@ -512,7 +512,7 @@ impl Manager {
             return Err(e!(Kind::Exist, "address for private key already exists").into());
         }
         let enc_pub = inner.seal_pub(pub_key, "encrypt imported pubkey")?;
-        let enc_priv = if self.watching_only {
+        let enc_priv = if self.is_watching_only() {
             Vec::new()
         } else {
             inner.seal_priv(wif.priv_key(), "encrypt imported privkey")?
@@ -552,7 +552,7 @@ impl Manager {
     ) -> Result<ManagedAddress> {
         let mut guard = self.write();
         let inner = &mut *guard;
-        if !self.watching_only {
+        if !self.is_watching_only() {
             return Err(e!(
                 Kind::Invalid,
                 "public keys may only be imported by watching-only wallets"

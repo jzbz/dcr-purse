@@ -10,9 +10,9 @@
 # which also checks that the Rust runner agrees. Do not edit by hand. Sealed values,
 # salts and digests in the exports follow the seeded stream of each script's
 # setup.rand, so regeneration reproduces these files byte for byte.
-# scripts: 15
-# entries: 464
-# body-sha256: 44b7f3d8183317ac5108ff0ed4a8ecc19528bd17bc97f50c0b160e802632daf4
+# scripts: 27
+# entries: 928
+# body-sha256: bb196c269759258829b5f0e45220803c72910fc31ebf17b496cfd44879620340
 name 01-create-open
 script {"format":"purse-opscript 1","name":"create from a seed, open, account 0's keys","ops":[{"op":"udb.coin_types"},{"op":"udb.hd_keys_from_seed","seed":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"},{"op":"udb.hd_keys_from_seed","seed":"b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567"},{"op":"udb.hd_keys_from_seed","seed":"000102030405060708090a0b0c0d0e"},{"op":"udb.hd_keys_from_seed","seed":"000102030405060708090a0b0c0d0e0f"},{"op":"udb.hd_keys_from_seed","seed":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"},{"op":"udb.hd_keys_from_seed","seed":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40"},{"op":"udb.hd_keys_from_seed","seed":""},{"name":"default","op":"udb.validate_account_name"},{"name":"","op":"udb.validate_account_name"},{"name":"imported","op":"udb.validate_account_name"},{"name":"Imported","op":"udb.validate_account_name"},{"op":"udb.is_imported_voting","type":0},{"op":"udb.is_imported_voting","type":1},{"op":"udb.is_imported_voting","type":2},{"op":"udb.is_imported_voting","type":255},{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"op":"mgr.chain_params"},{"op":"mgr.coin_type"},{"op":"mgr.last_account"},{"op":"mgr.last_imported_account"},{"op":"mgr.for_each_account"},{"account":0,"op":"mgr.account_name"},{"account":2147483647,"op":"mgr.account_name"},{"account":1,"op":"mgr.account_name"},{"account":2147483648,"op":"mgr.account_name"},{"account":0,"op":"mgr.account_properties"},{"account":2147483647,"op":"mgr.account_properties"},{"account":1,"op":"mgr.account_properties"},{"account":4294967295,"op":"mgr.account_properties"},{"account":0,"op":"mgr.account_has_passphrase"},{"account":2147483647,"op":"mgr.account_has_passphrase"},{"account":3,"op":"mgr.account_has_passphrase"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":2147483647,"op":"mgr.account_extended_pub_key"},{"account":1,"op":"mgr.account_extended_pub_key"},{"account":2147483648,"op":"mgr.account_extended_pub_key"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":2147483647,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"account":0,"branch":0,"op":"mgr.account_branch_extended_pub_key"},{"account":0,"branch":1,"op":"mgr.account_branch_extended_pub_key"},{"account":0,"branch":2,"op":"mgr.account_branch_extended_pub_key"},{"account":0,"branch":2147483647,"op":"mgr.account_branch_extended_pub_key"},{"account":0,"branch":2147483648,"op":"mgr.account_branch_extended_pub_key"},{"account":2147483647,"branch":0,"op":"mgr.account_branch_extended_pub_key"},{"account":5,"branch":0,"op":"mgr.account_branch_extended_pub_key"},{"op":"rt.reopen"},{"op":"mgr.is_locked"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":0,"op":"mgr.account_properties"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"private","pubpass":"public","rand":"0101010101010101010101010101010101010101010101010101010101010101","seed":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"}}
 result {"i":0,"ok":{"legacy":115,"slip0044":1},"op":"udb.coin_types"}
@@ -522,3 +522,503 @@ result {"err":{"kind":"Locked","text":"wallet locked"},"i":14,"op":"mgr.encrypt"
 result {"err":{"kind":"Locked","text":"wallet locked"},"i":15,"op":"mgr.decrypt"}
 result {"drawn":24,"i":16,"ok":{"sealed~r":"55189b47aac1529a0ba75983014916505ae1a3379e3bdc4b2e0ff545dbb8ec10563e3a9c7220100364"},"op":"mgr.encrypt"}
 export b1b8e30ecb1678ce8f402b73ce2f0210dd5652ccdedd50c7ed582131e117965c f233ab420e13b5e6c0ef3fd4b677cc17d0f45cb15d219e78273dd2caa61320b6
+name 16-watching-only
+script {"format":"purse-opscript 1","name":"watching-only wallet created from an account extended public key","ops":[{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"op":"mgr.chain_params"},{"op":"mgr.coin_type"},{"op":"mgr.coin_type_priv_key"},{"op":"mgr.lock"},{"op":"mgr.unlock","pass":""},{"op":"mgr.unlock","pass":"public"},{"op":"mgr.unlocked_with_passphrase","pass":"public"},{"op":"mgr.last_account"},{"op":"mgr.last_imported_account"},{"op":"mgr.for_each_account"},{"account":0,"op":"mgr.account_name"},{"account":0,"op":"mgr.account_properties"},{"account":2147483647,"op":"mgr.account_properties"},{"account":0,"op":"mgr.account_has_passphrase"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":0,"branch":1,"op":"mgr.account_branch_extended_pub_key"},{"account":1,"op":"mgr.account_extended_pub_key"},{"name":"second","op":"mgr.new_account"},{"account":0,"name":"watched","op":"mgr.rename_account"},{"name":"watched","op":"mgr.lookup_account"},{"name":"default","op":"mgr.lookup_account"},{"name":"other","op":"mgr.import_xpub_account","xpub":{"path":["44'","1'","0'"],"seed":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"}},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"account":2147483648,"op":"mgr.account_properties"},{"label":"pk","op":"mgr.import_public_key","pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},{"op":"mgr.import_public_key","pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},{"op":"mgr.import_public_key","pubkey":"04"},{"op":"mgr.import_public_key","pubkey":"044f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},{"label":"notapoint","op":"mgr.import_public_key","pubkey":"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},{"op":"mgr.import_public_key","pubkey":"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"},{"key":"0000000000000000000000000000000000000000000000000000000000000001","label":"wif","op":"mgr.import_private_key"},{"op":"mgr.import_public_key","pubkey":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},{"label":"ms","op":"mgr.import_script","script":"5121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa51ae"},{"addr":{"ref":"pk"},"op":"mgr.address"},{"addr":{"ref":"notapoint"},"op":"mgr.address"},{"addr":{"ref":"wif"},"op":"mgr.addr_account"},{"hash160":"751e76e8199196d454941c45d1b3a323f1433bd6","op":"mgr.exists_hash160"},{"addr":{"ref":"pk"},"op":"mgr.have_private_key"},{"addr":{"ref":"wif"},"op":"mgr.have_private_key"},{"addr":{"ref":"pk"},"op":"mgr.private_key"},{"addr":{"ref":"wif"},"op":"mgr.private_key"},{"addr":{"ref":"ms"},"op":"mgr.private_key"},{"addr":{"ref":"ms"},"op":"mgr.redeem_script"},{"account":0,"branch":0,"index":3,"op":"mgr.sync_account_to_addr_index"},{"account":0,"branch":1,"index":1,"op":"mgr.sync_account_to_addr_index"},{"account":2147483648,"branch":0,"index":2,"op":"mgr.sync_account_to_addr_index"},{"account":0,"branch":0,"child":9,"op":"mgr.record_derived_address"},{"addr":{"acct":0,"branch":0,"index":2},"op":"mgr.address"},{"addr":{"acct":0,"branch":0,"index":2},"op":"mgr.have_private_key"},{"addr":{"acct":2147483648,"branch":0,"index":1},"op":"mgr.have_private_key"},{"addr":{"acct":0,"branch":0,"index":2},"op":"mgr.private_key"},{"addr":{"acct":2147483648,"branch":0,"index":1},"op":"mgr.private_key"},{"addr":{"acct":0,"branch":0,"index":2},"op":"mgr.mark_used"},{"account":0,"branch":1,"child":1,"op":"mgr.mark_used_child_index"},{"account":0,"branch":0,"child":3,"op":"mgr.mark_returned_child_index"},{"account":0,"op":"mgr.account_properties"},{"account":0,"op":"mgr.for_each_account_address"},{"account":0,"op":"mgr.for_each_active_account_address"},{"account":2147483647,"op":"mgr.for_each_account_address"},{"op":"mgr.for_each_active_address"},{"data":"00ff","key":"public","op":"mgr.encrypt"},{"data":"00ff","key":"private","op":"mgr.encrypt"},{"data":"00","key":"private","op":"mgr.decrypt"},{"data":"00","key":"public","op":"mgr.decrypt"},{"op":"mgr.upgrade_to_slip0044_coin_type"},{"op":"mgr.convert_to_watching_only"},{"op":"rt.reopen"},{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"op":"mgr.unlock","pass":"public"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":2147483647,"op":"mgr.account_properties"},{"addr":{"ref":"pk"},"op":"mgr.address"},{"addr":{"ref":"wif"},"op":"mgr.private_key"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"public","rand":"1616161616161616161616161616161616161616161616161616161616161616","xpub":{"path":["44'","115'","0'"],"seed":"6f0a2c1e9d8b7a6958473625140312f0e1d2c3b4a5968778695a4b3c2d1e0f10"}}}
+result {"i":0,"ok":true,"op":"mgr.watching_only"}
+result {"i":1,"ok":true,"op":"mgr.is_locked"}
+result {"i":2,"ok":"simnet","op":"mgr.chain_params"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: watching wallets do not record coin type keys"},"i":3,"op":"mgr.coin_type"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":4,"op":"mgr.coin_type_priv_key"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":5,"op":"mgr.lock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":6,"op":"mgr.unlock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":7,"op":"mgr.unlock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: watching wallets can not be unlocked"},"i":8,"op":"mgr.unlocked_with_passphrase"}
+result {"i":9,"ok":0,"op":"mgr.last_account"}
+result {"i":10,"ok":2147483647,"op":"mgr.last_imported_account"}
+result {"i":11,"ok":[0,2147483647],"op":"mgr.for_each_account"}
+result {"i":12,"ok":"default","op":"mgr.account_name"}
+result {"i":13,"ok":{"account":0,"encrypted":false,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"default","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":14,"ok":{"account":2147483647,"encrypted":false,"extret":0,"extused":0,"importedkeys":0,"intret":0,"intused":0,"name":"imported","type":0,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":15,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":16,"ok":"spubVVCyBfm7zrrYhDRqsongkyuNztF6ZpthCGWcKdXSskpAyR46EheeBPWbE43WEXqeD1aDRa9u3AvyZRoFrWtC7Dan1ydGPByRkwRvN3RFcpb","op":"mgr.account_extended_pub_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":17,"op":"mgr.account_extended_priv_key"}
+result {"i":18,"ok":"spubVXbMutcqXvFQ1nH3uwETV5RcryTnK6Vkc9QU6kee34zfbKQoV1LREWWyK5osWYMqs4qdHVwqDQYtbJgJ9E6ZNGPynezQArwtE5gD4kqVua6","op":"mgr.account_branch_extended_pub_key"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account 1"},"i":19,"op":"mgr.account_extended_pub_key"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":20,"op":"mgr.new_account"}
+result {"i":21,"ok":null,"op":"mgr.rename_account"}
+result {"i":22,"ok":0,"op":"mgr.lookup_account"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account \"default\""},"i":23,"op":"mgr.lookup_account"}
+result {"drawn":24,"i":24,"ok":null,"op":"mgr.import_xpub_account"}
+result {"err":{"kind":"Invalid","text":"invalid operation: imported xpub account has no extended privkey"},"i":25,"op":"mgr.account_extended_priv_key"}
+result {"i":26,"ok":{"account":2147483648,"encrypted":false,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"other","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"drawn":24,"i":27,"ok":{"account":2147483647,"addr":"SsqHNpqDmn1go7CgHmQioCJkuhUBKynYU4Y","addrhash":"e59e1998c5ca01c5e16f3089b3a37a686dfaf428","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},"op":"mgr.import_public_key"}
+result {"err":{"kind":"Exist","text":"item already exists: address for public key already exists"},"i":28,"op":"mgr.import_public_key"}
+result {"err":{"kind":"Encoding","text":"invalid encoding: invalid length for compressed pubkey"},"i":29,"op":"mgr.import_public_key"}
+result {"err":{"kind":"Encoding","text":"invalid encoding: invalid format byte for compressed pubkey"},"i":30,"op":"mgr.import_public_key"}
+result {"drawn":24,"i":31,"ok":{"account":2147483647,"addr":"SsphA1wLvJ9z95QnVtnHkuXDGEjXxM2Ufh1","addrhash":"df2543e8a557f051eff0acfa671ddd889d5b8a3f","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},"op":"mgr.import_public_key"}
+result {"err":{"kind":"Encoding","text":"invalid encoding: invalid length for compressed pubkey"},"i":32,"op":"mgr.import_public_key"}
+result {"drawn":24,"i":33,"ok":{"account":2147483647,"addr":"Sspzuh5xuvqxccYLWJDJjCtqp166NRxcaPB","addrhash":"e280cb6e66b96679aec288b1fbdbd4db08077a1b","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},"op":"mgr.import_private_key"}
+result {"err":{"kind":"Exist","text":"item already exists: address for public key already exists"},"i":34,"op":"mgr.import_public_key"}
+result {"drawn":24,"i":35,"ok":{"account":2147483647,"addr":"SckbTnAiCpKC9sQtz4eH12ixt7Q62FKKmHe","addrhash":"6af3a9751c74eeaca178cb30762bc271d06bc2b3","imported":true,"internal":false,"kind":"script","multisig":false,"script":"5121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa51ae","scriptversion":0},"op":"mgr.import_script"}
+result {"i":36,"ok":{"account":2147483647,"addr":"SsqHNpqDmn1go7CgHmQioCJkuhUBKynYU4Y","addrhash":"e59e1998c5ca01c5e16f3089b3a37a686dfaf428","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},"op":"mgr.address"}
+result {"i":37,"ok":{"account":2147483647,"addr":"SsphA1wLvJ9z95QnVtnHkuXDGEjXxM2Ufh1","addrhash":"df2543e8a557f051eff0acfa671ddd889d5b8a3f","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},"op":"mgr.address"}
+result {"i":38,"ok":2147483647,"op":"mgr.addr_account"}
+result {"i":39,"ok":false,"op":"mgr.exists_hash160"}
+result {"i":40,"ok":false,"op":"mgr.have_private_key"}
+result {"i":41,"ok":false,"op":"mgr.have_private_key"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt imported privkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":42,"op":"mgr.private_key"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt imported privkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":43,"op":"mgr.private_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: no private key for P2SH address"},"i":44,"op":"mgr.private_key"}
+result {"i":45,"ok":"5121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa51ae","op":"mgr.redeem_script"}
+result {"i":46,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":47,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":48,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":49,"ok":null,"op":"mgr.record_derived_address"}
+result {"i":50,"ok":{"account":0,"addr":"SsnqZ2XJmBPRk6VFJkTsYtA9tZTZgzeKZHM","addrhash":"cacb8c9c0e0eb14d5f544e36a6ecb3d20a5a8f08","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"020e44148824ff60d4c0c9ceee49834524390475ec8b158f760c606a0ab6a2be35"},"op":"mgr.address"}
+result {"i":51,"ok":true,"op":"mgr.have_private_key"}
+result {"i":52,"ok":false,"op":"mgr.have_private_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: watched"},"i":53,"op":"mgr.private_key"}
+result {"err":{"kind":"Other","text":"no private key for other/0/1"},"i":54,"op":"mgr.private_key"}
+result {"i":55,"ok":null,"op":"mgr.mark_used"}
+result {"i":56,"ok":null,"op":"mgr.mark_used_child_index"}
+result {"i":57,"ok":null,"op":"mgr.mark_returned_child_index"}
+result {"i":58,"ok":{"account":0,"encrypted":false,"extret":3,"extused":2,"importedkeys":0,"intret":1,"intused":1,"name":"watched","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":59,"ok":[{"account":0,"addr":"SspgGaQRbPSwEiYjZEqDNEx4iXSsmGYKBBc","addrhash":"defa533bc2fc5b6fb6b3aa67ee7eb7a98adcd073","imported":false,"index":9,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"033126573e9888cf2e57409101f58c6803f1c400200f6cb53b8ac99c59c707196a"},{"account":0,"addr":"SssQUHuqWg7oQvo9u3K9SVaCmogYU3rvs2Q","addrhash":"fce5d3aa46f219a97eac20a512475c991cbad47f","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02a355f61fe234651191fb3b06794e38c5bf2606c8859ef23e56efbb88c52082af"},{"account":0,"addr":"SscpPsMoCSZv3HpX9J4Bx4XjiiVAZJZxnDs","addrhash":"5ce23b12066dc9dc3785886f6f2a1f9fa818096d","imported":false,"index":1,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"03269102d4db293982066115b4a5cc760e7e75eb64149d096fbaaa7947acd4ce88"},{"account":0,"addr":"SspwEpYTS7584544Xa3gnLAytTh2HXiQB3S","addrhash":"e1cf19391f9a884582ff1b344277a105f9a99163","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02d540f991aed2d27ffac9e1c2743b48b80377533872e55557598fd5d618684119"},{"account":0,"addr":"SsoXoBKsoFpefyTX7uppNvqUsZwLkWZp5Gv","addrhash":"d2680043c7fddfdf6235a35e2b3c97623582b10f","imported":false,"index":3,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"0315ffcda87018b16f0042c27249cdded13f954e9af325a5768baed19e6a8fa983"},{"account":0,"addr":"SshxjNVn9hLkBofbGp5Nmj4Gyf2FcncQWmc","addrhash":"954e77950a5418acb9957c6d2cde86c6749f29f0","imported":false,"index":0,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"0283c2506e2f9a52097694932ce28829147eb97568c7d0f45fced3457e25c9d926"},{"account":0,"addr":"SsnqZ2XJmBPRk6VFJkTsYtA9tZTZgzeKZHM","addrhash":"cacb8c9c0e0eb14d5f544e36a6ecb3d20a5a8f08","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"020e44148824ff60d4c0c9ceee49834524390475ec8b158f760c606a0ab6a2be35"}],"op":"mgr.for_each_account_address"}
+result {"i":60,"ok":[{"account":0,"addr":"SspgGaQRbPSwEiYjZEqDNEx4iXSsmGYKBBc","addrhash":"defa533bc2fc5b6fb6b3aa67ee7eb7a98adcd073","imported":false,"index":9,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"033126573e9888cf2e57409101f58c6803f1c400200f6cb53b8ac99c59c707196a"},{"account":0,"addr":"SssQUHuqWg7oQvo9u3K9SVaCmogYU3rvs2Q","addrhash":"fce5d3aa46f219a97eac20a512475c991cbad47f","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02a355f61fe234651191fb3b06794e38c5bf2606c8859ef23e56efbb88c52082af"},{"account":0,"addr":"SscpPsMoCSZv3HpX9J4Bx4XjiiVAZJZxnDs","addrhash":"5ce23b12066dc9dc3785886f6f2a1f9fa818096d","imported":false,"index":1,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"03269102d4db293982066115b4a5cc760e7e75eb64149d096fbaaa7947acd4ce88"},{"account":0,"addr":"SspwEpYTS7584544Xa3gnLAytTh2HXiQB3S","addrhash":"e1cf19391f9a884582ff1b344277a105f9a99163","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02d540f991aed2d27ffac9e1c2743b48b80377533872e55557598fd5d618684119"},{"account":0,"addr":"SsoXoBKsoFpefyTX7uppNvqUsZwLkWZp5Gv","addrhash":"d2680043c7fddfdf6235a35e2b3c97623582b10f","imported":false,"index":3,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"0315ffcda87018b16f0042c27249cdded13f954e9af325a5768baed19e6a8fa983"},{"account":0,"addr":"SshxjNVn9hLkBofbGp5Nmj4Gyf2FcncQWmc","addrhash":"954e77950a5418acb9957c6d2cde86c6749f29f0","imported":false,"index":0,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"0283c2506e2f9a52097694932ce28829147eb97568c7d0f45fced3457e25c9d926"},{"account":0,"addr":"SsnqZ2XJmBPRk6VFJkTsYtA9tZTZgzeKZHM","addrhash":"cacb8c9c0e0eb14d5f544e36a6ecb3d20a5a8f08","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"020e44148824ff60d4c0c9ceee49834524390475ec8b158f760c606a0ab6a2be35"}],"op":"mgr.for_each_active_account_address"}
+result {"i":61,"ok":[{"account":2147483647,"addr":"SsqHNpqDmn1go7CgHmQioCJkuhUBKynYU4Y","addrhash":"e59e1998c5ca01c5e16f3089b3a37a686dfaf428","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},{"account":2147483647,"addr":"Sspzuh5xuvqxccYLWJDJjCtqp166NRxcaPB","addrhash":"e280cb6e66b96679aec288b1fbdbd4db08077a1b","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},{"account":2147483647,"addr":"SckbTnAiCpKC9sQtz4eH12ixt7Q62FKKmHe","addrhash":"6af3a9751c74eeaca178cb30762bc271d06bc2b3","imported":true,"internal":false,"kind":"script","multisig":false,"script":"5121034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa51ae","scriptversion":0},{"account":2147483647,"addr":"SsphA1wLvJ9z95QnVtnHkuXDGEjXxM2Ufh1","addrhash":"df2543e8a557f051eff0acfa671ddd889d5b8a3f","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}],"op":"mgr.for_each_account_address"}
+result {"i":62,"ok":["SspgGaQRbPSwEiYjZEqDNEx4iXSsmGYKBBc","SssQUHuqWg7oQvo9u3K9SVaCmogYU3rvs2Q","SsqHNpqDmn1go7CgHmQioCJkuhUBKynYU4Y","SsWzcGw1tH6qu8RwXwEcecvtwHTMZF69zMp","Sspzuh5xuvqxccYLWJDJjCtqp166NRxcaPB","SckbTnAiCpKC9sQtz4eH12ixt7Q62FKKmHe","SsZGspK27x7zRUB31u5NYoi7pnDSHdQTXij","Ssd7YbFEY6oVp1hJAMu8AFvyBvmgKd9sWzz","SsphA1wLvJ9z95QnVtnHkuXDGEjXxM2Ufh1","SscpPsMoCSZv3HpX9J4Bx4XjiiVAZJZxnDs","SspwEpYTS7584544Xa3gnLAytTh2HXiQB3S","SsoXoBKsoFpefyTX7uppNvqUsZwLkWZp5Gv","SshxjNVn9hLkBofbGp5Nmj4Gyf2FcncQWmc","SsnqZ2XJmBPRk6VFJkTsYtA9tZTZgzeKZHM"],"op":"mgr.for_each_active_address"}
+result {"drawn":24,"i":63,"ok":{"sealed~r":"33faf872672d670a13452f941620aab9850965ae3df99cef80a7b35d3248407a7125e8ac8177bb119535"},"op":"mgr.encrypt"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":64,"op":"mgr.encrypt"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":65,"op":"mgr.decrypt"}
+result {"err":{"kind":"Crypto","text":"cryptokey.Decrypt: encryption/decryption error:: invalid operation: missing nonce"},"i":66,"op":"mgr.decrypt"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: watching wallets do not record coin type keys"},"i":67,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":68,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"drawn":32,"i":69,"ok":null,"op":"rt.reopen"}
+result {"i":70,"ok":true,"op":"mgr.watching_only"}
+result {"i":71,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":72,"op":"mgr.unlock"}
+result {"i":73,"ok":"spubVVCyBfm7zrrYhDRqsongkyuNztF6ZpthCGWcKdXSskpAyR46EheeBPWbE43WEXqeD1aDRa9u3AvyZRoFrWtC7Dan1ydGPByRkwRvN3RFcpb","op":"mgr.account_extended_pub_key"}
+result {"i":74,"ok":{"account":2147483647,"encrypted":false,"extret":0,"extused":0,"importedkeys":4,"intret":0,"intused":0,"name":"imported","type":0,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":75,"ok":{"account":2147483647,"addr":"SsqHNpqDmn1go7CgHmQioCJkuhUBKynYU4Y","addrhash":"e59e1998c5ca01c5e16f3089b3a37a686dfaf428","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"},"op":"mgr.address"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt imported privkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":76,"op":"mgr.private_key"}
+export 4ebb03a12d7d261ac2cc520c633815b93b5d8ee4e07e0332ef7d5dc44a5e3d51 0e745a79f2a741ee6e3f0670ae8ed1d9a38645f8ee7d20138286cd0d0996aec6
+name 17-watching-only-private-key
+script {"format":"purse-opscript 1","name":"watching-only wallet created from an extended private key (QK-0762)","ops":[{"op":"mgr.watching_only"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":0,"branch":0,"op":"mgr.account_branch_extended_pub_key"},{"account":0,"branch":0,"index":1,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":0,"branch":0,"index":1},"op":"mgr.address"},{"addr":{"acct":0,"branch":0,"index":1},"op":"mgr.private_key"},{"account":0,"op":"mgr.for_each_account_address"}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"","pubpass":"","rand":"1717171717171717171717171717171717171717171717171717171717171717","xpub":{"raw":"tprvZap97k1b1jgAxyWpwC6kAkaGdh84w2iSNNaTU634U9JuUPbcVDwcZzooYsotnhnmKQWrBr8dbKCJwjeRiPTZxyaFAf38rZYismgAbfL9SuD"}}}
+result {"i":0,"ok":true,"op":"mgr.watching_only"}
+result {"i":1,"ok":"tprvZap97k1b1jgAxyWpwC6kAkaGdh84w2iSNNaTU634U9JuUPbcVDwcZzooYsotnhnmKQWrBr8dbKCJwjeRiPTZxyaFAf38rZYismgAbfL9SuD","op":"mgr.account_extended_pub_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":2,"op":"mgr.account_extended_priv_key"}
+result {"i":3,"ok":"tprvZcbrU5wizf8JhDpTjkPn5GgcvztTmC7yurmMCnYku4F3G7WM8px115bXMnzmVke23wRcs5zGSvLqYEwqthc8s95Ri5xXtJJyD1oxaoSugoS","op":"mgr.account_branch_extended_pub_key"}
+result {"i":4,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":5,"ok":{"account":0,"addr":"TsS988PDH1JjvBrA2sKd6U3L9ENTnxJ9jkv","addrhash":"0c4abf4425b4a1f59646894b8dc7a50f87d85e57","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"030b110c8fba556956a5876f8e3f59a0c23f4124a026de77ab2ec648ae96a8fed5"},"op":"mgr.address"}
+result {"err":{"kind":"Locked","text":"wallet locked: default"},"i":6,"op":"mgr.private_key"}
+result {"i":7,"ok":[{"account":0,"addr":"TsS988PDH1JjvBrA2sKd6U3L9ENTnxJ9jkv","addrhash":"0c4abf4425b4a1f59646894b8dc7a50f87d85e57","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"030b110c8fba556956a5876f8e3f59a0c23f4124a026de77ab2ec648ae96a8fed5"},{"account":0,"addr":"TsZqkqhrqM35GW9jTMgTTWKRhirXRVYiULC","addrhash":"60c2e97eee0e642364097ef3076f5dae36063895","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"021c6465d028cffba71d13ac99c161cd946f95d99b78e50f9fe90e1d88bd8bc616"}],"op":"mgr.for_each_account_address"}
+export 9eb788c39fba20762e932173dbc44403a5695c305a1bddafd78e344fe2a3b27d 58c3e925ae72827b25b9bc037efcbfdeb9911926e62aadeda188e75c650c1a35
+name 18-convert-to-watching-only
+script {"format":"purse-opscript 1","name":"a wallet converted to watching-only","ops":[{"op":"mgr.unlock","pass":"private"},{"name":"second","op":"mgr.new_account"},{"account":1,"op":"mgr.account_extended_priv_key"},{"key":"0000000000000000000000000000000000000000000000000000000000000002","label":"k","op":"mgr.import_private_key"},{"label":"s","op":"mgr.import_script","script":"52"},{"name":"x","op":"mgr.import_xpub_account","xpub":{"path":["44'","1'","0'"],"seed":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"}},{"account":1,"branch":0,"index":2,"op":"mgr.sync_account_to_addr_index"},{"account":1,"branch":0,"child":1,"op":"mgr.mark_returned_child_index"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.private_key"},{"account":1,"op":"mgr.account_properties"},{"op":"mgr.convert_to_watching_only"},{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"op":"mgr.unlock","pass":"private"},{"op":"mgr.lock"},{"op":"mgr.unlocked_with_passphrase","pass":"private"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.account_extended_pub_key"},{"addr":{"ref":"k"},"op":"mgr.have_private_key"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.have_private_key"},{"op":"mgr.coin_type"},{"op":"mgr.coin_type_priv_key"},{"op":"mgr.upgrade_to_slip0044_coin_type"},{"name":"third","op":"mgr.new_account"},{"data":"0102","key":"private","op":"mgr.encrypt"},{"data":"0102","key":"private","op":"mgr.decrypt"},{"key":"0000000000000000000000000000000000000000000000000000000000000003","label":"k3","op":"mgr.import_private_key"},{"addr":{"ref":"k3"},"op":"mgr.have_private_key"},{"label":"p4","op":"mgr.import_public_key","pubkey":"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"},{"addr":{"ref":"k3"},"op":"mgr.address"},{"account":0,"branch":1,"index":1,"op":"mgr.sync_account_to_addr_index"},{"account":2147483647,"op":"mgr.for_each_account_address"},{"account":2147483647,"op":"mgr.account_properties"},{"op":"mgr.convert_to_watching_only"},{"op":"rt.reopen"},{"op":"mgr.watching_only"},{"op":"mgr.unlock","pass":"private"},{"addr":{"ref":"k"},"op":"mgr.private_key"},{"addr":{"ref":"s"},"op":"mgr.private_key"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.private_key"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.for_each_account_address"},{"op":"mgr.for_each_active_address"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"private","pubpass":"public","rand":"1818181818181818181818181818181818181818181818181818181818181818","seed":"1818181818181818181818181818181818181818181818181818181818181818"}}
+result {"i":0,"ok":null,"op":"mgr.unlock"}
+result {"drawn":48,"i":1,"ok":1,"op":"mgr.new_account"}
+result {"i":2,"ok":"sprvZGtqeJdnQccYYdPFzK22f3bbX9iNLCVvDKau2q1bz947GQr6CZjCzwU1pxceeaxavyWujvtPRfn1zujhZvcSFzxseBJSxMFqGoxMCXJwYdT","op":"mgr.account_extended_priv_key"}
+result {"drawn":48,"i":3,"ok":{"account":2147483647,"addr":"SsX18WPT4dXPLtsTQYK5ZDrQR2a7kuNCk97","addrhash":"1d193a79d61339859800f5d7fae9afeefd80c5f8","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"},"op":"mgr.import_private_key"}
+result {"drawn":24,"i":4,"ok":{"account":2147483647,"addr":"ScdvmNoHy5fSoS1HTKtyARXWCF72p3Gu2iU","addrhash":"21d15fc0bc32237b0475986afbe89b4bd9109eba","imported":true,"internal":false,"kind":"script","multisig":false,"script":"52","scriptversion":0},"op":"mgr.import_script"}
+result {"drawn":24,"i":5,"ok":null,"op":"mgr.import_xpub_account"}
+result {"i":6,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":7,"ok":null,"op":"mgr.mark_returned_child_index"}
+result {"i":8,"ok":{"key":"cf71b7f16e5a6eb2a6fd130eb132f187eaa8a976e93853257efc7e11faf21d48","pubkey":"02c526469547817c3eaa49e7cbb69f68c3342047e21e67ea6d2ef4f900bbb5ca0a"},"op":"mgr.private_key"}
+result {"i":9,"ok":{"account":1,"encrypted":false,"extret":1,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"second","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":10,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"i":11,"ok":true,"op":"mgr.watching_only"}
+result {"i":12,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":13,"op":"mgr.unlock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":14,"op":"mgr.lock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: watching wallets can not be unlocked"},"i":15,"op":"mgr.unlocked_with_passphrase"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":16,"op":"mgr.account_extended_priv_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":17,"op":"mgr.account_extended_priv_key"}
+result {"i":18,"ok":"spubVVtC3pAgEzAqm7Tj6LZ32BYL5BYrjfDmaYWVqDRDYUb69DBEk73TYjnVgFFWGVoFRscNWhz6q7bgz6d1DsCEF7yqxcB22tAxH8fSNChv8BW","op":"mgr.account_extended_pub_key"}
+result {"i":19,"ok":false,"op":"mgr.have_private_key"}
+result {"i":20,"ok":true,"op":"mgr.have_private_key"}
+result {"i":21,"ok":115,"op":"mgr.coin_type"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":22,"op":"mgr.coin_type_priv_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: missing keys for SLIP0044 coin type upgrade"},"i":23,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":24,"op":"mgr.new_account"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":25,"op":"mgr.encrypt"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":26,"op":"mgr.decrypt"}
+result {"drawn":24,"i":27,"ok":{"account":2147483647,"addr":"SsUUKkRTXruYSguW4o95sE6FBAeLwFrLWZZ","addrhash":"01557763e0252dc0ff9e0996ad1d04b167bb993c","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"},"op":"mgr.import_private_key"}
+result {"i":28,"ok":false,"op":"mgr.have_private_key"}
+result {"err":{"kind":"Exist","text":"item already exists: address for public key already exists"},"i":29,"op":"mgr.import_public_key"}
+result {"i":30,"ok":{"account":2147483647,"addr":"SsUUKkRTXruYSguW4o95sE6FBAeLwFrLWZZ","addrhash":"01557763e0252dc0ff9e0996ad1d04b167bb993c","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"},"op":"mgr.address"}
+result {"i":31,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":32,"ok":[{"account":2147483647,"addr":"SsUUKkRTXruYSguW4o95sE6FBAeLwFrLWZZ","addrhash":"01557763e0252dc0ff9e0996ad1d04b167bb993c","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"},{"account":2147483647,"addr":"ScdvmNoHy5fSoS1HTKtyARXWCF72p3Gu2iU","addrhash":"21d15fc0bc32237b0475986afbe89b4bd9109eba","imported":true,"internal":false,"kind":"script","multisig":false,"script":"52","scriptversion":0},{"account":2147483647,"addr":"SsX18WPT4dXPLtsTQYK5ZDrQR2a7kuNCk97","addrhash":"1d193a79d61339859800f5d7fae9afeefd80c5f8","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"}],"op":"mgr.for_each_account_address"}
+result {"i":33,"ok":{"account":2147483647,"encrypted":false,"extret":0,"extused":0,"importedkeys":3,"intret":0,"intused":0,"name":"imported","type":0,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":34,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"drawn":32,"i":35,"ok":null,"op":"rt.reopen"}
+result {"i":36,"ok":true,"op":"mgr.watching_only"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":37,"op":"mgr.unlock"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt imported privkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":38,"op":"mgr.private_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: no private key for P2SH address"},"i":39,"op":"mgr.private_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: second"},"i":40,"op":"mgr.private_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: imported xpub account has no extended privkey"},"i":41,"op":"mgr.account_extended_priv_key"}
+result {"i":42,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":43,"ok":[{"account":1,"addr":"SsbmU5yuhKogZYj1zXfe9J1L9k9ogWCKBoL","addrhash":"515c60b5ee32e51941802a396d5e2f0680488a0f","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02b22ad832420a257593cee9e3dbf864795fd24d99519651861243a7e881110ba1"},{"account":1,"addr":"Ssr3Wwco2oDt53YohgANUGCk4svfDYievC2","addrhash":"edf72d938fd196c6714fcd6641ff4ed93d40debb","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02ed3d45f924d31b5a41302dbc939ac721b85c70459842008fe2f6efb7e395a512"},{"account":1,"addr":"SsjFnffmSzpgwwYC6jy66dLMLT7RS3hvwfT","addrhash":"a3806a69ab5787e011fbd2fb7c278aad4e0d22be","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02c526469547817c3eaa49e7cbb69f68c3342047e21e67ea6d2ef4f900bbb5ca0a"}],"op":"mgr.for_each_account_address"}
+result {"i":44,"ok":["SsUUKkRTXruYSguW4o95sE6FBAeLwFrLWZZ","SsYkc6zPdae3yTSeMMTGsjHJXs7yAGJhpY6","ScdvmNoHy5fSoS1HTKtyARXWCF72p3Gu2iU","SsVi5xTiyd2UjPd7bDgH14Z4hjo7aXeaXyh","SsbmU5yuhKogZYj1zXfe9J1L9k9ogWCKBoL","Ssr3Wwco2oDt53YohgANUGCk4svfDYievC2","SsX18WPT4dXPLtsTQYK5ZDrQR2a7kuNCk97","SsjFnffmSzpgwwYC6jy66dLMLT7RS3hvwfT"],"op":"mgr.for_each_active_address"}
+export 5b8b0169b9182fc3ecc43ffb674ee614effedfa6888b38c86388f30ddc16f4c1 7ad54184aa7b99380b059e8c33ad11e39b7eae99b28b240d08c80d7507c28669
+name 19-convert-after-slip0044
+script {"format":"purse-opscript 1","name":"a SLIP0044 wallet converted to watching-only on mainnet","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"op":"mgr.coin_type"},{"op":"mgr.import_script","script":"51"},{"op":"mgr.convert_to_watching_only"},{"op":"mgr.coin_type"},{"op":"mgr.coin_type_priv_key"},{"op":"mgr.upgrade_to_slip0044_coin_type"},{"key":"0000000000000000000000000000000000000000000000000000000000000005","op":"mgr.import_private_key"},{"account":0,"branch":0,"index":2,"op":"mgr.sync_account_to_addr_index"},{"account":0,"op":"mgr.for_each_account_address"},{"op":"rt.reopen"},{"op":"mgr.watching_only"},{"account":0,"op":"mgr.account_extended_pub_key"},{"addr":{"acct":0,"branch":0,"index":2},"op":"mgr.address"}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"private","pubpass":"","rand":"1919191919191919191919191919191919191919191919191919191919191919","seed":"19191919191919191919191919191919191919191919191919191919191919"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":42,"op":"mgr.coin_type"}
+result {"drawn":24,"i":2,"ok":{"account":2147483647,"addr":"DcurW6LHWTNCyR3nbebZ8PVnGU4DGVxouwR","addrhash":"f5a8302ee8695bf836258b8f2b57b38a0be14e47","imported":true,"internal":false,"kind":"script","multisig":false,"script":"51","scriptversion":0},"op":"mgr.import_script"}
+result {"i":3,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"i":4,"ok":42,"op":"mgr.coin_type"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":5,"op":"mgr.coin_type_priv_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: SLIP0044 coin type upgrade only possible on legacy coin type wallets"},"i":6,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"drawn":24,"i":7,"ok":{"account":2147483647,"addr":"DsasEhYpAbbcKTn43CmHZRNweTJkTWoe7fn","addrhash":"6c9ecc00ca572a0ef383f19a8c7d079007ee02db","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4"},"op":"mgr.import_private_key"}
+result {"i":8,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":9,"ok":[{"account":0,"addr":"DsUFQcs64n8HcibAqApMcXUf4hfTAzY8qpH","addrhash":"24075903ace36b98a54385e6aa49b39aa714c8d6","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03d03ffc0c588bc5220c78f05b8389095896dd9497bed2cf21f8c5fcdf4a3189f3"},{"account":0,"addr":"DspGia1AmMijWoVPZ2kNqMGzLrqVJDjQ9a7","addrhash":"ffa94389c7cdb0511cadecbbb2715e1a95f74b11","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"026f8d12f0e3d4ba005fb201214055e27dc6648836760b34342ee59e3115d1f93e"},{"account":0,"addr":"DsnR2cCPc5dMJcsY3LiL4GvyzgvqdJRUgux","addrhash":"eb4b65ac4eefebaaf5e3e3d60172cc1d21f75b40","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"02d8dafdcec2e7585b5f507c3f579bc59becf7330d2ae02fe06cb8e2626683c95f"}],"op":"mgr.for_each_account_address"}
+result {"drawn":32,"i":10,"ok":null,"op":"rt.reopen"}
+result {"i":11,"ok":true,"op":"mgr.watching_only"}
+result {"i":12,"ok":"dpubZFsZzsitTor7kn4YJzNjfAyn9iL5xDxALvrHYxZyLYjBTmfAPvsgUHJ3hPjsQcMe8EMkMfqJxX4Fyq5FRGyiB3QXjSDBfVoaRequjwKWE4F","op":"mgr.account_extended_pub_key"}
+result {"i":13,"ok":{"account":0,"addr":"DspGia1AmMijWoVPZ2kNqMGzLrqVJDjQ9a7","addrhash":"ffa94389c7cdb0511cadecbbb2715e1a95f74b11","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"026f8d12f0e3d4ba005fb201214055e27dc6648836760b34342ee59e3115d1f93e"},"op":"mgr.address"}
+export 641718c2e711472b89591fe89701be3aa1c30b646b79c61cf14958802d2572bc 34bc12cfc881b045c89581007727e95abb4aac3639e40fd129110142ecd11d92
+name 20-account-passphrase
+script {"format":"purse-opscript 1","name":"per-account passphrases: set, change, remove, unlock, lock, and the wallet lock","ops":[{"account":0,"op":"mgr.account_has_passphrase"},{"account":0,"op":"mgr.set_account_passphrase","pass":"zero"},{"op":"mgr.unlock","pass":"private"},{"name":"second","op":"mgr.new_account"},{"account":1,"op":"mgr.set_account_passphrase","pass":"one-pass"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.account_properties"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.lock_account"},{"account":1,"op":"mgr.lock_account"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"branch":0,"index":2,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":1,"branch":0,"index":1},"op":"mgr.private_key"},{"addr":{"acct":1,"branch":0,"index":1},"op":"mgr.address"},{"account":1,"op":"mgr.unlock_account","pass":"wrong"},{"account":1,"op":"mgr.unlock_account","pass":""},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.unlock_account","pass":"other"},{"account":1,"op":"mgr.account_has_passphrase"},{"addr":{"acct":1,"branch":0,"index":1},"op":"mgr.private_key"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.address"},{"account":0,"op":"mgr.unlock_account","pass":"x"},{"account":0,"op":"mgr.lock_account"},{"account":2147483647,"op":"mgr.unlock_account","pass":"x"},{"account":2147483647,"op":"mgr.lock_account"},{"account":5,"op":"mgr.unlock_account","pass":"x"},{"account":5,"op":"mgr.lock_account"},{"account":5,"op":"mgr.account_has_passphrase"},{"account":2147483647,"op":"mgr.account_has_passphrase"},{"op":"mgr.lock"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.account_properties"},{"op":"mgr.unlock","pass":"private"},{"account":1,"op":"mgr.account_has_passphrase"},{"op":"mgr.unlock","pass":"wrong"},{"account":1,"op":"mgr.account_has_passphrase"},{"op":"mgr.unlock","pass":"private"},{"account":1,"op":"mgr.set_account_passphrase","pass":"new"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.set_account_passphrase","pass":"changed"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.unlock_account","pass":"changed"},{"op":"rt.reopen"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.unlock_account","pass":"changed"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.set_account_passphrase","pass":""},{"op":"mgr.unlock","pass":"private"},{"account":1,"op":"mgr.set_account_passphrase","pass":""},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.account_properties"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.lock_account"},{"account":1,"op":"mgr.unlock_account","pass":"changed"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.private_key"},{"account":0,"op":"mgr.set_account_passphrase","pass":"zero"},{"account":0,"op":"mgr.set_account_passphrase","pass":"zero-again"},{"name":"xp","op":"mgr.import_xpub_account","xpub":{"path":["44'","1'","0'"],"seed":"000102030405060708090a0b0c0d0e0f"}},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":"x"},{"account":2147483647,"op":"mgr.set_account_passphrase","pass":"x"},{"account":9,"op":"mgr.set_account_passphrase","pass":"x"},{"account":9,"op":"mgr.set_account_passphrase","pass":""},{"account":2147483648,"op":"mgr.unlock_account","pass":"x"},{"account":2147483648,"op":"mgr.lock_account"},{"account":0,"branch":1,"index":1,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":0,"branch":1,"index":1},"op":"mgr.private_key"},{"op":"mgr.lock"},{"addr":{"acct":0,"branch":1,"index":1},"op":"mgr.private_key"},{"op":"rt.reopen"},{"op":"mgr.unlock","pass":"private"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":0,"op":"mgr.account_properties"},{"account":0,"op":"mgr.unlock_account","pass":"zero"},{"account":0,"op":"mgr.unlock_account","pass":"zero-again"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":0,"op":"mgr.for_each_account_address"},{"account":1,"op":"mgr.for_each_account_address"}],"setup":{"clock":1794990000,"ncpu":3,"network":"simnet","privpass":"private","pubpass":"public","rand":"2020202020202020202020202020202020202020202020202020202020202020","seed":"2020202020202020202020202020202020202020202020202020202020202020"}}
+result {"i":0,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Locked","text":"wallet locked: wallet must be unlocked to set a unique account passphrase"},"i":1,"op":"mgr.set_account_passphrase"}
+result {"i":2,"ok":null,"op":"mgr.unlock"}
+result {"drawn":48,"i":3,"ok":1,"op":"mgr.new_account"}
+result {"drawn":72,"i":4,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":5,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":6,"ok":{"account":1,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"second","type":1,"unlocked":true},"op":"mgr.account_properties"}
+result {"i":7,"ok":"sprvZFctE5932euGuXDgqKDSVh7MZjh7kMAu4XUR91UMMnExPnkwMzqknZE3g1SyNmBSUEGXJd8t7aHR6J8KJYXhedoBDnR1qYmSBUbZd7AJCcS","op":"mgr.account_extended_priv_key"}
+result {"i":8,"ok":null,"op":"mgr.lock_account"}
+result {"err":{"kind":"Locked","text":"wallet locked: account is already locked"},"i":9,"op":"mgr.lock_account"}
+result {"i":10,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":11,"op":"mgr.account_extended_priv_key"}
+result {"i":12,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"err":{"kind":"Locked","text":"wallet locked: account with unique passphrase is locked"},"i":13,"op":"mgr.private_key"}
+result {"i":14,"ok":{"account":1,"addr":"SsfUq1RrCgyyrVJ49hNxchTHT5ENrcWGKWJ","addrhash":"7a174621c6140293c518eee389ddbed43ea2ae69","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"031959fae75a5fa6a99de8ccc6c2313725333af06a9139c1c91600af838ef9bdde"},"op":"mgr.address"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":15,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":16,"op":"mgr.unlock_account"}
+result {"i":17,"ok":null,"op":"mgr.unlock_account"}
+result {"i":18,"ok":null,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":19,"op":"mgr.unlock_account"}
+result {"i":20,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":21,"ok":{"key":"f85cbf921ed89d63a201daa583aa88dd4591eb36467d6961ea416e2bcad61a11","pubkey":"031959fae75a5fa6a99de8ccc6c2313725333af06a9139c1c91600af838ef9bdde"},"op":"mgr.private_key"}
+result {"i":22,"ok":{"account":1,"addr":"SsmiDMC8bZwfowMsp5citdWcmGuPubqfqRJ","addrhash":"be7015d4c126b2c579d430bce9b69043a4568776","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"032d90f9a83695da70048d86c31f2842703a582ca5b8f265d6fb48f8e37e7e9f99"},"op":"mgr.address"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":23,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":24,"op":"mgr.lock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt account 2147483647 pubkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":25,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt account 2147483647 pubkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":26,"op":"mgr.lock_account"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account 5"},"i":27,"op":"mgr.unlock_account"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account 5"},"i":28,"op":"mgr.lock_account"}
+result {"i":29,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":30,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":31,"ok":null,"op":"mgr.lock"}
+result {"i":32,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":33,"ok":null,"op":"mgr.unlock_account"}
+result {"i":34,"ok":{"account":1,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"second","type":1,"unlocked":true},"op":"mgr.account_properties"}
+result {"i":35,"ok":null,"op":"mgr.unlock"}
+result {"i":36,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":37,"op":"mgr.unlock"}
+result {"i":38,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":39,"ok":null,"op":"mgr.unlock"}
+result {"err":{"kind":"Locked","text":"wallet locked: account must be unlocked to set a unique account passphrase"},"i":40,"op":"mgr.set_account_passphrase"}
+result {"i":41,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":72,"i":42,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":43,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":44,"op":"mgr.unlock_account"}
+result {"i":45,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":32,"i":46,"ok":null,"op":"rt.reopen"}
+result {"drawn":32,"i":47,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":48,"op":"mgr.account_extended_priv_key"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":49,"op":"mgr.unlock_account"}
+result {"i":50,"ok":null,"op":"mgr.unlock_account"}
+result {"i":51,"ok":"sprvZFctE5932euGuXDgqKDSVh7MZjh7kMAu4XUR91UMMnExPnkwMzqknZE3g1SyNmBSUEGXJd8t7aHR6J8KJYXhedoBDnR1qYmSBUbZd7AJCcS","op":"mgr.account_extended_priv_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: wallet must be unlocked to remove account's unique passphrase"},"i":52,"op":"mgr.set_account_passphrase"}
+result {"i":53,"ok":null,"op":"mgr.unlock"}
+result {"drawn":24,"i":54,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":55,"ok":{"has":false,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":56,"ok":{"account":1,"encrypted":false,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"second","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":57,"ok":"sprvZFctE5932euGuXDgqKDSVh7MZjh7kMAu4XUR91UMMnExPnkwMzqknZE3g1SyNmBSUEGXJd8t7aHR6J8KJYXhedoBDnR1qYmSBUbZd7AJCcS","op":"mgr.account_extended_priv_key"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":58,"op":"mgr.lock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":59,"op":"mgr.unlock_account"}
+result {"i":60,"ok":{"key":"1223741c23bbc4b8794512e391764e9e634994653cb2aafac3ba407dfef19c8b","pubkey":"032d90f9a83695da70048d86c31f2842703a582ca5b8f265d6fb48f8e37e7e9f99"},"op":"mgr.private_key"}
+result {"drawn":72,"i":61,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"drawn":72,"i":62,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"drawn":24,"i":63,"ok":null,"op":"mgr.import_xpub_account"}
+result {"err":{"kind":"Locked","text":"wallet locked: wallet must be unlocked to set a unique account passphrase"},"i":64,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt account 2147483647 pubkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":65,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account 9"},"i":66,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"NotExist","text":"item does not exist: no account 9"},"i":67,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":68,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":69,"op":"mgr.lock_account"}
+result {"i":70,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":71,"ok":{"key":"bf339aa91cefecc6c0b1a8c3520ec521f319ae1c74133cd58cc33a61dbdb9089","pubkey":"02d7b19aa9517110c1e21c2c20c0f839c5bea1edf498c8450905c30a56945219f3"},"op":"mgr.private_key"}
+result {"i":72,"ok":null,"op":"mgr.lock"}
+result {"err":{"kind":"Locked","text":"wallet locked: account with unique passphrase is locked"},"i":73,"op":"mgr.private_key"}
+result {"drawn":32,"i":74,"ok":null,"op":"rt.reopen"}
+result {"i":75,"ok":null,"op":"mgr.unlock"}
+result {"drawn":32,"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":76,"op":"mgr.account_extended_priv_key"}
+result {"i":77,"ok":{"account":0,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"default","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":78,"op":"mgr.unlock_account"}
+result {"i":79,"ok":null,"op":"mgr.unlock_account"}
+result {"i":80,"ok":"sprvZFctE5932euGu7uESBKaH1QDDBXipzVZSQjwAd4q32TkY7cX6dKNPQr1vZiU4cGJdpnf6ievzQNDFHdZnq5pEzw3scht9JKrhD5VfnzRKTa","op":"mgr.account_extended_priv_key"}
+result {"i":81,"ok":[{"account":0,"addr":"SsXHyJPpzPtNvtPrqKgWYVsRuiCwR3qYp9A","addrhash":"20489d4519152883d0f6b6ef48519d376e8953e4","imported":false,"index":0,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"031a1bfd4375e3a2b91dd549b98b6ce611af9c408b3853fcc464fd535772c08834"},{"account":0,"addr":"SsjxVhMaT4gVLPmt5UL2Yb5KBYZaE9sCbA5","addrhash":"ab334db1c8497ab3b824de939d4cb6ece2180ce5","imported":false,"index":1,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"02d7b19aa9517110c1e21c2c20c0f839c5bea1edf498c8450905c30a56945219f3"}],"op":"mgr.for_each_account_address"}
+result {"i":82,"ok":[{"account":1,"addr":"SsmiDMC8bZwfowMsp5citdWcmGuPubqfqRJ","addrhash":"be7015d4c126b2c579d430bce9b69043a4568776","imported":false,"index":2,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"032d90f9a83695da70048d86c31f2842703a582ca5b8f265d6fb48f8e37e7e9f99"},{"account":1,"addr":"SsjYQ9p5Z5U2HkpMTWervHEKuhqnXxxG42D","addrhash":"a6a4b150f2529a329f52cdbfa2fede71d9f348a3","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03a13ecd7d487c0d60d8750cb088b6c90e094158d065ce13611aabdd262dda325f"},{"account":1,"addr":"SsfUq1RrCgyyrVJ49hNxchTHT5ENrcWGKWJ","addrhash":"7a174621c6140293c518eee389ddbed43ea2ae69","imported":false,"index":1,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"031959fae75a5fa6a99de8ccc6c2313725333af06a9139c1c91600af838ef9bdde"}],"op":"mgr.for_each_account_address"}
+export f326550d554bdcf92a55392dae1046bd427d79858869e57740aa12f6a5b477f7 18f3ed234c8b3d7d01985b017fab7e057cb97bef44b9017af8e14e0b54cb5bd1
+name 21-voting-account
+script {"format":"purse-opscript 1","name":"imported voting accounts: refusals, numbering, unlocking, passphrase changes, the wallet lock (TestImportVotingAccount's key)","ops":[{"name":"account 1","op":"mgr.import_voting_account","pass":"","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"name":"","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"name":"imported","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"name":"default","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"name":"account 1","op":"mgr.import_voting_account","pass":"abc","xpriv":"tpubVhnMyQmZAhootdqMLc4J2BE4P4585QFwBkB9qF1HecnyXP8SmML5oN7PmAv8661tDpAYzWbm9WUCCCph8wZ7fL8wKE1GJmZsKkpqm5EVBbV"},{"name":"account 1","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"name":"account 1","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"op":"mgr.last_imported_account"},{"op":"mgr.for_each_account"},{"account":2147483648,"op":"mgr.account_properties"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.account_extended_pub_key"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"name":"account 1","op":"mgr.lookup_account"},{"name":"account 2","op":"mgr.import_voting_account","pass":"xyz","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"account":2147483648,"branch":0,"index":0,"op":"mgr.sync_account_to_addr_index"},{"name":"account 3","op":"mgr.import_voting_account","pass":"abc","xpriv":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK"},{"addr":{"acct":2147483648,"branch":0,"index":0},"op":"mgr.address"},{"addr":{"acct":2147483648,"branch":0,"index":0},"op":"mgr.have_private_key"},{"addr":{"acct":2147483648,"branch":0,"index":0},"op":"mgr.private_key"},{"account":2147483648,"op":"mgr.lock_account"},{"account":2147483648,"op":"mgr.unlock_account","pass":"wrong"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483649,"op":"mgr.unlock_account","pass":"xyz"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483649,"op":"mgr.account_properties"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"addr":{"acct":2147483648,"branch":0,"index":0},"op":"mgr.private_key"},{"addr":{"acct":2147483648,"branch":0,"index":0},"op":"mgr.address"},{"op":"mgr.unlock","pass":"private"},{"name":"seeded","op":"mgr.import_voting_account","pass":"s33d","xpriv":{"path":["44'","1'","7'"],"seed":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"}},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":"def"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483650,"op":"mgr.set_account_passphrase","pass":"other"},{"op":"mgr.lock"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483649,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.lock_account"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.unlock_account","pass":"def"},{"account":2147483648,"name":"renamed","op":"mgr.rename_account"},{"account":2147483648,"op":"mgr.account_properties"},{"name":"xp","op":"mgr.import_xpub_account","xpub":"tpubVhnMyQmZAhootdqMLc4J2BE4P4585QFwBkB9qF1HecnyXP8SmML5oN7PmAv8661tDpAYzWbm9WUCCCph8wZ7fL8wKE1GJmZsKkpqm5EVBbV"},{"account":2147483651,"op":"mgr.set_account_passphrase","pass":"x"},{"account":2147483651,"op":"mgr.unlock_account","pass":"x"},{"op":"mgr.last_imported_account"},{"account":2147483651,"op":"mgr.account_properties"},{"op":"udb.is_imported_voting","type":2},{"op":"rt.reopen"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483650,"op":"mgr.unlock_account","pass":"s33d"},{"account":2147483650,"op":"mgr.unlock_account","pass":"other"},{"account":2147483650,"op":"mgr.account_extended_priv_key"},{"op":"mgr.for_each_account"}],"setup":{"clock":1794990000,"ncpu":2,"network":"testnet3","privpass":"private","pubpass":"public","rand":"2121212121212121212121212121212121212121212121212121212121212121","seed":"2121212121212121212121212121212121212121212121212121212121212121"}}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase: passphrase must be specified"},"i":0,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"Invalid","text":"invalid operation: accounts may not be named the empty string"},"i":1,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"Invalid","text":"invalid operation: reserved account name"},"i":2,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"Exist","text":"item already exists: account named \"default\" already exists"},"i":3,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"Invalid","text":"invalid operation: extended key must be an xpriv"},"i":4,"op":"mgr.import_voting_account"}
+result {"drawn":88,"i":5,"ok":2147483648,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"Exist","text":"item already exists: account named \"account 1\" already exists"},"i":6,"op":"mgr.import_voting_account"}
+result {"i":7,"ok":2147483648,"op":"mgr.last_imported_account"}
+result {"i":8,"ok":[0,2147483648,2147483647],"op":"mgr.for_each_account"}
+result {"drawn":32,"i":9,"ok":{"account":2147483648,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"account 1","type":2,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":10,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":11,"ok":"tpubVhnMyQmZAhootdqMLc4J2BE4P4585QFwBkB9qF1HecnyXP8SmML5oN7PmAv8661tDpAYzWbm9WUCCCph8wZ7fL8wKE1GJmZsKkpqm5EVBbV","op":"mgr.account_extended_pub_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: imported xpub account has no extended privkey"},"i":12,"op":"mgr.account_extended_priv_key"}
+result {"i":13,"ok":2147483648,"op":"mgr.lookup_account"}
+result {"drawn":88,"i":14,"ok":2147483649,"op":"mgr.import_voting_account"}
+result {"i":15,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"err":{"kind":"Exist","text":"item already exists: address belonging to this key already exists in the database"},"i":16,"op":"mgr.import_voting_account"}
+result {"i":17,"ok":{"account":2147483648,"addr":"TsU3URbvVkUKTsDFrvaAt6buJaDDsQTdG1T","addrhash":"212972276e70c5db45cbbe6364a05ecf81a0cb5e","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03a0497759440d66852f3732b6df38facb4090b954bf6ba895b29e048f9ec2254b"},"op":"mgr.address"}
+result {"i":18,"ok":false,"op":"mgr.have_private_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: account with unique passphrase is locked"},"i":19,"op":"mgr.private_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: account is already locked"},"i":20,"op":"mgr.lock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":21,"op":"mgr.unlock_account"}
+result {"i":22,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":32,"i":23,"ok":null,"op":"mgr.unlock_account"}
+result {"i":24,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":25,"ok":{"account":2147483649,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"account 2","type":2,"unlocked":true},"op":"mgr.account_properties"}
+result {"i":26,"ok":"tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK","op":"mgr.account_extended_priv_key"}
+result {"i":27,"ok":{"key":"28436fbe2f0be0671427a605b8fc0379287c067fde505eb11419499ded3f644c","pubkey":"03a0497759440d66852f3732b6df38facb4090b954bf6ba895b29e048f9ec2254b"},"op":"mgr.private_key"}
+result {"i":28,"ok":{"account":2147483648,"addr":"TsU3URbvVkUKTsDFrvaAt6buJaDDsQTdG1T","addrhash":"212972276e70c5db45cbbe6364a05ecf81a0cb5e","imported":false,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03a0497759440d66852f3732b6df38facb4090b954bf6ba895b29e048f9ec2254b"},"op":"mgr.address"}
+result {"i":29,"ok":null,"op":"mgr.unlock"}
+result {"drawn":88,"i":30,"ok":2147483650,"op":"mgr.import_voting_account"}
+result {"drawn":72,"i":31,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":32,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"drawn":32,"err":{"kind":"Locked","text":"wallet locked: account must be unlocked to set a unique account passphrase"},"i":33,"op":"mgr.set_account_passphrase"}
+result {"i":34,"ok":null,"op":"mgr.lock"}
+result {"i":35,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":36,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Locked","text":"wallet locked: account is already locked"},"i":37,"op":"mgr.lock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":38,"op":"mgr.unlock_account"}
+result {"i":39,"ok":null,"op":"mgr.unlock_account"}
+result {"i":40,"ok":null,"op":"mgr.rename_account"}
+result {"i":41,"ok":{"account":2147483648,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"renamed","type":2,"unlocked":true},"op":"mgr.account_properties"}
+result {"drawn":24,"i":42,"ok":null,"op":"mgr.import_xpub_account"}
+result {"err":{"kind":"Locked","text":"wallet locked: wallet must be unlocked to set a unique account passphrase"},"i":43,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: account is not encrypted with a unique passphrase"},"i":44,"op":"mgr.unlock_account"}
+result {"i":45,"ok":2147483651,"op":"mgr.last_imported_account"}
+result {"i":46,"ok":{"account":2147483651,"encrypted":false,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"xp","type":1,"unlocked":false},"op":"mgr.account_properties"}
+result {"i":47,"ok":true,"op":"udb.is_imported_voting"}
+result {"drawn":32,"i":48,"ok":null,"op":"rt.reopen"}
+result {"drawn":32,"i":49,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"drawn":32,"i":50,"ok":null,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":51,"op":"mgr.unlock_account"}
+result {"i":52,"ok":"tprvZaVqUTzU82mggjdpn5hDUR4JRFrXR3ZwDJ8P8q1Q7XtAoPwxThdm9ro2hYTC4UtEjUtDwv7R2e3iiYn9XHFNiapHgCo3FNXYrh7mks2kMSw","op":"mgr.account_extended_priv_key"}
+result {"i":53,"ok":[0,2147483648,2147483649,2147483650,2147483651,2147483647],"op":"mgr.for_each_account"}
+export d52e20837b87e6cbe7313c4e4df0217ed4b4ee156ec380c831e5c33d7bd6fe32 cdbcfbad58d7bb23cd4478818cd3f0d355a01e583efaf7290de3a91c350752af
+name 22-voting-watching-only
+script {"format":"purse-opscript 1","name":"an imported voting account in a watching-only wallet created from an account extended public key","ops":[{"name":"vote","op":"mgr.import_voting_account","pass":"abc","xpriv":{"path":["44'","115'","3'"],"seed":"2323232323232323232323232323232323232323232323232323232323232323"}},{"account":0,"op":"mgr.unlock_account","pass":"x"},{"account":0,"op":"mgr.lock_account"},{"account":0,"op":"mgr.set_account_passphrase","pass":"x"},{"account":0,"op":"mgr.set_account_passphrase","pass":""},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":""},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":"new"},{"account":2147483647,"op":"mgr.unlock_account","pass":"x"},{"account":2147483647,"op":"mgr.lock_account"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"account":2147483648,"branch":1,"index":3,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":2147483648,"branch":1,"index":3},"op":"mgr.private_key"},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":"new"},{"op":"mgr.lock"},{"op":"mgr.unlock","pass":"public"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.lock_account"},{"account":2147483648,"op":"mgr.lock_account"},{"addr":{"acct":2147483648,"branch":1,"index":3},"op":"mgr.private_key"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.unlock_account","pass":"new"},{"name":"second vote","op":"mgr.import_voting_account","pass":"two","xpriv":{"path":["44'","115'","4'"],"seed":"2323232323232323232323232323232323232323232323232323232323232323"}},{"op":"rt.reopen"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.unlock_account","pass":"new"},{"addr":{"acct":2147483648,"branch":1,"index":3},"op":"mgr.private_key"},{"account":2147483649,"op":"mgr.unlock_account","pass":"two"},{"account":2147483649,"op":"mgr.account_properties"},{"op":"mgr.for_each_account"},{"op":"mgr.watching_only"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"public","rand":"2222222222222222222222222222222222222222222222222222222222222222","xpub":{"path":["44'","115'","0'"],"seed":"2222222222222222222222222222222222222222222222222222222222222222"}}}
+result {"drawn":88,"i":0,"ok":2147483648,"op":"mgr.import_voting_account"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":1,"op":"mgr.unlock_account"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot lock watching wallet"},"i":2,"op":"mgr.lock_account"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot set passphrase for watching wallet"},"i":3,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot set passphrase for watching wallet"},"i":4,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase: watching-only imported accounts must have a passprase"},"i":5,"op":"mgr.set_account_passphrase"}
+result {"drawn":32,"err":{"kind":"Locked","text":"wallet locked: account must be unlocked to set a unique account passphrase"},"i":6,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt account 2147483647 pubkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":7,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Crypto","text":"encryption/decryption error: decrypt account 2147483647 pubkey: cryptokey.Decrypt: invalid operation: missing nonce"},"i":8,"op":"mgr.lock_account"}
+result {"i":9,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"i":10,"ok":null,"op":"mgr.unlock_account"}
+result {"i":11,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":12,"ok":"sprvZHPwqugskPYzWJSWGKnwQWu6GMjSnxytW9owLY6DLur3XyW6PS8JW76a6YK8T25vcRk7Co6FHqe4qmCb8itafHErdgkaY3NaZyDZspno64u","op":"mgr.account_extended_priv_key"}
+result {"i":13,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":14,"ok":{"key":"384013d27e75a324bc8045cc86fdb1b943a3c9b187cf28557b4f264970169ce4","pubkey":"03935be011308010145bf58a5e4d19b3be41a4c04560685b5c6dd4a6c22ddda90d"},"op":"mgr.private_key"}
+result {"drawn":72,"i":15,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":16,"op":"mgr.lock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":17,"op":"mgr.unlock"}
+result {"i":18,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":19,"ok":null,"op":"mgr.lock_account"}
+result {"err":{"kind":"Locked","text":"wallet locked: account is already locked"},"i":20,"op":"mgr.lock_account"}
+result {"err":{"kind":"Locked","text":"wallet locked: account with unique passphrase is locked"},"i":21,"op":"mgr.private_key"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":22,"op":"mgr.unlock_account"}
+result {"i":23,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":88,"i":24,"ok":2147483649,"op":"mgr.import_voting_account"}
+result {"drawn":32,"i":25,"ok":null,"op":"rt.reopen"}
+result {"drawn":32,"i":26,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":27,"op":"mgr.unlock_account"}
+result {"i":28,"ok":null,"op":"mgr.unlock_account"}
+result {"i":29,"ok":{"key":"384013d27e75a324bc8045cc86fdb1b943a3c9b187cf28557b4f264970169ce4","pubkey":"03935be011308010145bf58a5e4d19b3be41a4c04560685b5c6dd4a6c22ddda90d"},"op":"mgr.private_key"}
+result {"drawn":32,"i":30,"ok":null,"op":"mgr.unlock_account"}
+result {"i":31,"ok":{"account":2147483649,"encrypted":true,"extret":4294967295,"extused":4294967295,"importedkeys":0,"intret":4294967295,"intused":4294967295,"name":"second vote","type":2,"unlocked":true},"op":"mgr.account_properties"}
+result {"i":32,"ok":[0,2147483648,2147483649,2147483647],"op":"mgr.for_each_account"}
+result {"i":33,"ok":true,"op":"mgr.watching_only"}
+export 2fadb3e92931c01a68d5ff37cc27f5c6edb325f7183a0b8e17f241fff4742bfd 516028154d535b28b0f08dd33d9923b0bc068e2677767abae9fc021b179220e7
+name 23-voting-convert
+script {"format":"purse-opscript 1","name":"per-account passphrases and a voting account across ConvertToWatchingOnly","ops":[{"op":"mgr.unlock","pass":"private"},{"name":"one","op":"mgr.new_account"},{"name":"vote","op":"mgr.import_voting_account","pass":"abc","xpriv":{"path":["44'","115'","1'"],"seed":"2525252525252525252525252525252525252525252525252525252525252525"}},{"account":1,"op":"mgr.set_account_passphrase","pass":"one-pass"},{"op":"mgr.convert_to_watching_only"},{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.unlock_account","pass":"one-pass"},{"account":1,"op":"mgr.lock_account"},{"account":1,"op":"mgr.set_account_passphrase","pass":"x"},{"account":2147483648,"op":"mgr.unlock_account","pass":"wrong"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.account_extended_priv_key"},{"account":2147483648,"branch":0,"index":1,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":2147483648,"branch":0,"index":1},"op":"mgr.private_key"},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":""},{"account":2147483648,"op":"mgr.set_account_passphrase","pass":"def"},{"account":2147483648,"op":"mgr.lock_account"},{"op":"rt.reopen"},{"account":1,"op":"mgr.account_has_passphrase"},{"account":2147483648,"op":"mgr.unlock_account","pass":"abc"},{"account":2147483648,"op":"mgr.unlock_account","pass":"def"},{"name":"after","op":"mgr.import_voting_account","pass":"ghi","xpriv":{"path":["44'","115'","2'"],"seed":"2525252525252525252525252525252525252525252525252525252525252525"}},{"account":2147483649,"op":"mgr.unlock_account","pass":"ghi"},{"addr":{"acct":2147483648,"branch":0,"index":1},"op":"mgr.private_key"},{"op":"mgr.for_each_account"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"private","pubpass":"public","rand":"2424242424242424242424242424242424242424242424242424242424242424","seed":"2424242424242424242424242424242424242424242424242424242424242424"}}
+result {"i":0,"ok":null,"op":"mgr.unlock"}
+result {"drawn":48,"i":1,"ok":1,"op":"mgr.new_account"}
+result {"drawn":88,"i":2,"ok":2147483648,"op":"mgr.import_voting_account"}
+result {"drawn":72,"i":3,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":4,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"i":5,"ok":true,"op":"mgr.watching_only"}
+result {"i":6,"ok":true,"op":"mgr.is_locked"}
+result {"i":7,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"drawn":32,"i":8,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":9,"op":"mgr.unlock_account"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot lock watching wallet"},"i":10,"op":"mgr.lock_account"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot set passphrase for watching wallet"},"i":11,"op":"mgr.set_account_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":12,"op":"mgr.unlock_account"}
+result {"i":13,"ok":null,"op":"mgr.unlock_account"}
+result {"i":14,"ok":"sprvZHRYhsLQR3N1ybnSBxELg8ZNfBRkbpg1CHJke8pCd5Mz51cHMNbvLptTP8LBiVETQmN4fv91hgzsQSpzPWyB5LyrFbXZJtTCQtiVNMKVjBJ","op":"mgr.account_extended_priv_key"}
+result {"i":15,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":16,"ok":{"key":"afef1c3552a6d2f9eb6af71bf59051f2b118b6365bfa49a7a80e25ffdaab2f99","pubkey":"03b42bac69ae956c6725a0239ff654262d4cfeb20a0f72257767c47e067c3b30a5"},"op":"mgr.private_key"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase: watching-only imported accounts must have a passprase"},"i":17,"op":"mgr.set_account_passphrase"}
+result {"drawn":72,"i":18,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":19,"ok":null,"op":"mgr.lock_account"}
+result {"drawn":32,"i":20,"ok":null,"op":"rt.reopen"}
+result {"drawn":32,"i":21,"ok":{"has":true,"unlocked":false},"op":"mgr.account_has_passphrase"}
+result {"drawn":32,"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":22,"op":"mgr.unlock_account"}
+result {"i":23,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":88,"i":24,"ok":2147483649,"op":"mgr.import_voting_account"}
+result {"drawn":32,"i":25,"ok":null,"op":"mgr.unlock_account"}
+result {"i":26,"ok":{"key":"afef1c3552a6d2f9eb6af71bf59051f2b118b6365bfa49a7a80e25ffdaab2f99","pubkey":"03b42bac69ae956c6725a0239ff654262d4cfeb20a0f72257767c47e067c3b30a5"},"op":"mgr.private_key"}
+result {"i":27,"ok":[0,2147483648,1,2147483649,2147483647],"op":"mgr.for_each_account"}
+export ad601fcddf06db3f88bd33666012d9f2085bfae341f62d4e9ac7c25c7dad7f9a c49b25d143c76a853ccfd9a69191fcabb9d0df5a13ef6b9bca22ed5b5bab7004
+name 24-change-passphrase
+script {"format":"purse-opscript 1","name":"ChangePassphrase: the private and public passphrases, locked and unlocked, with an account passphrase","ops":[{"new":"second","old":"wrong","op":"mgr.change_passphrase","private":true},{"new":"second","old":"","op":"mgr.change_passphrase","private":true},{"new":"public2","old":"wrong","op":"mgr.change_passphrase","private":false},{"new":"second","old":"private","op":"mgr.change_passphrase","private":false},{"op":"mgr.is_locked"},{"new":"second","old":"private","op":"mgr.change_passphrase","private":true},{"op":"mgr.is_locked"},{"op":"mgr.unlocked_with_passphrase","pass":"second"},{"op":"mgr.unlock","pass":"private"},{"op":"mgr.unlock","pass":"second"},{"op":"mgr.unlocked_with_passphrase","pass":"second"},{"op":"mgr.unlocked_with_passphrase","pass":"private"},{"account":0,"op":"mgr.account_extended_priv_key"},{"op":"mgr.coin_type_priv_key"},{"name":"one","op":"mgr.new_account"},{"account":1,"branch":0,"index":3,"op":"mgr.sync_account_to_addr_index"},{"addr":{"acct":1,"branch":0,"index":2},"op":"mgr.private_key"},{"key":"0000000000000000000000000000000000000000000000000000000000000007","label":"k","op":"mgr.import_private_key"},{"addr":{"ref":"k"},"op":"mgr.private_key"},{"new":"third","old":"private","op":"mgr.change_passphrase","private":true},{"op":"mgr.is_locked"},{"new":"third","old":"second","op":"mgr.change_passphrase","private":true},{"op":"mgr.is_locked"},{"op":"mgr.unlocked_with_passphrase","pass":"third"},{"op":"mgr.unlocked_with_passphrase","pass":"second"},{"account":1,"op":"mgr.account_extended_priv_key"},{"addr":{"ref":"k"},"op":"mgr.private_key"},{"op":"mgr.unlock","pass":"third"},{"op":"mgr.unlock","pass":"second"},{"op":"mgr.is_locked"},{"account":0,"op":"mgr.account_extended_priv_key"},{"op":"mgr.unlock","pass":"third"},{"account":1,"op":"mgr.set_account_passphrase","pass":"acct"},{"op":"mgr.lock"},{"account":1,"op":"mgr.unlock_account","pass":"acct"},{"new":"fourth","old":"third","op":"mgr.change_passphrase","private":true},{"account":1,"op":"mgr.account_has_passphrase"},{"account":1,"op":"mgr.unlock_account","pass":"acct"},{"account":1,"op":"mgr.unlock_account","pass":"other"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":0,"op":"mgr.account_extended_priv_key"},{"op":"mgr.unlock","pass":"fourth"},{"account":1,"op":"mgr.account_has_passphrase"},{"new":"public2","old":"public","op":"mgr.change_passphrase","private":false},{"op":"mgr.is_locked"},{"account":1,"op":"mgr.account_has_passphrase"},{"new":"public3","old":"public","op":"mgr.change_passphrase","private":false},{"op":"rt.reopen"},{"op":"mgr.is_locked"},{"op":"mgr.unlock","pass":"third"},{"op":"mgr.unlock","pass":"fourth"},{"account":0,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.account_extended_priv_key"},{"account":1,"op":"mgr.unlock_account","pass":"acct"},{"account":1,"op":"mgr.account_extended_priv_key"},{"addr":{"ref":"k"},"op":"mgr.private_key"},{"op":"mgr.upgrade_to_slip0044_coin_type"},{"op":"mgr.coin_type"},{"op":"mgr.coin_type_priv_key"},{"new":"","old":"public2","op":"mgr.change_passphrase","private":false},{"new":"","old":"fourth","op":"mgr.change_passphrase","private":true},{"op":"mgr.unlocked_with_passphrase","pass":""},{"op":"rt.reopen"},{"op":"mgr.unlock","pass":"fourth"},{"op":"mgr.unlock","pass":""},{"account":0,"op":"mgr.account_extended_priv_key"},{"new":"same","old":"","op":"mgr.change_passphrase","private":true},{"new":"same","old":"same","op":"mgr.change_passphrase","private":true},{"new":"","old":"","op":"mgr.change_passphrase","private":false},{"op":"mgr.unlocked_with_passphrase","pass":"same"},{"op":"mgr.lock"},{"op":"rt.reopen"},{"op":"mgr.unlock","pass":"same"},{"account":0,"op":"mgr.account_extended_priv_key"},{"op":"mgr.lock"}],"setup":{"clock":1794990000,"ncpu":2,"network":"simnet","privpass":"private","pubpass":"public","rand":"2626262626262626262626262626262626262626262626262626262626262626","seed":"2626262626262626262626262626262626262626262626262626262626262626"}}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":0,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":1,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":2,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":3,"op":"mgr.change_passphrase"}
+result {"i":4,"ok":true,"op":"mgr.is_locked"}
+result {"drawn":88,"i":5,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":6,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"Locked","text":"wallet locked"},"i":7,"op":"mgr.unlocked_with_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":8,"op":"mgr.unlock"}
+result {"i":9,"ok":null,"op":"mgr.unlock"}
+result {"i":10,"ok":null,"op":"mgr.unlocked_with_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":11,"op":"mgr.unlocked_with_passphrase"}
+result {"i":12,"ok":"sprvZFu8pCbYxqQMcnN7omWqygcp5RftQbC4dQ6FstghfJVEZc6uwjZDeP39EZv95g9UD253R2v61jSALEyfqRig7U6KaQMtgjan5qBtBWgY1Z1","op":"mgr.account_extended_priv_key"}
+result {"i":13,"ok":"sprvZEb7gy1bS8MpN48RxXTPAZj48H84i8CfWHnRNfMLYHagT9qQm7Hs6ZX1xP3sciZRDAyqDX6mkq6jjTvzjYUMYNUm9u7x8ESmfMBPA1XR1QJ","op":"mgr.coin_type_priv_key"}
+result {"drawn":48,"i":14,"ok":1,"op":"mgr.new_account"}
+result {"i":15,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"i":16,"ok":{"key":"0973235be7873e2387866bb86ff7edf054d46b8aa417191e30be022219d36593","pubkey":"0346c28f55f04a05a0945a28121936677330db85521df133e6517dc3e5fb62494b"},"op":"mgr.private_key"}
+result {"drawn":48,"i":17,"ok":{"account":2147483647,"addr":"SsgsFf6jGzTHPNpfX8enBj4J5qJ7HAr5rxT","addrhash":"894d2093a88300ea8a15c2bb06bb07be0dc3d774","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.import_private_key"}
+result {"i":18,"ok":{"key":"0000000000000000000000000000000000000000000000000000000000000007","pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.private_key"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":19,"op":"mgr.change_passphrase"}
+result {"i":20,"ok":false,"op":"mgr.is_locked"}
+result {"drawn":88,"i":21,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":22,"ok":false,"op":"mgr.is_locked"}
+result {"i":23,"ok":null,"op":"mgr.unlocked_with_passphrase"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":24,"op":"mgr.unlocked_with_passphrase"}
+result {"i":25,"ok":"sprvZFu8pCbYxqQMe3pCgHJGEtNxvuAdQQREtfbdYAfAUqxbkptSwrUvKcReXajpTazhwb9ogzn4oGsp1VshkSbGB13y62k7CEFjn82MnLCr6nq","op":"mgr.account_extended_priv_key"}
+result {"i":26,"ok":{"key":"0000000000000000000000000000000000000000000000000000000000000007","pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.private_key"}
+result {"i":27,"ok":null,"op":"mgr.unlock"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":28,"op":"mgr.unlock"}
+result {"i":29,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":30,"op":"mgr.account_extended_priv_key"}
+result {"i":31,"ok":null,"op":"mgr.unlock"}
+result {"drawn":72,"i":32,"ok":null,"op":"mgr.set_account_passphrase"}
+result {"i":33,"ok":null,"op":"mgr.lock"}
+result {"i":34,"ok":null,"op":"mgr.unlock_account"}
+result {"drawn":88,"i":35,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":36,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"i":37,"ok":null,"op":"mgr.unlock_account"}
+result {"err":{"kind":"Passphrase","text":"invalid passphrase"},"i":38,"op":"mgr.unlock_account"}
+result {"i":39,"ok":"sprvZFu8pCbYxqQMe3pCgHJGEtNxvuAdQQREtfbdYAfAUqxbkptSwrUvKcReXajpTazhwb9ogzn4oGsp1VshkSbGB13y62k7CEFjn82MnLCr6nq","op":"mgr.account_extended_priv_key"}
+result {"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":40,"op":"mgr.account_extended_priv_key"}
+result {"i":41,"ok":null,"op":"mgr.unlock"}
+result {"i":42,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"drawn":56,"i":43,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":44,"ok":false,"op":"mgr.is_locked"}
+result {"i":45,"ok":{"has":true,"unlocked":true},"op":"mgr.account_has_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":46,"op":"mgr.change_passphrase"}
+result {"drawn":32,"i":47,"ok":null,"op":"rt.reopen"}
+result {"i":48,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":49,"op":"mgr.unlock"}
+result {"i":50,"ok":null,"op":"mgr.unlock"}
+result {"i":51,"ok":"sprvZFu8pCbYxqQMcnN7omWqygcp5RftQbC4dQ6FstghfJVEZc6uwjZDeP39EZv95g9UD253R2v61jSALEyfqRig7U6KaQMtgjan5qBtBWgY1Z1","op":"mgr.account_extended_priv_key"}
+result {"drawn":32,"err":{"kind":"Locked","text":"wallet locked: unable to access account extended privkey"},"i":52,"op":"mgr.account_extended_priv_key"}
+result {"i":53,"ok":null,"op":"mgr.unlock_account"}
+result {"i":54,"ok":"sprvZFu8pCbYxqQMe3pCgHJGEtNxvuAdQQREtfbdYAfAUqxbkptSwrUvKcReXajpTazhwb9ogzn4oGsp1VshkSbGB13y62k7CEFjn82MnLCr6nq","op":"mgr.account_extended_priv_key"}
+result {"i":55,"ok":{"key":"0000000000000000000000000000000000000000000000000000000000000007","pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.private_key"}
+result {"err":{"kind":"Invalid","text":"invalid operation: wallets with returned addresses may not be upgraded to SLIP0044 coin type"},"i":56,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":57,"ok":115,"op":"mgr.coin_type"}
+result {"i":58,"ok":"sprvZEb7gy1bS8MpN48RxXTPAZj48H84i8CfWHnRNfMLYHagT9qQm7Hs6ZX1xP3sciZRDAyqDX6mkq6jjTvzjYUMYNUm9u7x8ESmfMBPA1XR1QJ","op":"mgr.coin_type_priv_key"}
+result {"drawn":56,"i":59,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":88,"i":60,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":61,"ok":null,"op":"mgr.unlocked_with_passphrase"}
+result {"drawn":32,"i":62,"ok":null,"op":"rt.reopen"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":63,"op":"mgr.unlock"}
+result {"i":64,"ok":null,"op":"mgr.unlock"}
+result {"i":65,"ok":"sprvZFu8pCbYxqQMcnN7omWqygcp5RftQbC4dQ6FstghfJVEZc6uwjZDeP39EZv95g9UD253R2v61jSALEyfqRig7U6KaQMtgjan5qBtBWgY1Z1","op":"mgr.account_extended_priv_key"}
+result {"drawn":88,"i":66,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":88,"i":67,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":68,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":69,"ok":null,"op":"mgr.unlocked_with_passphrase"}
+result {"i":70,"ok":null,"op":"mgr.lock"}
+result {"drawn":32,"i":71,"ok":null,"op":"rt.reopen"}
+result {"i":72,"ok":null,"op":"mgr.unlock"}
+result {"i":73,"ok":"sprvZFu8pCbYxqQMcnN7omWqygcp5RftQbC4dQ6FstghfJVEZc6uwjZDeP39EZv95g9UD253R2v61jSALEyfqRig7U6KaQMtgjan5qBtBWgY1Z1","op":"mgr.account_extended_priv_key"}
+result {"i":74,"ok":null,"op":"mgr.lock"}
+export 697d8fa60c1d966ee9fce1ca1773ff088f53835a9e6cfecc06a957dc98c9f4e9 340ad00e3c8324903961656bcc0ed5581a4bf746c3610bcdab0b11fb1d3fa156
+name 25-change-passphrase-watching-only
+script {"format":"purse-opscript 1","name":"ChangePassphrase on watching-only wallets: created from an account extended public key, and converted","ops":[{"new":"x","old":"public","op":"mgr.change_passphrase","private":true},{"new":"x","old":"wrong","op":"mgr.change_passphrase","private":true},{"new":"","old":"","op":"mgr.change_passphrase","private":true},{"new":"x","old":"wrong","op":"mgr.change_passphrase","private":false},{"new":"watch","old":"public","op":"mgr.change_passphrase","private":false},{"op":"mgr.watching_only"},{"op":"mgr.is_locked"},{"op":"mgr.unlock","pass":"watch"},{"op":"mgr.unlock","pass":"public"},{"account":0,"op":"mgr.account_extended_pub_key"},{"account":0,"branch":1,"index":2,"op":"mgr.sync_account_to_addr_index"},{"label":"p","op":"mgr.import_public_key","pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},{"op":"rt.reopen"},{"op":"mgr.watching_only"},{"account":0,"op":"mgr.account_extended_pub_key"},{"addr":{"ref":"p"},"op":"mgr.address"},{"addr":{"acct":0,"branch":1,"index":1},"op":"mgr.address"},{"new":"x","old":"public","op":"mgr.change_passphrase","private":false},{"new":"","old":"watch","op":"mgr.change_passphrase","private":false},{"op":"rt.reopen"},{"account":0,"op":"mgr.account_extended_pub_key"},{"new":"public","old":"","op":"mgr.change_passphrase","private":true}],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"public","rand":"2727272727272727272727272727272727272727272727272727272727272727","xpub":{"path":["44'","1'","0'"],"seed":"2727272727272727272727272727272727272727272727272727272727272727"}}}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":0,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":1,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":2,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":3,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":4,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":5,"ok":true,"op":"mgr.watching_only"}
+result {"i":6,"ok":true,"op":"mgr.is_locked"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":7,"op":"mgr.unlock"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":8,"op":"mgr.unlock"}
+result {"i":9,"ok":"spubVUjHYyvjWb11R1JPmXkVK6Q9YhVTW3ja7qxuaxdzusYhESPdv7dnqHtpw52AHgd2hE6V3qVSes1ocae66xxW2MNujeMLEiBNSP9EYJPefEU","op":"mgr.account_extended_pub_key"}
+result {"i":10,"ok":null,"op":"mgr.sync_account_to_addr_index"}
+result {"drawn":24,"i":11,"ok":{"account":2147483647,"addr":"SsgsFf6jGzTHPNpfX8enBj4J5qJ7HAr5rxT","addrhash":"894d2093a88300ea8a15c2bb06bb07be0dc3d774","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.import_public_key"}
+result {"drawn":32,"i":12,"ok":null,"op":"rt.reopen"}
+result {"i":13,"ok":true,"op":"mgr.watching_only"}
+result {"i":14,"ok":"spubVUjHYyvjWb11R1JPmXkVK6Q9YhVTW3ja7qxuaxdzusYhESPdv7dnqHtpw52AHgd2hE6V3qVSes1ocae66xxW2MNujeMLEiBNSP9EYJPefEU","op":"mgr.account_extended_pub_key"}
+result {"i":15,"ok":{"account":2147483647,"addr":"SsgsFf6jGzTHPNpfX8enBj4J5qJ7HAr5rxT","addrhash":"894d2093a88300ea8a15c2bb06bb07be0dc3d774","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"},"op":"mgr.address"}
+result {"i":16,"ok":{"account":0,"addr":"SsYV11eWQW4JLqpxCKwQwdHrZs6wuEJ7Qrg","addrhash":"2d56be830d77d170233754fbab8d168721a9b185","imported":false,"index":1,"internal":true,"kind":"pubkey","multisig":false,"pubkey":"035585f6ca1a73addcadfc1933b6ff5d356eebbf2ab9f4c5f653ecd3510bf724b9"},"op":"mgr.address"}
+result {"err":{"kind":"Passphrase","text":"secretkey.DeriveKey: invalid passphrase"},"i":17,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":18,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":32,"i":19,"ok":null,"op":"rt.reopen"}
+result {"i":20,"ok":"spubVUjHYyvjWb11R1JPmXkVK6Q9YhVTW3ja7qxuaxdzusYhESPdv7dnqHtpw52AHgd2hE6V3qVSes1ocae66xxW2MNujeMLEiBNSP9EYJPefEU","op":"mgr.account_extended_pub_key"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":21,"op":"mgr.change_passphrase"}
+export 36aeadd66655d0edea65ac1a2a41165c6c45b5b72ec73ea3e7379da478bddaa0 25984ec7188471e669b6ce132f3c9dbb57056d60cd8c06b41382a937b4057649
+name 26-change-passphrase-convert
+script {"format":"purse-opscript 1","name":"ChangePassphrase before and after ConvertToWatchingOnly","ops":[{"op":"mgr.unlock","pass":"private"},{"name":"one","op":"mgr.new_account"},{"key":"0000000000000000000000000000000000000000000000000000000000000009","label":"k","op":"mgr.import_private_key"},{"new":"changed","old":"private","op":"mgr.change_passphrase","private":true},{"new":"pub","old":"public","op":"mgr.change_passphrase","private":false},{"op":"mgr.unlocked_with_passphrase","pass":"changed"},{"op":"mgr.convert_to_watching_only"},{"op":"mgr.watching_only"},{"new":"again","old":"changed","op":"mgr.change_passphrase","private":true},{"new":"pub2","old":"pub","op":"mgr.change_passphrase","private":false},{"op":"mgr.unlock","pass":"changed"},{"op":"rt.reopen"},{"op":"mgr.watching_only"},{"new":"again","old":"changed","op":"mgr.change_passphrase","private":true},{"new":"pub3","old":"pub2","op":"mgr.change_passphrase","private":false},{"op":"rt.reopen"},{"account":1,"op":"mgr.account_extended_pub_key"},{"addr":{"ref":"k"},"op":"mgr.address"},{"addr":{"ref":"k"},"op":"mgr.have_private_key"}],"setup":{"clock":1794990000,"network":"simnet","privpass":"private","pubpass":"public","rand":"2828282828282828282828282828282828282828282828282828282828282828","seed":"2828282828282828282828282828282828282828282828282828282828282828"}}
+result {"i":0,"ok":null,"op":"mgr.unlock"}
+result {"drawn":48,"i":1,"ok":1,"op":"mgr.new_account"}
+result {"drawn":48,"i":2,"ok":{"account":2147483647,"addr":"SsarNZ6hfGodkNPhEwcLJtjnpZv4T4FWaER","addrhash":"4751b6aa1c45969bbfe96b2f6af4467e3e5a41f0","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe"},"op":"mgr.import_private_key"}
+result {"drawn":88,"i":3,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":4,"ok":null,"op":"mgr.change_passphrase"}
+result {"i":5,"ok":null,"op":"mgr.unlocked_with_passphrase"}
+result {"i":6,"ok":null,"op":"mgr.convert_to_watching_only"}
+result {"i":7,"ok":true,"op":"mgr.watching_only"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":8,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":9,"ok":null,"op":"mgr.change_passphrase"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet: cannot unlock watching wallet"},"i":10,"op":"mgr.unlock"}
+result {"drawn":32,"i":11,"ok":null,"op":"rt.reopen"}
+result {"i":12,"ok":true,"op":"mgr.watching_only"}
+result {"err":{"kind":"WatchingOnly","text":"watching only wallet"},"i":13,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":14,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":32,"i":15,"ok":null,"op":"rt.reopen"}
+result {"i":16,"ok":"spubVUy55G16roY6wZmGweF1BoZ9oQ4cDJ5QNBqzeSdHBqZADE2Ehse6qiik8zkJx3kV7aT1mGAyqenoxFsTGg8BL37w5sr5nBmkDoa7MzhQuWC","op":"mgr.account_extended_pub_key"}
+result {"i":17,"ok":{"account":2147483647,"addr":"SsarNZ6hfGodkNPhEwcLJtjnpZv4T4FWaER","addrhash":"4751b6aa1c45969bbfe96b2f6af4467e3e5a41f0","imported":true,"index":0,"internal":false,"kind":"pubkey","multisig":false,"pubkey":"03acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe"},"op":"mgr.address"}
+result {"i":18,"ok":false,"op":"mgr.have_private_key"}
+export 57fbef05952334ca1310c00fe66dd3556ea5bb509a01caff8824fed661294664 8929e4d1dd4508cbcf0e84ee5252d8fc497daffd84703a0b232bd941c020d362
+name 27-testnet3-change-passphrase
+script {"format":"purse-opscript 1","name":"ChangePassphrase on testnet3: the full scrypt cost rewritten for both master keys","ops":[{"new":"@#$asdf","old":"81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj","op":"mgr.change_passphrase","private":true},{"new":"-0NV4P~VSJBWbunw}%<Z]fuGpbN[ZI","old":"_DJr{fL4H0O}*-0\n:V1izc)(6BomK","op":"mgr.change_passphrase","private":false},{"op":"rt.reopen"},{"op":"mgr.unlock","pass":"@#$asdf"},{"account":0,"op":"mgr.account_extended_priv_key"}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj","pubpass":"_DJr{fL4H0O}*-0\n:V1izc)(6BomK","rand":"2929292929292929292929292929292929292929292929292929292929292929","seed":"b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567"}}
+result {"drawn":88,"i":0,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":56,"i":1,"ok":null,"op":"mgr.change_passphrase"}
+result {"drawn":32,"i":2,"ok":null,"op":"rt.reopen"}
+result {"i":3,"ok":null,"op":"mgr.unlock"}
+result {"i":4,"ok":"tprvZamiZhhbU42gkMZMU7jkn2Z3rTLkBEKcqtMMCDvY25u1ZXggdvS7WW3fwxzg9ZTUK13eaw76htqzU1hsKzNvkggZ4RdiE4fFtHcSWu3txak","op":"mgr.account_extended_priv_key"}
+export e7e9cf2d5a726a412741c2ba2dd35a4d93d94dfd98a437f9b26f95d27bf45319 19cfdb56053f7d680d1cc3c3ca1afbe6b7224867cca129795921c51ed8498580

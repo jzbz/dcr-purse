@@ -146,8 +146,13 @@ A script is one JSON object:
 ```
 
 - `setup.network`: `mainnet`, `testnet3`, `simnet` or `regnet`. Exactly one
-  of `seed` (hex; `Initialize`) and `xpub` (a key spec, section 2;
-  `InitializeWatchOnly`). `privpass` is ignored for a watching-only wallet.
+  of `seed` (hex; `Initialize`) and `xpub` (a key spec, section 2,
+  neutered; `InitializeWatchOnly`). `xpub` may also be `{"raw": "<string>"}`,
+  the string passed to `InitializeWatchOnly` unparsed, so that a malformed
+  string, another network's key or a private key reaches udb (added
+  2026-11-22 for the watching-only slice of `purse-udb`). `privpass` is
+  ignored for a watching-only wallet, and its exports carry no
+  `[privcheck]`.
 - `setup.rand`: the 32-byte key of the injected randomness stream: ChaCha20
   under that key with a zero 12-byte nonce, no re-keying, XORed into the
   caller's buffer, consumed by dcrd's derived-value functions unchanged

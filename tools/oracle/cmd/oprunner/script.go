@@ -54,8 +54,9 @@ type Script struct {
 type Setup struct {
 	Network string `json:"network"`
 	// Seed (hex) creates the wallet with udb.Initialize; Xpub (a key
-	// spec) creates a watching-only wallet with udb.InitializeWatchOnly.
-	// Exactly one is given.
+	// spec, neutered, or {"raw": string} passed unparsed) creates a
+	// watching-only wallet with udb.InitializeWatchOnly. Exactly one is
+	// given.
 	Seed     *string         `json:"seed"`
 	Xpub     json.RawMessage `json:"xpub"`
 	PubPass  string          `json:"pubpass"`
@@ -547,11 +548,11 @@ func setup(s *Script, dir string) (*runner, error) {
 		priv := st.PrivPass
 		r.privPass = &priv
 	case st.Seed == nil && st.Xpub != nil:
-		xpub, err := r.keySpec(st.Xpub, false)
+		xpub, err := r.setupXpub(st.Xpub)
 		if err != nil {
 			return nil, err
 		}
-		err = udb.InitializeWatchOnly(r.ctx, db, params, xpub.String(), []byte(st.PubPass))
+		err = udb.InitializeWatchOnly(r.ctx, db, params, xpub, []byte(st.PubPass))
 		if err != nil {
 			return nil, fmt.Errorf("udb.InitializeWatchOnly: %w", err)
 		}
@@ -563,6 +564,25 @@ func setup(s *Script, dir string) (*runner, error) {
 		return nil, fmt.Errorf("udb.Open: %w", err)
 	}
 	return r, nil
+}
+
+// setupXpub reads setup.xpub: a key spec, neutered, or {"raw": s}, the
+// string s passed to InitializeWatchOnly unparsed, so that a malformed
+// string, another network's key or a private key reaches udb.
+func (r *runner) setupXpub(raw json.RawMessage) (string, error) {
+	var o struct {
+		Raw *string `json:"raw"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&o) == nil && o.Raw != nil {
+		return *o.Raw, nil
+	}
+	k, err := r.keySpec(raw, false)
+	if err != nil {
+		return "", err
+	}
+	return k.String(), nil
 }
 
 // reopen closes the wallet and opens it again as dcrwallet does at

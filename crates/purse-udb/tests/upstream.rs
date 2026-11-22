@@ -13,28 +13,48 @@
 //!   `testRenameAccount`), run as `TestManager` runs it: on testnet3 with
 //!   the seed and passphrases of `wallet/udb/common_test.go`, in one write
 //!   transaction, once on the newly created manager and once after opening
-//!   it again (the watching-only half waits for `ConvertToWatchingOnly`, a
-//!   later slice);
+//!   it again;
+//! - `TestManagerWatchingOnly`: `testManagerAPI` in create mode, then, after
+//!   opening the manager again and converting it with
+//!   `ConvertToWatchingOnly`, in watching-only mode on the converted manager
+//!   and once more after opening it again;
 //! - `TestManagerImports` (`testImportPrivateKey`, `testImportScript`) in
 //!   its create mode, with upstream's WIF and P2SH vectors (its
-//!   watching-only mode returns before importing anything);
+//!   watching-only mode returns before importing anything, so there is
+//!   nothing of it to port);
 //! - `wallet/addresses_test.go` `TestAddresses`' address vectors: the first
 //!   five children of both branches of account 0 of upstream's simnet
 //!   wallet with the same seed (address, HASH160, public key), through
-//!   `SyncAccountToAddrIndex` and `Address`, locked and unlocked; the
-//!   address issuance it also checks belongs to the wallet crate.
+//!   `SyncAccountToAddrIndex` and `Address`, locked and unlocked, on the
+//!   seed's wallet and, as its watching-only runs do, on that wallet
+//!   converted with `ConvertToWatchingOnly` (unlocked first or not) before
+//!   any address is derived; the address issuance it also checks belongs to
+//!   the wallet crate.
 //!
 //! - `cointype_test.go` `TestCoinTypeUpgrade`, plus a reopen after it;
 //! - `TestManagerEncryptDecrypt` (`testEncryptDecryptErrors`,
 //!   `testEncryptDecrypt`), but its two checks of an invalid key type, a
 //!   value the Rust API cannot express.
 //!
-//! `TestImportVotingAccount` and `TestImportAccount` (both import an
-//! account from an extended private key, the voting-account path),
-//! `TestChangePassphrase` and `TestManagerWatchingOnly` wait for the
-//! slices that port those methods; `TestUpgrades` exercises the database
-//! upgrades, which are not ported (ADR-0013); the transaction store's
-//! tests wait for the transaction store.
+//! - `TestImportVotingAccount`: its six cases on one testnet3 wallet, each
+//!   in its own write transaction, with upstream's extended private key;
+//!   after each import the account is unlocked in the same transaction and
+//!   its type and private key checked, and (beyond upstream) whether it is
+//!   still unlocked once committed;
+//! - `TestImportAccount`'s cases through `ImportVotingAccount`: its
+//!   `importAccount` with the BIP0044 type has no caller but that test (the
+//!   one production caller passes `importedVoting`, spec 02 section 3.4),
+//!   and the steps it checks (numbering, names, the duplicate-key check
+//!   after `SyncAccountToAddrIndex`) are the voting import's.
+//!
+//! - `TestChangePassphrase` (`testChangePassphrase`) on a testnet3 wallet
+//!   with upstream's passphrases, each call committing on its own (the
+//!   Rust method runs its own transaction), and its watching-only branches,
+//!   which upstream never runs, on the same wallet converted.
+//!
+//! `TestUpgrades` exercises the database upgrades, which are not ported
+//! (ADR-0013); the transaction store's tests wait for the transaction
+//! store.
 
 mod support;
 
@@ -46,8 +66,8 @@ use purse_store::{Store, WriteTx};
 use purse_testutil::{hex, unhex};
 use purse_udb::Manager;
 use purse_udb::addrmgr::{
-    ChainParams, ExtendedKey, IMPORTED_ADDR_ACCOUNT, IMPORTED_ADDR_ACCOUNT_NAME, ManagedAddress,
-    coin_types, derive_account_key, derive_coin_type_key,
+    BoxedRandom, ChainParams, ExtendedKey, IMPORTED_ADDR_ACCOUNT, IMPORTED_ADDR_ACCOUNT_NAME,
+    ManagedAddress, coin_types, derive_account_key, derive_coin_type_key,
 };
 use support::scratch;
 
@@ -57,6 +77,10 @@ const SEED: &str = "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d64
 const PUB_PASSPHRASE: &[u8] = b"_DJr{fL4H0O}*-0\n:V1izc)(6BomK";
 /// `common_test.go`'s `privPassphrase`.
 const PRIV_PASSPHRASE: &[u8] = b"81lUHXnOMZ@?XXd7O9xyDIWIbXX-lj";
+/// `common_test.go`'s `pubPassphrase2`.
+const PUB_PASSPHRASE2: &[u8] = b"-0NV4P~VSJBWbunw}%<Z]fuGpbN[ZI";
+/// `common_test.go`'s `privPassphrase2`.
+const PRIV_PASSPHRASE2: &[u8] = b"~{<]08%6!-?2s<$(8$8:f(5[4/!/{Y";
 
 #[test]
 fn coin_types_match_upstream() {
@@ -107,11 +131,34 @@ fn open(store: &Store, chain: &ChainParams, pub_pass: &[u8]) -> Manager {
 /// `testLocking` (`addressmanager_test.go:147-218`) for a manager that is
 /// not watching-only.
 fn test_locking(mgr: &Manager) {
+    test_locking_as(mgr, false);
+}
+
+/// `testLocking` with its `watchingOnly` flag: a watching-only manager
+/// refuses `Lock` and every `Unlock` with `WatchingOnly` and stays locked.
+fn test_locking_as(mgr: &Manager, watching_only: bool) {
     assert!(
         mgr.is_locked(),
         "IsLocked: returned false on locked manager"
     );
     let err = mgr.lock().expect_err("locking a locked manager");
+    if watching_only {
+        assert!(
+            err.is_kind(Kind::WatchingOnly),
+            "Lock: unexpected error: {err}"
+        );
+        for pass in [PRIV_PASSPHRASE, PRIV_PASSPHRASE, b"invalidpassphrase"] {
+            let err = mgr
+                .unlock(pass)
+                .expect_err("unlocking a watching-only manager");
+            assert!(
+                err.is_kind(Kind::WatchingOnly),
+                "Unlock: unexpected error: {err}"
+            );
+            assert!(mgr.is_locked(), "IsLocked: watching-only manager unlocked");
+        }
+        return;
+    }
     assert!(err.is_kind(Kind::Locked), "Lock: unexpected error: {err}");
 
     mgr.unlock(PRIV_PASSPHRASE).expect("Unlock");
@@ -205,6 +252,69 @@ fn account0_addresses_match_upstream() {
     }
 }
 
+/// The same vectors from a watching-only wallet created from account 0's
+/// extended public key (`InitializeWatchOnly`, as `dcrwallet --create`
+/// with a watching-only key makes it), through the branch keys and
+/// through `SyncAccountToAddrIndex` and `Address`.
+#[test]
+fn account0_addresses_match_upstream_from_the_account_xpub() {
+    let chain = ChainParams::by_name("simnet").expect("simnet");
+    let master = ExtendedKey::new_master(&unhex(SEED), &chain.hd).expect("master");
+    let (legacy, _) = coin_types(&chain);
+    let xpub = derive_account_key(
+        &derive_coin_type_key(&master, legacy).expect("coin type"),
+        0,
+    )
+    .expect("account")
+    .neuter();
+    let dir = scratch("upstream-wo");
+    let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
+    update(&store, |tx| {
+        Manager::create_watch_only(
+            tx,
+            &chain,
+            xpub.string().as_bytes(),
+            b"public",
+            &mut OsRandom,
+            &Limits::DEFAULT,
+        )
+        .expect("create_watch_only");
+    });
+    let mgr = open(&store, &chain, b"public");
+    assert!(mgr.watching_only());
+    update(&store, |tx| {
+        for branch in [0, 1] {
+            mgr.sync_account_to_addr_index(tx, 0, 4, branch)
+                .expect("SyncAccountToAddrIndex");
+        }
+    });
+    let tx = store.read().expect("read");
+    for (branch, want) in [(1, INTERNAL), (0, EXTERNAL)] {
+        let bk = mgr
+            .account_branch_extended_pub_key(&mut &tx, 0, branch)
+            .expect("branch key");
+        for (i, w) in want.iter().enumerate() {
+            let child = bk.child(u32::try_from(i).expect("small")).expect("child");
+            assert_eq!(
+                hex(child.serialized_pub_key()),
+                *w,
+                "branch {branch} child {i}"
+            );
+            let addr = stdaddr::new_address_pub_key_hash_ecdsa_secp256k1_v0(
+                &stdaddr::hash160(child.serialized_pub_key()),
+                &chain,
+            )
+            .expect("p2pkh");
+            let got = mgr.address(&mut &tx, &addr).expect("Address");
+            assert_eq!(got.pub_key().map(hex).as_deref(), Some(*w));
+            let err = mgr
+                .private_key(&mut &tx, &addr)
+                .expect_err("a watching-only wallet has no private key");
+            assert!(err.is_kind(Kind::Locked), "{err}");
+        }
+    }
+}
+
 /// Runs `f` in one write transaction, committed (as `walletdb.Update`).
 fn update(store: &Store, f: impl FnOnce(&mut WriteTx<'_>)) {
     store
@@ -293,9 +403,22 @@ fn test_rename_account(mgr: &Manager, tx: &mut WriteTx<'_>) {
 /// `testManagerAPI` (`addressmanager_test.go:1120-1144`): everything in
 /// one write transaction.
 fn test_manager_api(store: &Store, mgr: &Manager, create: bool) {
+    test_manager_api_as(store, mgr, create, false);
+}
+
+/// `testManagerAPI` with its `watchingOnly` flag (upstream never runs a
+/// watching-only manager in create mode, where `testNewAccount` would
+/// expect `WatchingOnly`).
+fn test_manager_api_as(store: &Store, mgr: &Manager, create: bool, watching_only: bool) {
     update(store, |tx| {
-        test_locking(mgr);
-        if create {
+        test_locking_as(mgr, watching_only);
+        if create && watching_only {
+            let err = mgr.new_account(tx, b"test").expect_err("NewAccount");
+            assert!(
+                err.is_kind(Kind::WatchingOnly),
+                "NewAccount: expected WatchingOnly, got {err}"
+            );
+        } else if create {
             test_new_account(mgr, tx);
         }
         test_lookup_account(mgr, tx);
@@ -315,6 +438,31 @@ fn manager_api_matches_upstream_in_create_and_open_modes() {
     assert_eq!(
         mgr.account_name(&mut &tx, 1).expect("AccountName"),
         b"acct-create-renamed-renamed"
+    );
+}
+
+/// `TestManagerWatchingOnly` (`addressmanager_test.go:1146-1209`): the API
+/// tests in create mode, then on the manager opened again and converted to
+/// watching-only, then on the converted manager opened again. Each run
+/// renames account 1 once more.
+#[test]
+fn watching_only_manager_api_matches_upstream() {
+    let (store, mgr, chain) = create("testnet3", PUB_PASSPHRASE, PRIV_PASSPHRASE);
+    test_manager_api_as(&store, &mgr, true, false);
+    drop(mgr);
+    let mgr = open(&store, &chain, PUB_PASSPHRASE);
+    mgr.convert_to_watching_only(&store)
+        .expect("failed to convert manager to watching-only");
+    assert!(mgr.watching_only());
+    test_manager_api_as(&store, &mgr, false, true);
+    drop(mgr);
+    let mgr = open(&store, &chain, PUB_PASSPHRASE);
+    assert!(mgr.watching_only());
+    test_manager_api_as(&store, &mgr, false, true);
+    let tx = store.read().expect("read");
+    assert_eq!(
+        mgr.account_name(&mut &tx, 1).expect("AccountName"),
+        b"acct-create-renamed-renamed-renamed"
     );
 }
 
@@ -521,6 +669,67 @@ fn account0_address_records_match_upstream() {
     }
 }
 
+/// `TestAddresses`' watching-only runs: upstream's simnet wallet, unlocked
+/// first or left locked, converted with `ConvertToWatchingOnly` before any
+/// address of it is derived, then the same vectors through
+/// `SyncAccountToAddrIndex` and `Address` (upstream asks the wallet's
+/// `NewInternalAddress` and `NewExternalAddress`, which the wallet crate
+/// ports; the address manager's part is the derivation from account 0's
+/// public key and the record it leaves). Beyond upstream: the converted
+/// manager is locked and watching-only, keeps answering `HavePrivateKey`
+/// true for a derived address (Go's rule is the account number, QK-0037),
+/// gives no private key, and answers the same after a reopen.
+#[test]
+fn account0_addresses_match_upstream_after_a_conversion() {
+    for unlock in [false, true] {
+        let (store, mgr, chain) = create("simnet", b"public", PRIV_PASSPHRASE);
+        if unlock {
+            mgr.unlock(PRIV_PASSPHRASE).expect("Unlock");
+        }
+        mgr.convert_to_watching_only(&store)
+            .expect("ConvertToWatchingOnly");
+        assert!(mgr.watching_only() && mgr.is_locked(), "unlock {unlock}");
+        update(&store, |tx| {
+            for branch in [0, 1] {
+                mgr.sync_account_to_addr_index(tx, 0, 4, branch)
+                    .expect("SyncAccountToAddrIndex");
+            }
+        });
+        let reopened = open(&store, &chain, b"public");
+        for (m, again) in [(&mgr, false), (&reopened, true)] {
+            assert!(m.watching_only() && m.is_locked(), "unlock {unlock}");
+            let tx = store.read().expect("read");
+            for (branch, addrs, keys) in [
+                (1u32, INTERNAL_ADDRS, INTERNAL),
+                (0, EXTERNAL_ADDRS, EXTERNAL),
+            ] {
+                for (i, ((address, hash), key)) in addrs.iter().zip(keys).enumerate() {
+                    let what = format!("unlock {unlock}, reopened {again}: {address}");
+                    let decoded = stdaddr::decode_address(address, &chain).expect("decode");
+                    let got = m.address(&mut &tx, &decoded).expect("Address");
+                    check_address(&got, 0, address, hash, branch == 1, false, Some(key));
+                    assert_eq!(
+                        got.index(),
+                        Some(u32::try_from(i).expect("small")),
+                        "{what}"
+                    );
+                    assert_eq!(
+                        m.addr_account(&mut &tx, &decoded).expect("AddrAccount"),
+                        0,
+                        "{what}"
+                    );
+                    let have: Result<bool, AnyError> = m.have_private_key(&mut &tx, &decoded);
+                    assert!(have.expect("HavePrivateKey"), "{what}");
+                    let err = m
+                        .private_key(&mut &tx, &decoded)
+                        .expect_err("a converted wallet gives no private key");
+                    assert!(err.is_kind(Kind::Locked), "{what}: {err}");
+                }
+            }
+        }
+    }
+}
+
 /// `cointype_test.go` `TestCoinTypeUpgrade`: a testnet3 wallet of
 /// upstream's seed upgrades from the legacy coin type to SLIP0044 in one
 /// write transaction, after which the coin type key, account 0's xpub and
@@ -709,4 +918,295 @@ fn encrypt_decrypt_matches_upstream() {
         .expect_err("failed encryption");
         assert!(err.is_kind(Kind::Crypto), "failed encryption: {err}");
     }
+}
+
+/// `TestImportVotingAccount`'s and `TestImportAccount`'s extended private
+/// key (testnet3).
+const VOTING_XPRIV: &str = "tprvZUo1ZuEfLLFWg9ktEaXHf3HKq2EdfwY5pXFZ2rbg6HFzeaoJDp1qFZnuuuN6iUAG9EyNF4sH4RmJb395XWYpdqQoXRoKkV88HZwgq95KfiK";
+
+/// One case of [`import_voting_account_matches_upstream`]: its name, the
+/// passphrase, the account name, the wanted account or error kind, and
+/// whether the wallet is unlocked first.
+type VotingCase = (
+    &'static str,
+    &'static [u8],
+    &'static [u8],
+    Result<u32, Kind>,
+    bool,
+);
+
+/// One case of [`import_account_matches_upstream`]: its name, the account
+/// name, the wanted account or error kind, and whether an address of the
+/// key is recorded first.
+type ImportCase = (&'static str, &'static [u8], Result<u32, Kind>, bool);
+
+/// `TestImportVotingAccount` (`addressmanager_test.go:474-604`).
+#[test]
+fn import_voting_account_matches_upstream() {
+    let (store, mgr, chain) = create("testnet3", PUB_PASSPHRASE, PRIV_PASSPHRASE);
+    let xpriv = ExtendedKey::new_key_from_string(VOTING_XPRIV, &chain.hd).expect("xpriv");
+    // (name, passphrase, account name, wanted account or error kind, unlock)
+    let cases: [VotingCase; 6] = [
+        (
+            "ok watching only",
+            b"abc",
+            b"account 1",
+            Ok(IMPORTED_ADDR_ACCOUNT + 1),
+            false,
+        ),
+        (
+            "ok locked",
+            b"abc",
+            b"account 2",
+            Ok(IMPORTED_ADDR_ACCOUNT + 2),
+            false,
+        ),
+        (
+            "ok unlocked",
+            b"abc",
+            b"account 3",
+            Ok(IMPORTED_ADDR_ACCOUNT + 3),
+            true,
+        ),
+        ("name taken", b"abc", b"account 1", Err(Kind::Exist), false),
+        (
+            "no password",
+            b"",
+            b"account 4",
+            Err(Kind::Passphrase),
+            false,
+        ),
+        ("no name", b"abc", b"", Err(Kind::Invalid), false),
+    ];
+    for (name, pass, acct_name, want, unlock) in cases {
+        let mut imported = None;
+        update(&store, |tx| {
+            if unlock {
+                mgr.unlock(PRIV_PASSPHRASE).expect("Unlock");
+            }
+            let got = mgr.import_voting_account(tx, &xpriv, pass, acct_name);
+            match (got, want) {
+                (Ok(got), Ok(want)) => {
+                    assert_eq!(got, want, "{name}");
+                    mgr.unlock_account(tx, got, pass)
+                        .unwrap_or_else(|e| panic!("{name}: UnlockAccount: {e}"));
+                    let props = mgr.account_properties(tx, got).expect("properties");
+                    assert_eq!(props.account_type, 2, "{name}: importedVoting");
+                    let key = mgr.account_extended_priv_key(tx, got).expect("xpriv");
+                    assert_eq!(key.string().as_str(), VOTING_XPRIV, "{name}");
+                    imported = Some(got);
+                }
+                (Err(e), Err(kind)) => assert!(e.is_kind(kind), "{name}: {e}"),
+                (got, want) => panic!("{name}: got {got:?}, wanted {want:?}"),
+            }
+            if unlock {
+                mgr.lock().expect("Lock");
+            }
+        });
+        // Beyond upstream: the account unlocked in the transaction stays
+        // unlocked once it commits (Go's cache keeps the key it opened),
+        // unless the wallet was locked after it.
+        if let Some(acct) = imported {
+            let tx = store.read().expect("read");
+            assert_eq!(
+                mgr.account_has_passphrase(&mut &tx, acct),
+                (true, !unlock),
+                "{name}"
+            );
+        }
+    }
+}
+
+/// `TestImportAccount` (`addressmanager_test.go:606-708`), through
+/// `ImportVotingAccount` (see the file's documentation): the account's key
+/// is checked after unlocking it with its own passphrase, where upstream's
+/// BIP0044 import leaves it under the wallet passphrase.
+#[test]
+fn import_account_matches_upstream() {
+    let (store, mgr, chain) = create("testnet3", PUB_PASSPHRASE, PRIV_PASSPHRASE);
+    let xpriv = ExtendedKey::new_key_from_string(VOTING_XPRIV, &chain.hd).expect("xpriv");
+    // (name, account name, wanted account or error kind, discover usage)
+    let cases: [ImportCase; 5] = [
+        (
+            "ok watching only",
+            b"account 1",
+            Ok(IMPORTED_ADDR_ACCOUNT + 1),
+            false,
+        ),
+        ("ok", b"account 2", Ok(IMPORTED_ADDR_ACCOUNT + 2), false),
+        ("name taken", b"account 1", Err(Kind::Exist), false),
+        ("address exists", b"account 3", Err(Kind::Exist), true),
+        ("no name", b"", Err(Kind::Invalid), false),
+    ];
+    for (name, acct_name, want, discover) in cases {
+        update(&store, |tx| {
+            mgr.unlock(PRIV_PASSPHRASE).expect("Unlock");
+            if discover {
+                mgr.sync_account_to_addr_index(tx, IMPORTED_ADDR_ACCOUNT + 1, 0, 0)
+                    .expect("SyncAccountToAddrIndex");
+            }
+            match (
+                mgr.import_voting_account(tx, &xpriv, b"pass", acct_name),
+                want,
+            ) {
+                (Ok(got), Ok(want)) => {
+                    assert_eq!(got, want, "{name}");
+                    mgr.unlock_account(tx, got, b"pass").expect("UnlockAccount");
+                    let key = mgr.account_extended_priv_key(tx, got).expect("xpriv");
+                    assert_eq!(key.string().as_str(), VOTING_XPRIV, "{name}");
+                }
+                (Err(e), Err(kind)) => {
+                    assert!(e.is_kind(kind), "{name}: {e}");
+                    if discover {
+                        assert_eq!(
+                            e.render(purse_errors::DAEMON_SEPARATOR),
+                            "item already exists: address belonging to this key already \
+                             exists in the database"
+                        );
+                    }
+                }
+                (got, want) => panic!("{name}: got {got:?}, wanted {want:?}"),
+            }
+            mgr.lock().expect("Lock");
+        });
+    }
+}
+
+/// A random source that fails while its switch is on: the stand-in for
+/// upstream's `TstRunWithReplacedNewSecretKey`, which replaces the secret
+/// key constructor. Go's random reads cannot fail, so upstream injects the
+/// failure there; here the new key's salt draw fails.
+fn switchable_source(fail: std::sync::Arc<std::sync::atomic::AtomicBool>) -> BoxedRandom {
+    Box::new(
+        move |buf: &mut [u8]| -> Result<(), purse_snacl::RandomSourceError> {
+            if fail.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(purse_snacl::RandomSourceError::new("injected failure"));
+            }
+            purse_snacl::RandomSource::fill(&mut OsRandom, buf)
+        },
+    )
+}
+
+/// Upstream's `TstCheckPublicPassphrase`: whether `pass` derives the
+/// stored public master key. Here, whether a manager opens with it.
+fn public_passphrase_opens(store: &Store, chain: &ChainParams, pass: &[u8]) -> bool {
+    let tx = store.read().expect("read");
+    match Manager::open(&mut &tx, chain, pass, Box::new(OsRandom), Limits::DEFAULT) {
+        Ok(_) => true,
+        Err(err) => {
+            assert!(err.is_kind(Kind::Passphrase), "open: {err}");
+            false
+        }
+    }
+}
+
+/// `testChangePassphrase` (`addressmanager_test.go:721-813`) with its
+/// `watchingOnly` flag.
+fn test_change_passphrase(store: &Store, mgr: &Manager, chain: &ChainParams, watching: bool) {
+    // Upstream's "ChangePassphrase (public) with invalid new secret key"
+    // is `invalid_new_secret_key_changes_nothing` below, which needs a
+    // manager with a failing source.
+
+    let err = mgr
+        .change_passphrase(store, b"bogus", PUB_PASSPHRASE2, false)
+        .expect_err("ChangePassphrase (public) with invalid old passphrase");
+    assert!(err.is_kind(Kind::Passphrase), "unexpected error: {err}");
+
+    mgr.change_passphrase(store, PUB_PASSPHRASE, PUB_PASSPHRASE2, false)
+        .expect("ChangePassphrase (public)");
+    assert!(
+        public_passphrase_opens(store, chain, PUB_PASSPHRASE2),
+        "ChangePassphrase (public): passphrase does not match"
+    );
+    assert!(!public_passphrase_opens(store, chain, PUB_PASSPHRASE));
+
+    mgr.change_passphrase(store, PUB_PASSPHRASE2, PUB_PASSPHRASE, false)
+        .expect("ChangePassphrase (public) back");
+
+    let err = mgr
+        .change_passphrase(store, b"bogus", PRIV_PASSPHRASE2, true)
+        .expect_err("ChangePassphrase (private) with invalid old passphrase");
+    let want = if watching {
+        Kind::WatchingOnly
+    } else {
+        Kind::Passphrase
+    };
+    assert!(err.is_kind(want), "unexpected error: {err}");
+    if watching {
+        return;
+    }
+
+    mgr.change_passphrase(store, PRIV_PASSPHRASE, PRIV_PASSPHRASE2, true)
+        .expect("ChangePassphrase (private)");
+    mgr.unlock(PRIV_PASSPHRASE2)
+        .expect("failed to unlock with new private passphrase");
+
+    // Back again while unlocked: the manager stays unlocked.
+    mgr.change_passphrase(store, PRIV_PASSPHRASE2, PRIV_PASSPHRASE, true)
+        .expect("ChangePassphrase (private) while unlocked");
+    assert!(!mgr.is_locked(), "manager is locked");
+    mgr.lock().expect("Lock");
+}
+
+#[test]
+fn change_passphrase_matches_upstream() {
+    let (store, mgr, chain) = create("testnet3", PUB_PASSPHRASE, PRIV_PASSPHRASE);
+    test_change_passphrase(&store, &mgr, &chain, false);
+    // Beyond upstream: the passphrases it ends with are the ones it began
+    // with, after a reopen too.
+    drop(mgr);
+    let mgr = open(&store, &chain, PUB_PASSPHRASE);
+    mgr.unlock(PRIV_PASSPHRASE).expect("unlock after a reopen");
+    mgr.lock().expect("lock");
+    // The watching-only branches, which no upstream test runs (spec 02
+    // section 11): the private change is refused before the old
+    // passphrase is checked, the public one is not.
+    mgr.convert_to_watching_only(&store).expect("convert");
+    test_change_passphrase(&store, &mgr, &chain, true);
+    drop(mgr);
+    let mgr = open(&store, &chain, PUB_PASSPHRASE);
+    test_change_passphrase(&store, &mgr, &chain, true);
+}
+
+/// Upstream's first case: a public change whose new secret key cannot be
+/// made fails and changes nothing. Upstream's injected constructor returns
+/// kind `Crypto`; the Rust failure is the source's, which snacl reports
+/// with kind `Other` under `snacl.NewSecretKey`, as for creation.
+#[test]
+fn invalid_new_secret_key_changes_nothing() {
+    let (store, mgr, chain) = create("testnet3", PUB_PASSPHRASE, PRIV_PASSPHRASE);
+    drop(mgr);
+    let fail = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mgr = {
+        let tx = store.read().expect("read");
+        Manager::open(
+            &mut &tx,
+            &chain,
+            PUB_PASSPHRASE,
+            switchable_source(fail.clone()),
+            Limits::DEFAULT,
+        )
+        .expect("open")
+    };
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    for private in [false, true] {
+        let old = if private {
+            PRIV_PASSPHRASE
+        } else {
+            PUB_PASSPHRASE
+        };
+        let err = mgr
+            .change_passphrase(&store, old, b"new", private)
+            .expect_err("a failing source");
+        // Kind `Other`, which `errors.Is` never matches, as in Go.
+        assert!(
+            !err.is_kind(Kind::Crypto) && !err.is_kind(Kind::Passphrase),
+            "{err}"
+        );
+        assert_eq!(err.to_string(), "snacl.NewSecretKey: injected failure");
+    }
+    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(public_passphrase_opens(&store, &chain, PUB_PASSPHRASE));
+    mgr.unlock(PRIV_PASSPHRASE)
+        .expect("the private passphrase is unchanged");
 }

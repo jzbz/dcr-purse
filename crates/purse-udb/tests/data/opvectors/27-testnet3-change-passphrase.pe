@@ -1,0 +1,158 @@
+purse-export 2
+# Go's final export of crates/purse-udb/tests/data/opscripts/27-testnet3-change-passphrase.json, run by
+# tools/oracle/cmd/oprunner; see crates/purse-udb/tests/data/addrmgr_opvectors.txt.
+@network=testnet3
+@chain=full
+@decrypt=public
+@derived=1
+@privcheck=1
+@origin=dcrwallet-udb/26
+@exporter=tools/oracle/cmd/oprunner
+=section wallet 1
+=type wallet 0 watchonly:b? lastaccount:u? lastimported:u? mgrcreated:u?~^ txcreated:i?~^ minedbal:i?^
+wallet watchonly=0 lastaccount=0 lastimported=2147483647 mgrcreated=1794990000 txcreated=1794990000 minedbal=0
+=end wallet records=1 sha256=47b8cf0a93d810f1e941792da7639279662749b675a1e4675439996ceca2ebb9 msha256=92caf218a57374e82a3a129d61b93dd890293f31a73396aec805736f16b5d0e8
+=section masterkeys 1
+=type masterkey 1 which:e salt:x~ digest:x~ n:u r:u p:u
+masterkey which=priv salt=ba1b0c1eea992f4702524a1c07cd4937685c74f1225c995b397e8d7df94f44bf digest=a7cce596834be744349223e1e211a8173c0b5c5e725106d4e0f30593ba63c654 n=262144 r=8 p=1
+masterkey which=pub salt=9768eda18241247cd7a1fa349c76ef8558e752c9cb4e9fec8e24a0344c3ee487 digest=31ea0468f01bd290fc2de4056ba188bcb4bd12e7032b414dd9aa0e21a1455625 n=262144 r=8 p=1
+=end masterkeys records=2 sha256=65a180ea2bf9b7f1a30fb8bcea1999f7c9ef8a2f4c034772214c8a038bd6ebee msha256=9679c7b69f0ef418a4faa3d0229bcfc2cc59fed09117ccf9e54b75f183218abc
+=section cryptokeys 1
+=type cryptokey 1 which:e sealed:x~
+cryptokey which=priv sealed=2f5b8006eba0008e6c9aec0b58ebbe4d0d83102a6daa2eb34c4ea0234f9868d0aa3cdeeba67ce5215e5114e6e6e0b0b9906c667ac527d41a175343af922e1e4f916d14587cea7270
+cryptokey which=pub sealed=6962aa491a84f99df3cdab24eeb4b9ed110e7282465defd32866225c2a517b4fc7a6b34fc913e6a38ed20daa14c8f4b36fe3db030ed70389689fa1aa7621b097fed940a8ba928ef6
+=end cryptokeys records=2 sha256=2a1618d38c109cb69644d38c7c7ef4a8da573c282b8152c7ebfefa7cf61f7c8d msha256=06650dc5542a4ae804313292341cfa73cad39ab66c476104c8dbcbda904a3dd4
+=section cointypes 1
+=type cointype 1 which:e encpub:x?~ encpriv:x?~ xpub:s?
+=type slip0044acct0 0 encpub:x~ encpriv:x~ nextext:u nextint:u name:s xpub:s?
+cointype which=legacy encpub=021ea321ddaaa57d35f9c5f537d8264497a4112a97b266de927464b82a12dae2fdd070506800593b8ad942f4b69865ed38927516fbf7822ea1cdb38059073fbd954ff5572a7df6d7b510337cdad6638af442076ee8dad0459211c179425c9c4176a1c514281445c560cce2cf86787c07514b3f1392bc5c3da8a45fd46e4f7644f2b64ebf1454a79807c4d0b7060ab84b663eed4263f272 encpriv=1b25664a7a7e2a59eafd4b5c5b5dbc3e7bfaf2577faecd8625f8d52fe0b7a634b2834510d224a89cec3432bcb9871be3003d963de7328986fe74c4f38fb788bf9f24fcb17fab4a6b1364a9dc26d82ba9b03f329c38068f080f4cd0c37871825068f2d7fb16cee75bebe5edc02c70a197d15e4d7c7be5dfed59615e6a9e6a933a34cb1421315e2c208ce265f65aa1fe5b2d419832d105ae xpub="tpubVnPRTyLtZWjDXozLEbWyBmBV7v29eaNZQ1g6R2QNWL9dW6janFnHjw2VS7oHVv9KbG6Ezwk5TmVwRC2ZRZ8qu8syiyFGzHx4EQ4vZyWXUqM"
+cointype which=slip0044 encpub=ffe62d001e6d20fb9b50c4bc91c13672faf16254fd4d8a3c02efb6beb229834fbf26e76b950ae90a7d0a8b5278e1bad40170eb36474ef234e808d91169ccd33d1cf27a8d9502e9d548a19d199e1bccb41bab5861e9c1d2c063204fc1273b9b6e1ddd923d4d0ffce91fd9a9f76411560ba2043dde1072768b36de71d10093475a17b51479d135e21d344f005913701000b945c0b3790718 encpriv=5239b322bfd4c3fdec9604011151e8d066480f89d1081b6deff1bb8bf7baf2abbc709fce657a0213dd1beec3165c9190c72af8e854819b8bfa785922a93e4b0edb4d1d8b5a31baab185c51081778eb2547df268dc3280b474bf46487fb5076a61c3d8bb89973fcdcadd421c4ab58b614283cb9ef2d547574185be450056cb13ab94dd8bed98374eca0e3db78a7ca64fa342b6634b44a40 xpub="tpubVnPRTyLtZWjD6wgUqC273884nmdXN5VRY43LuekRFzmhExu5Hkdc9wLJCVe8P1DdzL1C29JnGp8iCuPh75DdJ5EdQzu21S1kJHPJhUoyR32"
+slip0044acct0 encpub=e555d635ff20fec52298fe79e82c29eb70327a6bbc95047506eb859945d911e65e90c7e9c5d2a81597a3e96de6af2dde9f4b06cf25221f5ee1e567ecefd98446cb20c0ecfda5c09a2279b79f7f40bd0f4347b3bcdd3945deb1d4aea042843d442c74dd8e7d770e8dac0911bbe8e497421a4e0f4012279504145a133e55434a895bfd23a463a9672f209f0047c9823fa548b0fa7bcea439 encpriv=ce4999eb21d87e9ccffa53a4c186ce1f643a53cb6b378c889f3fb58f328afe19a547180c4def3dde5cc3a90129da9852e05a601dd34e490e9c0da6da7c3eff756f69be303f8385f4c015e192899fa6d367c89f6235e2f6f10affc16fef79772eff60608c6d184a04b27749e0eb2c0ea0678c9bbf4702745da6db76e800165e900ecd15fd6efb8b7202ef86ff7bc175cc22981a71862e2c nextext=0 nextint=0 name="default" xpub="tpubVoUxZWmT8En5jfF6sFjPQ6G2cXZR6BZ7LnFVn5o9F1QbuvLboYpDopG3QorjcUWfeNQGBQeeX2ZKeenYBZ7b5bHDmDQMUf5mE7jey55iqyg"
+=end cointypes records=3 sha256=5280cf5a0bdb760de4e286ddfd74a1a617ce79cb2c4697f7bbeb99f0822f8e1c msha256=b92099854cb245007c16a98cb7ce9d5f2c066224a42694143352a65f22202cb0
+=section accounts 1
+=type account 1 num:u type:u name:s? idname:s? encpub:x~ encpriv:x~ kdfsalt:x?~ kdftime:u? kdfmem:u? kdfthreads:u?~ extused:u? intused:u? extret:u? intret:u? xpub:s?
+account num=0 type=1 name="default" idname="default" encpub=c79ad501ec24b427f4dbac4756a816ffdfeddc493599897963322cae1bc9d98bf88ce9fa2ccedf9318f86dff65b880d5a853ae1fb2737b7ef57d7f40202b326c7bbb0d4afda3e4845019259cbe4ea6f057c07c3714fa426fa1ef5a543235c825e080d7d56812c53f913d9b63e278ce102c61cb0de5529dfd3e24293738ca31ec1378edd1a93edd13092cf9b7344469b6e1d1290f101305 encpriv=a856349a275e834ec47a705dddba9e5057d80333cd1644f5d0f0e506adf28cae2bded789e1d9377427509dbcfd5d593242cc38f9f810a9c1cb028c4392c4f172561b4352651480aee3d1a96c9c4b739e20e3af38e06ee333d36ffb6f400fc02a32be0d81a9648496b1b9c1d4ec5bdd9780f5152879b6c2c44433774d1e1d1814a9b9b29aecae2d652f553927fc2ef734021f8cc5e15dd3 kdfsalt=- kdftime=- kdfmem=- kdfthreads=- extused=4294967295 intused=4294967295 extret=4294967295 intret=4294967295 xpub="tpubVom4yDEVJRayxqdpa9Gm9AVnQVBEah3UD7GwzcL9aRRzSL1qBTkN4JN9oHZSNBy93tgVuUTzAxUmngG9HnEmHUUjpcfx6rZsa9yt6aaPekk"
+account num=2147483647 type=1 name="imported" idname="imported" encpub=_ encpriv=_ kdfsalt=- kdftime=- kdfmem=- kdfthreads=- extused=0 intused=0 extret=0 intret=0 xpub=-
+=end accounts records=2 sha256=260429feb505f22c8a96addb3d3b6f3cdbb9666bd3d82caa42afd9e4f9dc2408 msha256=92a79968c27221189ca14ca18d82fa17695f01022f115c421497643e7fbb0480
+=section accountnames 1
+=type nameindex 1 name:s num:u?
+nameindex name="default" num=0
+nameindex name="imported" num=2147483647
+=end accountnames records=2 sha256=447ed459af3c2918b245334caad6bc98e3446a839b29c635a2073225446ff753 msha256=447ed459af3c2918b245334caad6bc98e3446a839b29c635a2073225446ff753
+=section addresses 1
+=type address 1 key:x id:x? addr:s? type:e account:u idxacct:u? inset:b branch:u? index:u? encpub:x?~ encpriv:x?~ enchash:x?~ script:x? pubkey:x? added:u~^
+=end addresses records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section chain 2
+=type tip 0 hash:h
+=type processed 0 hash:h
+=type havecfilters 0 raw:x?
+=type birth 0 set:b fromheight:b? fromtime:b? hash:h? height:u? time:i?@
+tip hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac
+processed hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac
+havecfilters raw=01
+birth set=1 fromheight=0 fromtime=0 hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac height=0 time=-62135596800
+=end chain records=4 sha256=ed75af4df2692f2fdd9548bd26c1536bdf57aae9bfc13dc5f2bd944fd555f544 msha256=ed75af4df2692f2fdd9548bd26c1536bdf57aae9bfc13dc5f2bd944fd555f544
+=section blocks 2
+=type blockseg 1 seg:u n:u sha256:x
+=type block 1 height:u hash:h time:u votebits:u inv:b txs:L
+block height=0 hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac time=1533513600 votebits=0 inv=0 txs=_
+=end blocks records=1 sha256=eac9a5d16db71119a1b47621604cb7dcacabb94fd03c990932984e7bdf2260a4 msha256=eac9a5d16db71119a1b47621604cb7dcacabb94fd03c990932984e7bdf2260a4
+=section headers 1
+=type hdrseg 1 seg:u n:u sha256:x
+=type header 1 height:u hash:h raw:x
+=type hdrmissing 1 height:u hash:h
+=type sideheader 1 hash:h raw:x
+header height=0 hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac raw=0600000000000000000000000000000000000000000000000000000000000000000000002c0ad603d44a16698ac951fa22aab5e7b30293fa1d0ac72560cdfcc9eabcdfe7000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff001e002d3101000000000000000000000000808f675b1aa4ae18000000000000000000000000000000000000000000000000000000000000000006000000
+=end headers records=1 sha256=e20402cdf598edacb13d9693b0c625dbdc079b98c316395033064365e0c73972 msha256=e20402cdf598edacb13d9693b0c625dbdc079b98c316395033064365e0c73972
+=section cfilters 1
+=type cfseg 1 seg:u n:u sha256:x
+=type cfilter 1 height:u hash:h key:x filter:x
+=type cfmissing 1 height:u hash:h
+=type sidecfilter 1 hash:h key:x filter:x
+cfilter height=0 hash=a649dce53918caf422e9c711c858837e08d626ecfcd198969b24f7b634a49bac key=2c0ad603d44a16698ac951fa22aab5e7 filter=01922e18
+=end cfilters records=1 sha256=1ae1600ccca769e8ca66582b634f15cfdc6dee311f19e072877f4e0b923c60fd msha256=1ae1600ccca769e8ca66582b634f15cfdc6dee311f19e072877f4e0b923c60fd
+=section txs 2
+=type tx 3 hash:h height:u block:h received:i@ raw:x
+=type utx 1 hash:h received:i@ raw:x
+=end txs records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section unpublished 1
+=type unpublished 1 hash:h
+=end unpublished records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section credits 1
+=type credit 5 tx:h height:u block:h index:u inv:b amount:i change:b optag:u coinbase:b expiry:b spent:b sptx:h? spheight:u? spblock:h? spindex:u? stype:u?^ scriptoff:u? scriptlen:u? account:u? utxo:b
+=end credits records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section debits 1
+=type debit 5 tx:h height:u block:h input:u inv:b amount:i crtx:h crheight:u crblock:h crindex:u
+=end debits records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section ucredits 1
+=type ucredit 2 tx:h index:u amount:i change:b optag:u coinbase:b expiry:b spentbit:b stype:u? scriptoff:u? scriptlen:u? account:u?
+=end ucredits records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section uinputs 1
+=type uinput 2 tx:h index:u spender:h
+=end uinputs records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section tickets 1
+=type ticket 1 hash:h picked:i?^
+=end tickets records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section commitments 1
+=type commitment 2 tx:h index:u amount:i account:u? unspent:b unminedspent:b?
+=end commitments records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section multisig 1
+=type multisig 2 tx:h index:u scripthash:x m:u n:u spent:b stake:b block:h height:u amount:i sptx:h? spindex:u? txhash:h utxo:b
+=end multisig records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section agendas 1
+=type agenda 2 version:u agenda:s choice:s
+=type ticketagenda 3 ticket:h version:u agenda:s choice:s
+=end agendas records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section treasury 1
+=type tspendpolicy 1 tspend:h vote:u
+=type vsptspendpolicy 2 ticket:h tspend:h vote:u
+=type treasurypolicy 1 key:x vote:u
+=type vsptreasurypolicy 2 ticket:h key:x vote:u
+=end treasury records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section vsp 2
+=type vspfuture 1 offset:u host:s?
+=type vsphost 1 host:s pubkey:x idhost:s? future:u?
+=type vspticket 1 ticket:h feetx:h status:u host:s pubkey:x? future:u?
+=end vsp records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section orphans 2
+=type orphan 3 index:e ref:s val:s
+=end orphans records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section bad 2
+=type bad 3 path:s key:x reason:e value:x?
+=end bad records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section unknown 1
+=type unknown 2 path:s key:x value:x?
+=end unknown records=0 sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 msha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+=section derived 1
+=type coin 0 type:u?
+=type tipheight 0 height:i
+=type missingcf 0 v:b
+=type utxocount 0 n:u
+=type acctprops 1 num:u name:s type:u extused:u intused:u extret:u intret:u importedkeys:u encrypted:b
+=type balance 2 num:u minconf:i immcoinbase:i immstakegen:i lockedtickets:i spendable:i total:i votingauth:i unconfirmed:i
+=type unspentticket 1 hash:h
+=type failed 1 item:e
+coin type=11
+tipheight height=0
+missingcf v=0
+utxocount n=0
+acctprops num=0 name="default" type=1 extused=4294967295 intused=4294967295 extret=4294967295 intret=4294967295 importedkeys=0 encrypted=0
+acctprops num=2147483647 name="imported" type=0 extused=0 intused=0 extret=0 intret=0 importedkeys=0 encrypted=0
+=end derived records=6 sha256=e71bf570ec7d900399969aff21b347362c7a5a635d7fd7c887a39793b901c463 msha256=e71bf570ec7d900399969aff21b347362c7a5a635d7fd7c887a39793b901c463
+=section privcheck 2
+=type mkeyok 0 ok:e
+=type ctok 1 which:e ok:e
+=type slip0044acct0ok 0 ok:e
+=type acctok 1 num:u ok:e via:e
+=type addrok 1 key:x ok:e
+mkeyok ok=yes
+ctok which=legacy ok=yes
+ctok which=slip0044 ok=yes
+slip0044acct0ok ok=yes
+acctok num=0 ok=yes via=wallet
+=end privcheck records=5 sha256=82db1cd764d5d6ce504721a8b2520584017d80cfef8ab059463395518626e6ac msha256=82db1cd764d5d6ce504721a8b2520584017d80cfef8ab059463395518626e6ac
+=section residue 1
+=type residue 1 path:s entries:u sha256:x
+residue path="waddrmgr/main/mgrver" entries=1 sha256=58f90b6b49762fe8f18b5b93a724a79efc738738379bf0fb9069939103247d83
+=end residue records=1 sha256=5e4d617cbab7d0699f4eae78d1c316245105904c1fbb2339cbb57fb878801b89 msha256=5e4d617cbab7d0699f4eae78d1c316245105904c1fbb2339cbb57fb878801b89
+=eof sections=29 sha256=e7e9cf2d5a726a412741c2ba2dd35a4d93d94dfd98a437f9b26f95d27bf45319 msha256=19cfdb56053f7d680d1cc3c3ca1afbe6b7224867cca129795921c51ed8498580

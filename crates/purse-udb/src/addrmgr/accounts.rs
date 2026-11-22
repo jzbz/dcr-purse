@@ -40,7 +40,7 @@ pub(crate) fn go_quote_bytes(b: &[u8]) -> String {
 
 /// Whether an account is named `name` (Go's `fetchAccountByName` without
 /// error).
-fn name_in_use<S: StoreRead + ?Sized>(tx: &mut S, name: &[u8]) -> Result<bool> {
+pub(super) fn name_in_use<S: StoreRead + ?Sized>(tx: &mut S, name: &[u8]) -> Result<bool> {
     Ok(tx
         .get::<AccountNames>(&AccountName(name.to_vec()))
         .map_err(store_err)?
@@ -49,7 +49,7 @@ fn name_in_use<S: StoreRead + ?Sized>(tx: &mut S, name: &[u8]) -> Result<bool> {
 
 /// `errors.E(errors.Exist, errors.Errorf("account named %q already
 /// exists", name))`.
-fn name_exists(name: &[u8]) -> AnyError {
+pub(super) fn name_exists(name: &[u8]) -> AnyError {
     e!(
         Kind::Exist,
         format!("account named {} already exists", go_quote_bytes(name))
@@ -98,7 +98,7 @@ impl Manager {
     pub fn new_account(&self, tx: &mut WriteTx<'_>, name: &[u8]) -> Result<u32> {
         let mut guard = self.write();
         let inner = &mut *guard;
-        if self.watching_only {
+        if self.is_watching_only() {
             return Err(e!(Kind::WatchingOnly).into());
         }
         if inner.locked {

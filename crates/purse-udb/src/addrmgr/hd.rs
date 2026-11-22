@@ -145,7 +145,7 @@ pub(crate) fn hd_err(err: purse_hdkeychain::Error) -> AnyError {
 
 /// `errors.E(errors.Seed, hdkeychain.ErrUnusableSeed)`: `invalid seed:
 /// unusable seed`.
-fn unusable_seed() -> AnyError {
+pub(crate) fn unusable_seed() -> AnyError {
     e!(
         Kind::Seed,
         AnyError::foreign(purse_hdkeychain::Error::UnusableSeed)
@@ -193,7 +193,7 @@ pub fn derive_account_key(
 
 /// Go's `checkBranchKeys` (`wallet/udb/addressmanager.go:2719-2728`):
 /// derives both branch keys of an account key and discards them.
-fn check_branch_keys(account_key: &ExtendedKey) -> Result<(), purse_hdkeychain::Error> {
+pub(crate) fn check_branch_keys(account_key: &ExtendedKey) -> Result<(), purse_hdkeychain::Error> {
     account_key.child(EXTERNAL_BRANCH)?;
     account_key.child(INTERNAL_BRANCH)?;
     Ok(())

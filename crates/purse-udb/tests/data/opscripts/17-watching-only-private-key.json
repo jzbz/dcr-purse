@@ -1,0 +1,15 @@
+{
+  "format": "purse-opscript 1",
+  "name": "watching-only wallet created from an extended private key (QK-0762)",
+  "setup": {"network": "testnet3", "xpub": {"raw": "tprvZap97k1b1jgAxyWpwC6kAkaGdh84w2iSNNaTU634U9JuUPbcVDwcZzooYsotnhnmKQWrBr8dbKCJwjeRiPTZxyaFAf38rZYismgAbfL9SuD"}, "pubpass": "", "privpass": "", "rand": "1717171717171717171717171717171717171717171717171717171717171717", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.watching_only"},
+    {"op": "mgr.account_extended_pub_key", "account": 0},
+    {"op": "mgr.account_extended_priv_key", "account": 0},
+    {"op": "mgr.account_branch_extended_pub_key", "account": 0, "branch": 0},
+    {"op": "mgr.sync_account_to_addr_index", "account": 0, "index": 1, "branch": 0},
+    {"op": "mgr.address", "addr": {"acct": 0, "branch": 0, "index": 1}},
+    {"op": "mgr.private_key", "addr": {"acct": 0, "branch": 0, "index": 1}},
+    {"op": "mgr.for_each_account_address", "account": 0}
+  ]
+}

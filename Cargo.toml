@@ -61,6 +61,15 @@ opt-level = 3
 [profile.dev.package.salsa20]
 opt-level = 3
 
+# argon2 likewise: every per-account passphrase (purse-udb's
+# SetAccountPassphrase, UnlockAccount, ImportVotingAccount, and the export's
+# check of each such account) derives with dcrwallet's cost, time 1 and
+# 256 MiB. One single-lane derivation took 2.00 to 2.08 s unoptimised and
+# 0.11 s optimised on an x86_64 Linux desktop (three and two measurements).
+# Only this crate is affected.
+[profile.dev.package.argon2]
+opt-level = 3
+
 # Release binaries: single codegen unit with thin LTO, line tables kept.
 # A panic aborts: state a panic left half-mutated cannot be reasoned about in
 # a process that holds keys and a database.  Overflow wraps, as Go's does;

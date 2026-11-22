@@ -151,6 +151,24 @@ var RepoTable = Table{
 			PinCheck:   "crates/purse-udb/tests/frozen.rs `generated_vectors_are_the_seeded_set`",
 		},
 		{
+			Crate: "purse-udb", Files: []string{"addrmgr_wovectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_watching_only_vectors",
+			Note:       "the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
+			Crate: "purse-udb", Files: []string{"addrmgr_passvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_passphrase_vectors",
+			Note:       "the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
+			Crate: "purse-udb", Files: []string{"addrmgr_changevectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_change_vectors",
+			Note:       "the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",

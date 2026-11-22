@@ -61,6 +61,42 @@ pub fn comparable(rec: &Value) -> Value {
     r
 }
 
+/// Checks one Rust record against Go's: equal under [`comparable`], except
+/// that a Go panic (kind `Panic`, ADR-0002 section 3) is matched by any
+/// error, as dcr-purse returns an error where Go panics (ADR-0012 Rule 2;
+/// each case is a PARITY.md line).
+pub fn check_record(what: &str, g: &Value, r: &Value) {
+    // A group: its members one by one (a member's panic ends the group with
+    // it), then the group's own record without them.
+    if let (Some(gm), Some(rm)) = (g["ops"].as_array(), r["ops"].as_array()) {
+        assert_eq!(gm.len(), rm.len(), "{what}: op {}: group members", g["i"]);
+        for (x, y) in gm.iter().zip(rm) {
+            check_record(&format!("{what}: op {}", g["i"]), x, y);
+        }
+        let strip = |v: &Value| {
+            let mut v = v.clone();
+            if let Some(m) = v.as_object_mut() {
+                m.remove("ops");
+            }
+            v
+        };
+        return check_record(what, &strip(g), &strip(r));
+    }
+    if g["err"]["kind"] == "Panic" {
+        assert_eq!(g["i"], r["i"], "{what}: record order");
+        assert_eq!(g["op"], r["op"], "{what}: op {}", g["i"]);
+        assert!(
+            r.get("err").is_some(),
+            "{what}: op {}: Go panics ({}), Rust returned {}",
+            g["i"],
+            g["err"]["text"],
+            r
+        );
+        return;
+    }
+    assert_eq!(comparable(g), comparable(r), "{what}: op {}", g["i"]);
+}
+
 /// The lines of `section` under the masked observable profile, keeping
 /// only `types` when given.
 fn masked_lines(ex: &Export, section: &str, types: Option<&[&str]>) -> Vec<String> {
@@ -159,7 +195,7 @@ pub fn differential(o: &mut Oracle, what: &str, script: &Value) -> Vec<Value> {
         .unwrap_or_else(|e| panic!("{what}: Rust runner: {e}"));
     assert_eq!(go_results.len(), rust.results.len(), "{what}: record count");
     for (g, r) in go_results.iter().zip(&rust.results) {
-        assert_eq!(comparable(g), comparable(r), "{what}: op {}", g["i"]);
+        check_record(what, g, r);
     }
     compare_exports(what, &go_pe, &rust.export);
     let _ = std::fs::remove_dir_all(&dir);

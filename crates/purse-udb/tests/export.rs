@@ -12,7 +12,7 @@ mod support;
 use purse_errors::Kind;
 use purse_export_check::{REGISTRY as CHECK_REGISTRY, parse};
 use purse_snacl::{Limits, OsRandom};
-use purse_store::{Hash32, Store, Tickets};
+use purse_store::{Hash32, Store, VspTickets};
 use purse_udb::Manager;
 use purse_udb::addrmgr::ChainParams;
 use purse_udb::export::{COVERED, ExportOptions, REGISTRY, export};
@@ -68,6 +68,7 @@ fn exports_parse_with_and_without_passphrases() {
             acct_pass: &[],
             exporter: "crates/purse-udb/tests/export.rs",
             limits: Limits::DEFAULT,
+            digest: false,
         };
         let text = export(&tx, &chain, &opts).expect("export");
         let ex = parse(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
@@ -92,6 +93,7 @@ fn exports_parse_with_and_without_passphrases() {
         acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
+        digest: false,
     };
     let ex = parse(&export(&tx, &chain, &opts).expect("export")).expect("parse");
     let pc = ex.section("privcheck").expect("privcheck");
@@ -119,6 +121,7 @@ fn export_options_debug_hides_the_passphrases() {
         acct_pass: &[(0x8000_0000, b"voting-secret")],
         exporter: "x",
         limits: Limits::DEFAULT,
+        digest: false,
     };
     let s = format!("{opts:?}");
     assert!(s.contains("pub_pass: <given>"), "{s}");
@@ -146,7 +149,16 @@ fn export_options_debug_hides_the_passphrases() {
 fn a_store_with_rows_not_exported_is_refused() {
     let (store, chain) = wallet();
     store
-        .update(|tx| tx.put::<Tickets>(&Hash32([1; 32]), &purse_store::Empty))
+        .update(|tx| {
+            tx.put::<VspTickets>(
+                &Hash32([1; 32]),
+                &purse_store::VspTicketRow {
+                    fee_hash: Hash32([2; 32]),
+                    fee_status: 0,
+                    host_id: 1,
+                },
+            )
+        })
         .expect("commit");
     let tx = store.read().expect("read");
     let opts = ExportOptions {
@@ -155,80 +167,41 @@ fn a_store_with_rows_not_exported_is_refused() {
         acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
+        digest: false,
     };
     let err = export(&tx, &chain, &opts).expect_err("refused");
     assert_eq!(
         err.to_string(),
-        "invalid operation: logical export: table tickets is not exported by this version of purse-udb"
+        "invalid operation: logical export: table vsp_tickets is not exported by this version of purse-udb"
     );
 }
 
-/// The chain tables of schema version 1, main-chain rows keyed by height
-/// and detached rows keyed by hash, belong to the transaction store, which
-/// this slice does not export: a store holding a row in any one of them is
-/// refused, naming that table. The detached header and filter recorded by
-/// the typed chain operation are refused the same way.
+/// The tables of the transaction store's later slices (credits, debits,
+/// commitments, multisig outputs, balances, account history) are not
+/// exported: a store holding a row in any one of them is refused, naming
+/// that table, rather than exported as if they were empty.
 #[test]
-fn a_store_with_chain_rows_is_refused() {
-    use purse_store::{
-        BlockByHash, BlockRow, Blocks, CFilterRow, CFilters, CFiltersDetached, HeaderBytes,
-        Headers, HeadersDetached, Height,
-    };
-    let filter = CFilterRow {
-        key: [3; 16],
-        filter: vec![4; 8],
-    };
-    let header = HeaderBytes([5; 180]);
-    let block = BlockRow {
-        hash: Hash32([6; 32]),
-        time: 0,
-        vote_bits: 0,
-        invalid: false,
-        wallet_txs: 0,
-    };
+fn a_store_with_later_slice_rows_is_refused() {
     let opts = ExportOptions {
         pub_pass: None,
         priv_pass: None,
         acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
+        digest: false,
     };
-    type Put = fn(
-        &mut purse_store::WriteTx,
-        &HeaderBytes,
-        &CFilterRow,
-        &BlockRow,
-    ) -> purse_store::Result<()>;
-    let cases: [(&str, Put); 7] = [
-        ("headers", |tx, h, _, _| tx.put::<Headers>(&Height(0), h)),
-        ("blocks", |tx, _, _, b| tx.put::<Blocks>(&Height(0), b)),
-        ("block_by_hash", |tx, _, _, _| {
-            tx.put::<BlockByHash>(&Hash32([6; 32]), &Height(0))
-        }),
-        ("cfilters", |tx, _, f, _| tx.put::<CFilters>(&Height(0), f)),
-        ("headers_detached", |tx, h, _, _| {
-            tx.put::<HeadersDetached>(&Hash32([7; 32]), h)
-        }),
-        ("cfilters_detached", |tx, _, f, _| {
-            tx.put::<CFiltersDetached>(&Hash32([7; 32]), f)
-        }),
-        // The typed operation writes headers_detached and
-        // cfilters_detached; the first is named.
-        ("headers_detached", |tx, h, f, _| {
-            tx.insert_detached(&Hash32([8; 32]), h, Some(f))
-        }),
-    ];
-    for (table, put) in cases {
+    for table in purse_udb::txstore::LATER_TABLES {
         let (store, chain) = wallet();
         store
-            .update(|tx| put(tx, &header, &filter, &block))
+            .update(|tx| tx.put_raw(table, &[0u8; 36], &[0u8; 8]))
             .expect("commit");
         let tx = store.read().expect("read");
-        let err = export(&tx, &chain, &opts).expect_err(table);
+        let err = export(&tx, &chain, &opts).expect_err(table.name());
         assert_eq!(
             err.to_string(),
             format!(
-                "invalid operation: logical export: table {table} is not exported by this version of purse-udb"
+                "invalid operation: logical export: table {} is not exported by this version of purse-udb",
+                table.name()
             )
         );
     }
@@ -258,6 +231,7 @@ fn a_store_with_address_path_entries_is_refused() {
         acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
+        digest: false,
     };
     let err = export(&tx, &chain, &opts).expect_err("refused");
     assert_eq!(

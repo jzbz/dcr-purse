@@ -117,6 +117,53 @@ fn create_write_close_open_read() {
     store.close().unwrap();
 }
 
+/// `keys` yields the typed keys of a range in key order from either end,
+/// in a read and a write transaction, and never reads a value: a value
+/// that does not decode, which `range` refuses, does not stop it.
+#[test]
+fn keys_walk_without_reading_values() {
+    let p = path("keys.redb");
+    let store = Store::create(&p).unwrap();
+    store
+        .update(|tx: &mut WriteTx<'_>| {
+            for n in [0u32, 1, 256, 2] {
+                tx.put::<Accounts>(&AccountKey(n), &account(n, "a"))?;
+            }
+            // Account 2's value replaced by bytes no account row decodes from.
+            tx.put_raw(TableId::Accounts, &2u32.to_le_bytes(), b"\x01")?;
+            let all: Vec<u32> = tx
+                .keys::<Accounts>(Bound::Unbounded, Bound::Unbounded)?
+                .map(|k| k.map(|k| k.0))
+                .collect::<purse_store::Result<_>>()?;
+            assert_eq!(all, [0, 256, 1, 2]);
+            assert!(
+                tx.range::<Accounts>(Bound::Unbounded, Bound::Unbounded)?
+                    .any(|r| r.is_err())
+            );
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    let tx = store.read().unwrap();
+    let back: Vec<u32> = tx
+        .keys::<Accounts>(Bound::Unbounded, Bound::Unbounded)
+        .unwrap()
+        .rev()
+        .map(|k| k.unwrap().0)
+        .collect();
+    assert_eq!(back, [2, 1, 256, 0]);
+    let mid: Vec<u32> = tx
+        .keys::<Accounts>(
+            Bound::Excluded(&AccountKey(0)),
+            Bound::Included(&AccountKey(1)),
+        )
+        .unwrap()
+        .map(|k| k.unwrap().0)
+        .collect();
+    assert_eq!(mid, [256, 1]);
+    tx.close().unwrap();
+    store.close().unwrap();
+}
+
 #[test]
 fn every_table_exists_after_create() {
     let p = path("tables.redb");

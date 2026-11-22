@@ -166,7 +166,10 @@
 //! QK-0750) the store's does not (the rule is on [`WriteCursor`];
 //! docs/PARITY.md). [`TypedCursor`] decodes what a cursor
 //! returns. Bounded ranges ([`ReadTx::range`], [`ReadTx::range_raw`],
-//! [`ReadTx::prefix`], the same on [`WriteTx`]) iterate from either end.
+//! [`ReadTx::prefix`], the same on [`WriteTx`]) iterate from either end;
+//! [`ReadTx::keys`] and [`WriteTx::keys`] give a range's typed keys
+//! without copying or decoding a value, as a bbolt loop that reads only
+//! the key, and `contains` tests a key the same way.
 //! `tests/conformance.rs` holds all of it against bbolt itself through the
 //! `boltcursor` oracle. Puts keep bbolt's limits: no empty key, keys up to
 //! [`MAX_KEY_SIZE`], values up to [`MAX_VALUE_SIZE`].
@@ -242,7 +245,7 @@ pub use store::{
     STORE_FILE_NAME, Schema, Store,
 };
 pub use sync::{InitialSync, MAX_DURABLE_INTERVAL, SyncBatch};
-pub use txn::{Iter, MAX_KEY_SIZE, MAX_VALUE_SIZE, RawEntry, RawIter, ReadTx, WriteTx};
+pub use txn::{Iter, Keys, MAX_KEY_SIZE, MAX_VALUE_SIZE, RawEntry, RawIter, ReadTx, WriteTx};
 pub use values::{
     AccountRow, AddrRow, AgendaChoice, BalanceClass, BalanceRow, BirthState, BlockRow, CFilterRow,
     CoinTypeKeys, CommitmentRow, CommitmentUnspentRow, CreditFlags, CreditRow, DebitRow, Empty,

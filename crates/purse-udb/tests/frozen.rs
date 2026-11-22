@@ -26,6 +26,13 @@
 //!   generated passphrase-change scripts (`generate_change_as`: changes of
 //!   either passphrase on wallets created from a seed, created from an
 //!   account extended public key, or converted, on every network).
+//! - `tests/data/txstore_genvectors.txt`: the same for a fixed set of
+//!   generated transaction store scripts (`tests/support/txgen.rs`,
+//!   `generate_txstore`, on every network, some with the chain sections in
+//!   digest mode).
+//!
+//! A Go record of kind `Panic` is matched by any Rust error
+//! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -42,17 +49,18 @@ use purse_testutil::serde_json::{self, Value};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, REFERENCE_GO, oracle_or_skip};
 use sha2::{Digest, Sha256};
 use support::compare::{
-    check_privcheck, comparable, compare_exports, corpus, covered_digest, go_run,
+    check_privcheck, check_record, compare_exports, corpus, covered_digest, go_run,
 };
 use support::generator::{
     ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
     generate_watching_as,
 };
+use support::txgen::generate_txstore;
 use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 928;
+const ENTRIES: usize = 1184;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
@@ -80,6 +88,13 @@ const CHANGE_SCRIPTS: usize = 24;
 const CHANGE_ENTRIES: usize = 511;
 /// The seed of the generated passphrase-change set.
 const CHANGE_SEED: u64 = 0x5eed_f402_0000_0004;
+const TX_VECTORS: &str = "txstore_genvectors.txt";
+/// The pinned number of generated transaction store scripts and of their
+/// result lines.
+const TX_SCRIPTS: usize = 24;
+const TX_ENTRIES: usize = 1134;
+/// The seed of the generated transaction store set.
+const TX_SEED: u64 = 0x5eed_f402_0000_0005;
 
 /// One script's vector.
 struct Vector {
@@ -191,7 +206,7 @@ fn replay_frozen_vectors() {
             v.name
         );
         for (g, r) in v.results.iter().zip(&rust.results) {
-            assert_eq!(comparable(g), comparable(r), "{}: op {}", v.name, g["i"]);
+            check_record(&v.name, g, r);
         }
         compare_exports(&v.name, &go_pe, &rust.export);
         let _ = std::fs::remove_dir_all(&dir);
@@ -244,7 +259,7 @@ fn regenerate_frozen_vectors() {
         let (results, pe) = go_run(&mut o, script, &dir.join("go"));
         let rust = runner::run(script, &dir.join("rust")).expect("Rust runner");
         for (g, r) in results.iter().zip(&rust.results) {
-            assert_eq!(comparable(g), comparable(r), "{name}: op {}", g["i"]);
+            check_record(name, g, r);
         }
         compare_exports(name, &pe, &rust.export);
         let ex = purse_export_check::parse(&pe).expect("parse");
@@ -279,7 +294,7 @@ fn regenerate_frozen_vectors() {
     }
     let mut text = String::new();
     for l in [
-        "# Operation-script vectors of purse-udb's address manager (records in the".to_owned(),
+        "# Operation-script vectors of purse-udb (records in the".to_owned(),
         "# format of docs/adr/0002-operation-script-format.md).".to_owned(),
         "#".to_owned(),
         format!(
@@ -522,7 +537,7 @@ fn replay_generated(file: &str, entries: usize, scripts: usize) {
             v.name
         );
         for (g, r) in v.results.iter().zip(&rust.results) {
-            assert_eq!(comparable(g), comparable(r), "{}: op {}", v.name, g["i"]);
+            check_record(&v.name, g, r);
         }
         let ex = purse_export_check::parse(&rust.export).expect("Rust export parses");
         check_privcheck(&ex).unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
@@ -585,7 +600,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
         let rust = runner::run(script, &dir.join("rust")).expect("Rust runner");
         assert_eq!(results.len(), rust.results.len(), "{name}: record count");
         for (g, r) in results.iter().zip(&rust.results) {
-            assert_eq!(comparable(g), comparable(r), "{name}: op {}", g["i"]);
+            check_record(name, g, r);
         }
         compare_exports(name, &pe, &rust.export);
         let _ = writeln!(body, "name {name}");
@@ -603,11 +618,24 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
     }
     let mut text = String::new();
     for l in [
-        "# Generated operation-script vectors of purse-udb's address manager (records in"
-            .to_owned(),
+        format!(
+            "# Generated operation-script vectors of purse-udb's {} (records in",
+            if file == TX_VECTORS {
+                "transaction store"
+            } else {
+                "address manager"
+            }
+        ),
         "# the format of docs/adr/0002-operation-script-format.md).".to_owned(),
         "#".to_owned(),
-        format!("# The scripts are tests/support/generator.rs's, from the fixed seed {seed:#x}"),
+        format!(
+            "# The scripts are tests/support/{}'s, from the fixed seed {seed:#x}",
+            if file == TX_VECTORS {
+                "txgen.rs"
+            } else {
+                "generator.rs"
+            }
+        ),
         format!("# (crates/purse-udb/tests/frozen.rs, {set_fn}). Every result line is a line of"),
         format!(
             "# the results.jsonl that tools/oracle/cmd/oprunner, built with {REFERENCE_GO}, wrote"
@@ -629,6 +657,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 GEN_VECTORS => "regenerate_generated_vectors",
                 WO_VECTORS => "regenerate_watching_only_vectors",
                 PASS_VECTORS => "regenerate_passphrase_vectors",
+                TX_VECTORS => "regenerate_txstore_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -643,4 +672,53 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
     text.push_str(&body);
     std::fs::write(data_dir().join(file), text).expect("write vectors");
     eprintln!("wrote {} scripts, {entries} result lines", set.len());
+}
+
+/// The generated transaction store set: scripts 0 to 5 on regnet, testnet3
+/// and mainnet (two each), the rest on simnet.
+fn txstore_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(TX_SEED);
+    (0..TX_SCRIPTS)
+        .map(|id| {
+            let network = match id {
+                0 | 1 => "regnet",
+                2 | 3 => "testnet3",
+                4 | 5 => "mainnet",
+                _ => "simnet",
+            };
+            (
+                format!("txstore generated {id}"),
+                generate_txstore(&mut rng, id, Some(network)),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_txstore_vectors() {
+    replay_generated(TX_VECTORS, TX_ENTRIES, TX_SCRIPTS);
+}
+
+/// The transaction store vectors are the set the generator makes from the
+/// fixed seed.
+#[test]
+fn txstore_vectors_are_the_seeded_set() {
+    let vectors = read_vector_file(TX_VECTORS, TX_ENTRIES);
+    let set = txstore_set();
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(&set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// Regenerates the transaction store vectors from the oracle, checking that
+/// the Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_txstore_vectors() {
+    regenerate_generated(TX_VECTORS, &txstore_set(), TX_SEED, "txstore_set");
 }

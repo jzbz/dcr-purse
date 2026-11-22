@@ -1,0 +1,418 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-groups",
+ "setup": {
+  "network": "testnet3",
+  "seed": "3131313131313131313131313131313131313131313131313131313131313131",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3131313131313131313131313131313131313131313131313131313131313131",
+  "clock": 1795400000
+ },
+ "ops": [
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.extend_main_chain",
+     "label": "b2"
+    },
+    {
+     "op": "tx.build",
+     "label": "t1",
+     "inputs": [
+      {
+       "prev": {
+        "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+        "index": 0
+       },
+       "value": 1000
+      }
+     ],
+     "outputs": [
+      {
+       "value": 900,
+       "pay": {
+        "acct": 0,
+        "branch": 0,
+        "index": 1
+       }
+      }
+     ]
+    },
+    {
+     "op": "tx.build",
+     "label": "t2",
+     "inputs": [
+      {
+       "prev": {
+        "tx": "t1",
+        "index": 0
+       },
+       "value": 1000
+      }
+     ],
+     "outputs": [
+      {
+       "value": 900,
+       "pay": {
+        "acct": 0,
+        "branch": 0,
+        "index": 2
+       }
+      }
+     ]
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t1"
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t2"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "t1",
+     "block": "b2"
+    },
+    {
+     "op": "store.unmined_tx_hashes"
+    }
+   ]
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "tx.build",
+   "label": "t3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "t1",
+      "index": 0
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     }
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t1",
+     "tolerate": [
+      "Exist"
+     ]
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t3",
+     "tolerate": [
+      "DoubleSpend",
+      "NotExist"
+     ]
+    },
+    {
+     "op": "store.insert_missing_cfilters",
+     "blocks": [
+      "b1"
+     ],
+     "tolerate": [
+      "Invalid"
+     ]
+    },
+    {
+     "op": "store.tx_details",
+     "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+     "tolerate": [
+      "NotExist"
+     ]
+    },
+    {
+     "op": "store.set_published",
+     "tx": "t2",
+     "published": false
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "b3"
+    }
+   ]
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.set_published",
+     "tx": "t2",
+     "published": true
+    },
+    {
+     "op": "store.remove_unconfirmed",
+     "tx": "t2"
+    },
+    {
+     "op": "store.extend_main_chain"
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "t1"
+    },
+    {
+     "op": "store.unmined_tx_hashes"
+    }
+   ]
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.rollback",
+     "height": 2
+    },
+    {
+     "op": "store.main_chain_tip"
+    },
+    {
+     "op": "store.rollback",
+     "height": 9
+    }
+   ]
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "store.tx_block_height",
+   "tx": "t1"
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "store.main_chain_tip"
+    },
+    {
+     "op": "store.tx_details",
+     "tx": "t1"
+    },
+    {
+     "op": "store.tx_details",
+     "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+     "tolerate": [
+      "NotExist"
+     ]
+    },
+    {
+     "op": "store.range_transactions",
+     "begin": 0,
+     "end": -1
+    },
+    {
+     "op": "store.get_main_chain_block_hashes",
+     "start": "b1",
+     "inclusive": true,
+     "count": 5
+    },
+    {
+     "op": "store.unspent_output_count"
+    }
+   ]
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "store.tx",
+     "tx": "t2"
+    },
+    {
+     "op": "store.tx",
+     "tx": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+     "op": "store.main_chain_tip"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "tk",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 10
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 11
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 12
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "cb",
+   "inputs": [
+    {
+     "prev": "coinbase",
+     "value": 50000,
+     "script": "0000"
+    }
+   ],
+   "outputs": [
+    {
+     "value": 50000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 13
+     }
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "tk",
+     "block": "b3"
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "cb"
+    },
+    {
+     "op": "tx.build",
+     "label": "v",
+     "version": 1,
+     "inputs": [
+      {
+       "prev": "stakebase",
+       "value": 300
+      },
+      {
+       "prev": {
+        "tx": "tk",
+        "index": 0,
+        "tree": 1
+       },
+       "value": 1000
+      }
+     ],
+     "outputs": [
+      {
+       "value": 0,
+       "voteblock": "b3"
+      },
+      {
+       "value": 0,
+       "votebits": "0100"
+      },
+      {
+       "value": 1300,
+       "pay": {
+        "acct": 0,
+        "branch": 0,
+        "index": 14
+       },
+       "tag": "ssgen"
+      }
+     ]
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "v",
+     "tolerate": [
+      "DoubleSpend"
+     ]
+    },
+    {
+     "op": "store.unmined_tx_hashes"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "v",
+     "block": "b3"
+    },
+    {
+     "op": "store.unmined_tx_hashes"
+    },
+    {
+     "op": "store.prune_unmined",
+     "sdiff": 0
+    }
+   ]
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.unmined_txs"
+  }
+ ]
+}

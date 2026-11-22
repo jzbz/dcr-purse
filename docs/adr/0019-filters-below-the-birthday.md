@@ -65,7 +65,18 @@
   for gRPC `GetCFilters`), and in `purse-tools`' port of
   `cmd/repaircfilters`, whose phase the brief does not fix.
   Still not implemented: the addendum changes no code, no schema, no
-  export format and no test.
+  export format and no test. *(Later on 2026-11-22 the first slice of
+  `purse-udb`'s transaction store implements the store's part of rules 4,
+  9 and 10, with FB11 (i)'s widening of rule 4 and FB12 (a)'s pending
+  states: which blocks `ExtendMainChain` accepts without a filter, and
+  where `MissingCFiltersHeight` starts (`docs/PARITY.md`, `purse-udb`
+  transaction store, item (1); `crates/purse-udb/src/txstore`). A
+  `birth` row pending from both a height and a time, which this record
+  does not name, is read there as below the birthday only for a block
+  below both; that reading is put to the owner under the cut-off rule.
+  Not implemented: the rest, among it FB12 (a) item 2's genesis filter,
+  which that slice writes at creation, as dcrwallet does, and keeps
+  whatever birthday is set later, and the projection of rule 6.)*
 - **Date:** 2026-11-21. Citations of dcrwallet source are to the parity pin
   `54b85b33` (index, second paragraph).
 

@@ -977,7 +977,10 @@ only make sense together.
   transactions are in `ic` (not `c`, no `u` row) and their debits are in `id` (not `d`; the
   credits they reference stay unspent). Stake-tree transactions of that block are unaffected.
 - **I7 (mined xor unmined).** A transaction hash is never a key of `m` while any `t` row has it
-  as prefix. `InsertMemPoolTx` enforces this at insert; mining moves the row.
+  as prefix. `InsertMemPoolTx` enforces this at insert; mining moves the row. *Corrected
+  (2026-11-22, oracle): not kept in general. A transaction inserted mined into two blocks has two
+  `t` rows, and a `Rollback` of the higher block writes its `m` row while the lower `t` row stays
+  ([QK-0781](../QUIRKS.md)).*
 - **I8 (unmined set closure).** For every `m` transaction `T`: each input's previous outpoint
   (except input 0 of a vote) has an `mi` row whose value is `hash(T)`; every `mc` key's hash
   prefix and every `mi` value is the key of an `m` row. At most

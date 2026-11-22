@@ -33,6 +33,17 @@
 //! passphrase-change scripts run the same way (`PURSE_UDB_WO_SCRIPTS`,
 //! `PURSE_UDB_PASS_SCRIPTS`, `PURSE_UDB_CHANGE_SCRIPTS`), each family
 //! excluding exactly the inputs of the divergences its pinning tests cover.
+//!
+//! The transaction store's first slice runs the same way: its hand-written
+//! scripts (`28` to `31`), generated scripts (`tests/support/txgen.rs`,
+//! `PURSE_UDB_TX_SCRIPTS`) and the same with operations in `update` and
+//! `view` groups (`PURSE_UDB_TX_GROUP_SCRIPTS`), never tolerating a kind
+//! dcr-purse returns where Go panics, which the Rust runner refuses
+//! (`a_group_member_may_not_tolerate_a_panic_stand_in`);
+//! `an_unmined_coinbase_conflicts_with_votes` pins QK-0780 (coinbases and
+//! treasury spends) and QK-0087's dropped treasury spend, and
+//! `a_transaction_mined_twice_and_rolled_back_is_mined_and_unmined`
+//! QK-0781.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -54,13 +65,20 @@ use support::generator::{
 };
 use support::runner::{self, SUPPORTED};
 use support::scratch;
+use support::txgen::{TX_OPS, generate_txstore, group_txstore};
 
 #[test]
 fn hand_written_scripts_match_go() {
     let Some(mut o) = oracle_or_skip("oprunner") else {
         return;
     };
+    // PURSE_UDB_SCRIPT, when set, runs only the scripts whose name holds
+    // it (a debugging aid; the full corpus runs without it).
+    let only = std::env::var("PURSE_UDB_SCRIPT").ok();
     for (name, script) in corpus() {
+        if only.as_deref().is_some_and(|o| !name.contains(o)) {
+            continue;
+        }
         let n = differential(&mut o, &name, &script).len();
         eprintln!("{name}: {n} operations equal");
     }
@@ -1135,4 +1153,414 @@ fn argon2_parameters_record_the_processor_count() {
             assert_eq!(threads, [want.as_str(), want.as_str()], "ncpu {ncpu}");
         }
     }
+}
+
+/// Generated transaction store scripts (`tests/support/txgen.rs`) on all
+/// four networks, about one in four with the chain sections in digest
+/// mode (`PURSE_UDB_TX_SCRIPTS` sets how many; the first four are forced
+/// onto each network in turn).
+#[test]
+fn generated_txstore_scripts_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let count: usize = std::env::var("PURSE_UDB_TX_SCRIPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24);
+    let mut rng = SplitMix64::from_env("purse-udb-txstore-generated");
+    let nets = ["simnet", "regnet", "testnet3", "mainnet"];
+    let mut ops = 0;
+    let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    for id in 0..count {
+        let script = generate_txstore(&mut rng, id, nets.get(id).copied());
+        let results = differential(
+            &mut o,
+            &format!("txstore generated {id}: {script}"),
+            &script,
+        );
+        ops += results.len();
+        *tally
+            .entry(
+                script["setup"]["network"]
+                    .as_str()
+                    .expect("network")
+                    .to_owned(),
+            )
+            .or_default() += 1;
+        for r in &results {
+            let k = match r.get("err") {
+                Some(e) => format!(
+                    "{} err {}",
+                    r["op"].as_str().unwrap_or("?"),
+                    e["kind"].as_str().unwrap_or("?")
+                ),
+                None => format!("{} ok", r["op"].as_str().unwrap_or("?")),
+            };
+            *kinds.entry(k).or_default() += 1;
+        }
+    }
+    eprintln!(
+        "{count} generated transaction store scripts, {ops} operations equal; by network: {tally:?}"
+    );
+    eprintln!("outcomes: {kinds:?}");
+}
+
+/// Generated transaction store scripts with runs of their operations in
+/// `update` and `view` groups, some members tolerating `Exist`,
+/// `DoubleSpend` or `NotExist` (`group_txstore`), on all four networks
+/// (`PURSE_UDB_TX_GROUP_SCRIPTS` sets how many). Go runs a group in one
+/// transaction and keeps a tolerated error's writes, the Rust runner one
+/// transaction per member, putting the store back when the group rolls
+/// back; equal exports show that every tolerated failure wrote nothing in
+/// Go either, and that the group's rollback matches.
+#[test]
+fn generated_txstore_group_scripts_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let count: usize = std::env::var("PURSE_UDB_TX_GROUP_SCRIPTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    let mut rng = SplitMix64::from_env("purse-udb-txstore-groups");
+    let nets = ["simnet", "regnet", "testnet3", "mainnet"];
+    let (mut ops, mut groups, mut tolerated, mut rolled_back) = (0, 0, 0, 0);
+    for id in 0..count {
+        let script = generate_txstore(&mut rng, id, nets.get(id).copied());
+        let script = group_txstore(&mut rng, script);
+        let results = differential(
+            &mut o,
+            &format!("txstore group script {id}: {script}"),
+            &script,
+        );
+        for r in &results {
+            ops += 1;
+            if let Some(members) = r["ops"].as_array() {
+                groups += 1;
+                ops += members.len();
+                tolerated += members.iter().filter(|m| m["tolerated"] == true).count();
+                if r.get("err").is_some() {
+                    rolled_back += 1;
+                }
+            }
+        }
+    }
+    eprintln!(
+        "{count} generated group scripts, {ops} operations equal: {groups} groups, \
+         {rolled_back} ended by an error, {tolerated} tolerated errors"
+    );
+}
+
+/// Every operation a generated transaction store script draws is one the
+/// Rust runner implements or one of the generator's own spellings of
+/// `store.extend_main_chain` and `tx.build`.
+#[test]
+fn txstore_generator_draws_only_ported_operations() {
+    for op in TX_OPS {
+        assert!(
+            SUPPORTED.contains(op) || op.starts_with("extend.") || op.starts_with("build."),
+            "{op}"
+        );
+    }
+}
+
+/// QK-0780 (reproduced): `InsertMemPoolTx` records the null previous
+/// outpoint of an unmined coinbase (any single-input transaction with a
+/// null previous outpoint, treasury spends included, QK-0087) in the
+/// unmined-inputs index, and looks up every input of a vote, its
+/// stakebase included, so while one is unmined a vote is refused as a
+/// double spend of it, as is a second one; a vote mined into a block
+/// removes it from the unmined set as a double spend. The second script
+/// runs the same with treasury spends (version 3, a signature and key
+/// pushed before `OP_TSPEND` on the null input, an `OP_RETURN` and a
+/// `tgen`-tagged payment): a vote and a second treasury spend refused, the
+/// mined vote removing the first, and QK-0087's `Rollback` dropping a
+/// mined treasury spend instead of returning it to the unmined set.
+/// Both sides on all four networks, each result pinned.
+#[test]
+fn an_unmined_coinbase_conflicts_with_votes() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    for net in ["simnet", "regnet", "testnet3", "mainnet"] {
+        let ticket = json!({"op": "tx.build", "label": "tk",
+            "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1100}],
+            "outputs": [{"value": 1000, "pay": {"acct": 0, "branch": 0, "index": 0}, "tag": "sstx"},
+                        {"value": 0, "commitment": {"pay": {"acct": 0, "branch": 0, "index": 1}, "amount": 1100}},
+                        {"value": 0, "pay": {"acct": 0, "branch": 0, "index": 2}, "tag": "sstxchange"}]});
+        // (A signature script is not part of a transaction's hash, so the
+        // two coinbases differ in their output.)
+        let coinbase = |label: &str, index: u32| {
+            json!({"op": "tx.build", "label": label,
+                "inputs": [{"prev": "coinbase", "value": 50_000, "script": "0000"}],
+                "outputs": [{"value": 50_000, "pay": {"acct": 0, "branch": 0, "index": index}}]})
+        };
+        let vote = json!({"op": "tx.build", "label": "v", "version": 1,
+            "inputs": [{"prev": "stakebase", "value": 300}, {"prev": {"tx": "tk", "index": 0, "tree": 1}, "value": 1000}],
+            "outputs": [{"value": 0, "voteblock": "b1"}, {"value": 0, "votebits": "0100"},
+                        {"value": 1300, "pay": {"acct": 0, "branch": 0, "index": 4}, "tag": "ssgen"}]});
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": format!("unmined coinbase and votes, {net}"),
+            "setup": {"network": net, "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+                      "clock": 1_795_300_000},
+            "ops": [
+                {"op": "store.extend_main_chain", "label": "b1"},
+                ticket,
+                {"op": "store.insert_mined_tx", "tx": "tk", "block": "b1"},
+                coinbase("cb", 3),
+                {"op": "store.insert_mem_pool_tx", "tx": "cb"},
+                vote,
+                {"op": "store.insert_mem_pool_tx", "tx": "v"},
+                coinbase("cb2", 5),
+                {"op": "store.insert_mem_pool_tx", "tx": "cb2"},
+                {"op": "store.unmined_tx_hashes"},
+                {"op": "store.insert_mined_tx", "tx": "v", "block": "b1"},
+                {"op": "store.unmined_tx_hashes"},
+                {"op": "store.insert_mem_pool_tx", "tx": "cb2"},
+                {"op": "store.unmined_tx_hashes"},
+            ],
+        });
+        let go = differential(&mut o, &format!("unmined coinbase, {net}"), &script);
+        let kind = |i: usize| go[i]["err"]["kind"].as_str().map(str::to_owned);
+        let count = |i: usize| go[i]["ok"].as_array().map(Vec::len);
+        assert_eq!(kind(4), None, "{net}: the coinbase is recorded: {}", go[4]);
+        assert_eq!(kind(6).as_deref(), Some("DoubleSpend"), "{net}: {}", go[6]);
+        assert_eq!(kind(8).as_deref(), Some("DoubleSpend"), "{net}: {}", go[8]);
+        assert_eq!(
+            count(9),
+            Some(1),
+            "{net}: only the first coinbase: {}",
+            go[9]
+        );
+        assert_eq!(kind(10), None, "{net}: the vote is mined: {}", go[10]);
+        assert_eq!(
+            count(11),
+            Some(0),
+            "{net}: the mined vote removed it: {}",
+            go[11]
+        );
+        assert_eq!(kind(12), None, "{net}: {}", go[12]);
+        assert_eq!(count(13), Some(1), "{net}: {}", go[13]);
+
+        // The same with a treasury spend paying a wallet address.
+        let tspend = |label: &str, index: u32| {
+            json!({"op": "tx.build", "label": label, "version": 3, "expiry": 100,
+                "inputs": [{"prev": "coinbase", "value": 2000,
+                            "script": format!("40{}21{}c2", "01".repeat(64),
+                                "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")}],
+                "outputs": [{"value": 0, "opreturn": "00".repeat(32)},
+                            {"value": 2000, "pay": {"acct": 0, "branch": 0, "index": index}, "tag": "tgen"}]})
+        };
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": format!("unmined treasury spend and votes, {net}"),
+            "setup": {"network": net, "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
+                      "clock": 1_795_300_000},
+            "ops": [
+                {"op": "store.extend_main_chain", "label": "b1"},
+                script["ops"][1].clone(),
+                {"op": "store.insert_mined_tx", "tx": "tk", "block": "b1"},
+                tspend("ts", 3),
+                {"op": "store.insert_mem_pool_tx", "tx": "ts"},
+                script["ops"][5].clone(),
+                {"op": "store.insert_mem_pool_tx", "tx": "v"},
+                {"op": "store.unmined_tx_hashes"},
+                tspend("ts2", 5),
+                {"op": "store.insert_mem_pool_tx", "tx": "ts2"},
+                {"op": "store.insert_mined_tx", "tx": "v", "block": "b1"},
+                {"op": "store.unmined_tx_hashes"},
+                {"op": "store.insert_mined_tx", "tx": "ts", "block": "b1"},
+                {"op": "store.rollback", "height": 1},
+                {"op": "store.unmined_tx_hashes"},
+            ],
+        });
+        let go = differential(&mut o, &format!("unmined treasury spend, {net}"), &script);
+        let kind = |i: usize| go[i]["err"]["kind"].as_str().map(str::to_owned);
+        let hashes = |i: usize| go[i]["ok"].as_array().cloned().unwrap_or_default();
+        assert_eq!(go[3]["ok"]["type"], "tspend", "{net}: {}", go[3]);
+        let ts = go[3]["ok"]["hash"].clone();
+        assert_eq!(
+            kind(4),
+            None,
+            "{net}: the treasury spend is recorded: {}",
+            go[4]
+        );
+        assert_eq!(kind(6).as_deref(), Some("DoubleSpend"), "{net}: {}", go[6]);
+        assert_eq!(hashes(7), vec![ts.clone()], "{net}: {}", go[7]);
+        assert_eq!(go[8]["ok"]["type"], "tspend", "{net}: {}", go[8]);
+        assert_eq!(
+            kind(9).as_deref(),
+            Some("DoubleSpend"),
+            "{net}: a second treasury spend: {}",
+            go[9]
+        );
+        assert_eq!(kind(10), None, "{net}: the vote is mined: {}", go[10]);
+        assert!(
+            hashes(11).is_empty(),
+            "{net}: the mined vote removed it: {}",
+            go[11]
+        );
+        assert_eq!(kind(12), None, "{net}: {}", go[12]);
+        assert_eq!(kind(13), None, "{net}: {}", go[13]);
+        assert_eq!(
+            hashes(14).len(),
+            2,
+            "{net}: the vote and the ticket return: {}",
+            go[14]
+        );
+        assert!(
+            !hashes(14).contains(&ts),
+            "{net}: the mined treasury spend is dropped: {}",
+            go[14]
+        );
+    }
+}
+
+/// QK-0781 (reproduced): `InsertMinedTx` keys a mined record by
+/// transaction and block, so one transaction is recorded mined in two
+/// blocks when it is inserted into each, and a `Rollback` of the higher
+/// block returns it to the unmined set while the lower block keeps its
+/// record: mined and unmined at once (spec 03 I7 does not hold). Both
+/// sides on all four networks, each result pinned.
+#[test]
+fn a_transaction_mined_twice_and_rolled_back_is_mined_and_unmined() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    for net in ["simnet", "regnet", "testnet3", "mainnet"] {
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": format!("mined twice, {net}"),
+            "setup": {"network": net, "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c",
+                      "clock": 1_795_300_000},
+            "ops": [
+                {"op": "store.extend_main_chain", "label": "b1"},
+                {"op": "store.extend_main_chain", "label": "b2"},
+                {"op": "tx.build", "label": "t",
+                 "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1000}],
+                 "outputs": [{"value": 900, "pay": {"acct": 0, "branch": 0, "index": 0}}]},
+                {"op": "store.insert_mined_tx", "tx": "t", "block": "b1"},
+                {"op": "store.insert_mined_tx", "tx": "t", "block": "b2"},
+                {"op": "store.range_transactions", "begin": 0, "end": -1},
+                {"op": "store.rollback", "height": 2},
+                {"op": "store.exists_tx_mined_or_unmined", "tx": "t"},
+                {"op": "store.tx_block_height", "tx": "t"},
+                {"op": "store.unmined_tx_hashes"},
+                {"op": "store.range_transactions", "begin": 0, "end": -1},
+                {"op": "store.insert_mem_pool_tx", "tx": "t"},
+            ],
+        });
+        let go = differential(&mut o, &format!("mined twice, {net}"), &script);
+        let batches = |i: usize| go[i]["ok"].as_array().map(Vec::len);
+        assert_eq!(
+            batches(5),
+            Some(2),
+            "{net}: a record in each block: {}",
+            go[5]
+        );
+        assert_eq!(
+            go[7]["ok"],
+            json!({"mined": false, "unmined": true}),
+            "{net}: {}",
+            go[7]
+        );
+        assert_eq!(go[8]["ok"], json!(-1), "{net}: {}", go[8]);
+        assert_eq!(
+            go[9]["ok"].as_array().map(Vec::len),
+            Some(1),
+            "{net}: {}",
+            go[9]
+        );
+        assert_eq!(
+            batches(10),
+            Some(2),
+            "{net}: block 1's record and the unmined one: {}",
+            go[10]
+        );
+        assert_eq!(go[11]["err"]["kind"], "Exist", "{net}: {}", go[11]);
+    }
+}
+
+/// A group member whose operation returns an error where Go panics may
+/// not tolerate that error's kind: Go never tolerates a panic, so its
+/// group ends at the member and rolls back, where a Rust group tolerating
+/// the stand-in error would go on (PARITY.md, `purse-udb` transaction
+/// store, item (2)). The Rust runner refuses such a script as a script
+/// fault, for each operation and kind it lists; Go's run of the first
+/// shows the group it would end. The refusal needs no oracle; Go's side
+/// runs when one is available.
+#[test]
+fn a_group_member_may_not_tolerate_a_panic_stand_in() {
+    let script = |member: Value| {
+        json!({
+            "format": "purse-opscript 1",
+            "name": "tolerated panic stand-in",
+            "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
+                      "clock": 1_795_300_000},
+            "ops": [
+                {"op": "store.extend_main_chain", "label": "b1"},
+                {"op": "update", "ops": [
+                    {"op": "store.extend_main_chain", "label": "b2"},
+                    member,
+                    {"op": "store.extend_main_chain", "label": "b3"},
+                ]},
+                {"op": "store.main_chain_tip"},
+            ],
+        })
+    };
+    let rollback = json!({"op": "store.rollback", "height": 9, "tolerate": ["Invalid"]});
+    for (member, kind) in [
+        (rollback.clone(), "Invalid"),
+        (
+            json!({"op": "store.rollback", "height": 9, "tolerate": ["NotExist", "IO"]}),
+            "IO",
+        ),
+        (
+            json!({"op": "store.get_main_chain_block_hashes", "start": "b1", "inclusive": true, "count": 3, "tolerate": ["Invalid"]}),
+            "Invalid",
+        ),
+        (
+            json!({"op": "store.main_chain_tip", "tolerate": ["IO"]}),
+            "IO",
+        ),
+    ] {
+        let dir = scratch("tolerate");
+        let err = runner::run(&script(member.clone()), &dir.join("rust"))
+            .expect_err("the Rust runner refuses the script");
+        assert!(
+            err.contains("never tolerates a panic") && err.contains(&format!("tolerate: {kind} ")),
+            "{member}: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    // A kind no stand-in takes is accepted on the same operation: the
+    // group runs, the member's error ending it.
+    let dir = scratch("tolerate");
+    let ok = json!({"op": "store.rollback", "height": 9, "tolerate": ["NotExist"]});
+    let rust = runner::run(&script(ok), &dir.join("rust")).expect("Rust runner");
+    assert_eq!(rust.results[1]["ops"].as_array().map(Vec::len), Some(2));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let dir = scratch("tolerate");
+    let (go, _) = go_run(&mut o, &script(rollback), &dir.join("go"));
+    let members = go[1]["ops"].as_array().cloned().unwrap_or_default();
+    assert_eq!(members.len(), 2, "Go's group ends at the panic: {}", go[1]);
+    assert_eq!(members[1]["err"]["kind"], "Panic", "{}", go[1]);
+    assert_eq!(members[1].get("tolerated"), None, "{}", go[1]);
+    assert_eq!(go[2]["ok"]["height"], 1, "rolled back to b1: {}", go[2]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

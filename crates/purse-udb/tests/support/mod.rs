@@ -16,6 +16,7 @@
 pub mod compare;
 pub mod generator;
 pub mod runner;
+pub mod txgen;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

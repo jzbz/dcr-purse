@@ -1,0 +1,636 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-stake",
+ "setup": {
+  "network": "simnet",
+  "seed": "2d2a292827262524232221201f1e1d1c1b1a191817161514131211100f0e0d0c",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3030303030303030303030303030303030303030303030303030303030303030",
+  "clock": 1795200000
+ },
+ "ops": [
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "tx.build",
+   "label": "t1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 1
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "t2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 4
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "t3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "3333333333333333333333333333333333333333333333333333333333333333",
+      "index": 0
+     },
+     "value": 2100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 2000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 6
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 7
+      },
+      "amount": 2100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 8
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "t4",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "4444444444444444444444444444444444444444444444444444444444444444",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 9
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 10
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 11
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "t1"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "t3"
+  },
+  {
+   "op": "store.own_ticket",
+   "ticket": "t1"
+  },
+  {
+   "op": "store.own_ticket",
+   "ticket": "t2"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t2",
+   "block": "b2"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t1",
+   "block": "b2"
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "t1"
+  },
+  {
+   "op": "tx.build",
+   "label": "v1",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t1",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b1"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 20
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "v1b",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t1",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b2"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 21
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "v2",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t2",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b2"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 22
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "r3",
+   "version": 2,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "t3",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 23
+     },
+     "tag": "ssrtx"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1"
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "t1"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "v1"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1b"
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v2"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "r3"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "t3"
+  },
+  {
+   "op": "store.prune_unmined",
+   "sdiff": 1000
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "store.prune_unmined",
+   "sdiff": 0
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "t4"
+  },
+  {
+   "op": "tx.build",
+   "label": "v4",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t4",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b3"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 24
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v4"
+  },
+  {
+   "op": "tx.build",
+   "label": "r4",
+   "version": 2,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "t4",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 25
+     },
+     "tag": "ssrtx"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "r4"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "v4",
+   "block": "b4"
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t4",
+   "block": "b4"
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.ticket_details",
+   "tx": "t4"
+  },
+  {
+   "op": "tx.build",
+   "label": "g",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 5
+     },
+     "value": 50
+    }
+   ],
+   "outputs": [
+    {
+     "value": 40,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 30
+     }
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "h",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 6
+     },
+     "value": 50
+    }
+   ],
+   "outputs": [
+    {
+     "value": 40,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 31
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "g"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "h",
+   "block": "b4"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b5",
+   "votebits": 0
+  },
+  {
+   "op": "store.block_in_main_chain",
+   "block": "b4"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "g",
+   "block": "b4"
+  },
+  {
+   "op": "store.tx_details",
+   "tx": "h"
+  },
+  {
+   "op": "store.range_transactions",
+   "begin": 4,
+   "end": 4
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b6",
+   "votebits": 1
+  },
+  {
+   "op": "store.block_in_main_chain",
+   "block": "b5"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "g",
+   "block": "b5"
+  },
+  {
+   "op": "store.rollback",
+   "height": 3
+  },
+  {
+   "op": "store.iterate_tickets"
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.unspent_output_count"
+  }
+ ]
+}

@@ -169,6 +169,12 @@ var RepoTable = Table{
 			Note:       "the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
 		},
 		{
+			Crate: "purse-udb", Files: []string{"txstore_genvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_txstore_vectors",
+			Note:       "the transaction store's generated scripts; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",

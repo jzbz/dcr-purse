@@ -36,7 +36,12 @@
   as recommended, option (a), project owner; ADR-0019, addendum
   "2026-11-22 (FB13)". The store keeps the filter of a block a chain
   switch shows to be the birthday block, so the projection needs nothing
-  for that case.)*
+  for that case.)* *(Later on 2026-11-22: the first slice of `purse-udb`'s
+  transaction store produces `[cfilters]` version 1 as built, every
+  stored filter, as the Go exporter does. Its store keeps every filter an
+  operation script supplies, as dcrwallet's does, so its comparisons with
+  Go need no projection; the projection is still to be specified with the
+  sync phases.)*
 - **Date:** 2026-11-19 (format 1 drafted; revised the same day to format 2
   after an adversarial review and the owner's decisions of 2026-11-18 and
   2026-11-19, ADR-0013 above all)

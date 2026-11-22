@@ -127,6 +127,42 @@ impl<T: Table> DoubleEndedIterator for Iter<'_, T> {
     }
 }
 
+/// The typed keys of a table's entries in key order, from either end.
+///
+/// Only the keys are decoded: a value is neither copied nor checked, as a
+/// bbolt cursor loop that reads only `k` touches no value, so a walk that
+/// needs the keys alone costs no value-sized work per entry.
+pub struct Keys<'a, T: Table> {
+    inner: redb::Range<'a, Raw, Raw>,
+    _table: PhantomData<T>,
+}
+
+impl<T: Table> Keys<'_, T> {
+    fn item(
+        r: std::result::Result<
+            (redb::AccessGuard<'_, Raw>, redb::AccessGuard<'_, Raw>),
+            redb::StorageError,
+        >,
+    ) -> Result<T::Key> {
+        let (k, _) = r?;
+        decode(T::ID, k.value())
+    }
+}
+
+impl<T: Table> Iterator for Keys<'_, T> {
+    type Item = Result<T::Key>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(Self::item)
+    }
+}
+
+impl<T: Table> DoubleEndedIterator for Keys<'_, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back().map(Self::item)
+    }
+}
+
 /// Raw entries of a table in key order, from either end.
 pub struct RawIter<'a> {
     inner: redb::Range<'a, Raw, Raw>,
@@ -344,6 +380,16 @@ impl ReadTx {
     /// Every entry of table `T`, in key order.
     pub fn iter<T: Table>(&self) -> Result<Iter<'_, T>> {
         self.range::<T>(Bound::Unbounded, Bound::Unbounded)
+    }
+
+    /// The keys of table `T` in `(lo, hi)`, in key order, without reading
+    /// the values ([`Keys`]).
+    pub fn keys<T: Table>(&self, lo: Bound<&T::Key>, hi: Bound<&T::Key>) -> Result<Keys<'_, T>> {
+        let (lo, hi) = (encode_bound(lo), encode_bound(hi));
+        Ok(Keys {
+            inner: range_in(self.table(T::ID)?, &lo, &hi)?,
+            _table: PhantomData,
+        })
     }
 
     /// Entries of table `T` whose encoded key starts with `prefix`, in key
@@ -604,6 +650,21 @@ impl<'t> WriteTx<'t> {
     /// Every entry of table `T`, in key order.
     pub fn iter<T: Table>(&mut self) -> Result<Iter<'_, T>> {
         self.range::<T>(Bound::Unbounded, Bound::Unbounded)
+    }
+
+    /// The keys of table `T` in `(lo, hi)`, in key order, without reading
+    /// the values ([`Keys`]). The iterator borrows the transaction.
+    pub fn keys<T: Table>(
+        &mut self,
+        lo: Bound<&T::Key>,
+        hi: Bound<&T::Key>,
+    ) -> Result<Keys<'_, T>> {
+        let (lo, hi) = (encode_bound(lo), encode_bound(hi));
+        let t = self.table_mut(T::ID)?;
+        Ok(Keys {
+            inner: range_in(&*t, &lo, &hi)?,
+            _table: PhantomData,
+        })
     }
 
     /// Entries of table `T` whose encoded key starts with `prefix`.

@@ -20,13 +20,26 @@
 //! `[addresses]`, the per-account address set entries that fold into no
 //! row of their account (`[orphans]`, index `acctaddrs`: the entries an
 //! overwritten address leaves, QK-0757), the address manager's records of
-//! `[derived]` (`coin`, `acctprops`) and `[privcheck]` ([`COVERED`]).
-//! Every other section is written empty.
+//! `[derived]` (`coin`, `acctprops`) and `[privcheck]`; and the first
+//! slice of the transaction store's ([`crate::txstore`]): `[chain]`,
+//! `[blocks]`, `[headers]`, `[cfilters]` (full and digest modes),
+//! `[txs]`, `[unpublished]`, `[uinputs]`, `[tickets]`, the records of
+//! `[derived]` that read it (`tipheight`, `missingcf`, `utxocount`), and
+//! the sections of the later slices' tables (`[credits]`, `[debits]`,
+//! `[ucredits]`, `[commitments]`, `[multisig]`, and `[derived]`'s
+//! `balance` and `unspentticket`), which are empty because the export
+//! refuses a store in which those tables hold a row ([`COVERED`]).
+//! `[agendas]`, `[treasury]` and `[vsp]` are written empty.
 //!
 //! The producer never omits state silently (ADR-0001 principle P1): if the
-//! store holds a row this slice does not export (a transaction store row,
-//! a header, a chain marker, an `addr_by_path` entry), [`export`] fails and
-//! names the table, rather than writing an export that looks complete.
+//! store holds a row this slice does not export (a credit, a debit, a
+//! commitment, a multisig output, a balance, an aux record, an
+//! `addr_by_path` entry), [`export`] fails and names the table, rather
+//! than writing an export that looks complete.
+//!
+//! The ticket set's value, which dcrwallet writes as −1 and never reads
+//! (QK-0056), is not kept; `ticket.picked` is written `-1`, as every
+//! dcrwallet store holds it.
 //!
 //! What it writes for fields the store does not keep: the write-only
 //! `wallet.mgrcreated`, `wallet.txcreated` and `wallet.minedbal` are `-`
@@ -44,9 +57,12 @@ use purse_store::wallet::{
 };
 use std::collections::BTreeMap;
 
+use std::ops::Bound;
+
 use purse_store::{
     AccountKey, AccountNames, Accounts, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrRow,
-    CoinTypeKeys, ReadTx, TableId,
+    CFiltersDetached, CoinTypeKeys, Hash32, HeadersDetached, History, HistoryKey, ReadTx, TableId,
+    Tickets, TxMined, TxUnmined, UnminedInputs, Unpublished,
 };
 use sha2::{Digest, Sha256};
 
@@ -54,6 +70,7 @@ use crate::addrmgr::{
     AccountKeys, Address, ChainParams, IMPORTED_ADDR_ACCOUNT, ImportedData, MAX_ACCOUNT_NUM,
     ManagedAddress, Manager, StoreRead,
 };
+use crate::txstore::TxStore;
 
 /// The magic line of format 2.
 pub const MAGIC: &str = "purse-export 2";
@@ -70,9 +87,11 @@ pub struct Section {
     pub types: &'static [&'static str],
 }
 
-/// The sections this slice's producer fills; every other one is written
-/// empty. (`[derived]` only with its `coin` and `acctprops` records.)
-pub const COVERED: [&str; 10] = [
+/// The sections this slice's producer fills, or writes empty because the
+/// store can hold none of their rows; every other one is written empty
+/// without being compared. (`[derived]` only with the records of
+/// [`COVERED_DERIVED`].)
+pub const COVERED: [&str; 23] = [
     "wallet",
     "masterkeys",
     "cryptokeys",
@@ -80,13 +99,37 @@ pub const COVERED: [&str; 10] = [
     "accounts",
     "accountnames",
     "addresses",
+    "chain",
+    "blocks",
+    "headers",
+    "cfilters",
+    "txs",
+    "unpublished",
+    "credits",
+    "debits",
+    "ucredits",
+    "uinputs",
+    "tickets",
+    "commitments",
+    "multisig",
     "orphans",
     "derived",
     "privcheck",
 ];
 
-/// The record types of `[derived]` this slice writes.
-pub const COVERED_DERIVED: [&str; 3] = ["coin", "acctprops", "failed"];
+/// The record types of `[derived]` this slice writes (`balance` and
+/// `unspentticket` never: no store it exports holds a credit or a
+/// commitment, and Go writes none for such a store).
+pub const COVERED_DERIVED: [&str; 8] = [
+    "coin",
+    "tipheight",
+    "missingcf",
+    "utxocount",
+    "acctprops",
+    "balance",
+    "unspentticket",
+    "failed",
+];
 
 /// The registry of format 2, in file order (ADR-0001 section 6). A test
 /// checks it against `purse-export-check`'s.
@@ -325,6 +368,11 @@ pub struct ExportOptions<'a> {
     pub exporter: &'a str,
     /// The resource bounds of the key derivations.
     pub limits: Limits,
+    /// The chain sections' digest mode (`@chain=digest`, ADR-0001 section
+    /// 6.10): blocks without wallet state, headers and filters as one
+    /// digest per 4,096 heights. `false` writes every record
+    /// (`@chain=full`).
+    pub digest: bool,
 }
 
 impl std::fmt::Debug for ExportOptions<'_> {
@@ -339,6 +387,7 @@ impl std::fmt::Debug for ExportOptions<'_> {
             )
             .field("exporter", &self.exporter)
             .field("limits", &self.limits)
+            .field("digest", &self.digest)
             .finish()
     }
 }
@@ -491,13 +540,25 @@ fn store_err(err: purse_store::Error) -> AnyError {
 }
 
 /// The tables whose rows this slice exports or reads.
-const EXPORTED_TABLES: [TableId; 6] = [
+const EXPORTED_TABLES: [TableId; 18] = [
     TableId::Meta,
     TableId::Wallet,
     TableId::Accounts,
     TableId::AccountNames,
     TableId::AddrByHash,
     TableId::AddrByAcctSha,
+    TableId::Headers,
+    TableId::Blocks,
+    TableId::BlockByHash,
+    TableId::CFilters,
+    TableId::HeadersDetached,
+    TableId::CFiltersDetached,
+    TableId::TxMined,
+    TableId::TxUnmined,
+    TableId::Unpublished,
+    TableId::History,
+    TableId::UnminedInputs,
+    TableId::Tickets,
 ];
 
 /// Writes the logical export of the wallet in `tx` (one snapshot,
@@ -529,13 +590,6 @@ pub fn export(
             return Err(not_exported(&format!("table {}", id.name())));
         }
     }
-    if tx.tip().map_err(store_err)?.is_some()
-        || tx.birth_state().map_err(store_err)?.is_some()
-        || tx.processed_marker().map_err(store_err)?.is_some()
-        || tx.have_cfilters().map_err(store_err)?
-    {
-        return Err(not_exported("the transaction store's chain state"));
-    }
 
     let mgr = match opts.pub_pass {
         Some(p) => Some(Manager::open(
@@ -558,7 +612,10 @@ pub fn export(
     w.line(MAGIC);
     let metas = [
         ("network", chain.name.to_owned()),
-        ("chain", "full".to_owned()),
+        (
+            "chain",
+            if opts.digest { "digest" } else { "full" }.to_owned(),
+        ),
         (
             "decrypt",
             if derived { "public" } else { "none" }.to_owned(),
@@ -595,6 +652,7 @@ pub fn export(
     };
 
     let addrs = address_records(&mut r, mgr.as_ref(), &accounts)?;
+    let mut txstore = txstore_records(tx, opts.digest)?;
 
     for spec in REGISTRY {
         let records = match spec.name {
@@ -607,9 +665,11 @@ pub fn export(
             "addresses" => addrs.records.clone(),
             "orphans" => addrs.orphans.clone(),
             "derived" => match &mgr {
-                Some(m) => derived_records(&mut r, m, &accounts)?,
+                Some(m) => derived_records(&mut r, m, chain, &accounts)?,
                 None => Vec::new(),
             },
+            name @ ("chain" | "blocks" | "headers" | "cfilters" | "txs" | "unpublished"
+            | "uinputs" | "tickets") => txstore.remove(name).unwrap_or_default(),
             "privcheck" => match (&mgr, opts.priv_pass) {
                 (Some(m), Some(pass)) if privcheck => {
                     privcheck_records(&mut r, m, pass, opts.acct_pass, &accounts, &addrs.priv_keys)?
@@ -979,16 +1039,31 @@ fn address_records(
 fn derived_records(
     r: &mut &ReadTx,
     m: &Manager,
+    chain: &ChainParams,
     accounts: &[(u32, purse_store::AccountRow, AccountKeys)],
 ) -> Result<Vec<Record>, AnyError> {
     // Type indexes in `[derived]`'s declarations.
     const COIN: usize = 0;
+    const TIPHEIGHT: usize = 1;
+    const MISSINGCF: usize = 2;
+    const UTXOCOUNT: usize = 3;
     const ACCTPROPS: usize = 4;
     const FAILED: usize = 7;
     let mut out = vec![(
         COIN,
         vec![m.coin_type(r).map_or_else(|_| ABSENT.to_owned(), vu)],
     )];
+    let mut failed_items = Vec::new();
+    let store = TxStore::new(chain)?;
+    match store.main_chain_tip(r) {
+        Ok((_, h)) => out.push((TIPHEIGHT, vec![h.to_string()])),
+        Err(_) => failed_items.push("tipheight"),
+    }
+    out.push((
+        MISSINGCF,
+        vec![vb(store.is_missing_main_chain_cfilters(r)?)],
+    ));
+    out.push((UTXOCOUNT, vec![vu(store.unspent_output_count(r)?)]));
     let mut failed = false;
     for (n, _, _) in accounts {
         match m.account_properties(r, *n) {
@@ -1010,8 +1085,316 @@ fn derived_records(
         }
     }
     if failed {
-        out.push((FAILED, vec!["acctprops".to_owned()]));
+        failed_items.push("acctprops");
     }
+    failed_items.sort_unstable();
+    for item in failed_items {
+        out.push((FAILED, vec![item.to_owned()]));
+    }
+    Ok(out)
+}
+
+/// Renders a hash stored in internal byte order in display order (`h`).
+fn vh(h: &Hash32) -> String {
+    let mut r = h.0;
+    r.reverse();
+    vx(&r)
+}
+
+/// The height span of one chain digest segment (ADR-0001 section 6.10).
+const SEG_SIZE: u32 = 4096;
+
+/// The digest records of one record type, one per segment of heights.
+struct Segmenter {
+    ty: usize,
+    cur: Option<u32>,
+    n: u64,
+    sha: Sha256,
+    out: Vec<Record>,
+}
+
+impl Segmenter {
+    fn new(ty: usize) -> Segmenter {
+        Segmenter {
+            ty,
+            cur: None,
+            n: 0,
+            sha: Sha256::new(),
+            out: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, height: u32, item: &[u8]) {
+        let seg = height / SEG_SIZE;
+        if self.cur != Some(seg) {
+            self.flush();
+            self.cur = Some(seg);
+            self.sha = Sha256::new();
+        }
+        self.sha.update(item);
+        self.n = self.n.saturating_add(1);
+    }
+
+    fn flush(&mut self) {
+        if let Some(seg) = self.cur
+            && self.n > 0
+        {
+            let sum = std::mem::take(&mut self.sha).finalize();
+            self.out
+                .push((self.ty, vec![vu(seg), vu(self.n), vx(&sum)]));
+        }
+        self.n = 0;
+    }
+
+    fn finish(mut self) -> Vec<Record> {
+        self.flush();
+        self.out
+    }
+}
+
+/// A `u32` as 4 big-endian bytes, `usize` lengths included (a stored value
+/// is below 2^31 bytes).
+fn be32(v: usize) -> [u8; 4] {
+    u32::try_from(v).unwrap_or(u32::MAX).to_be_bytes()
+}
+
+/// The transaction store's sections, by name: `[chain]`, `[blocks]`,
+/// `[headers]`, `[cfilters]`, `[txs]`, `[unpublished]`, `[uinputs]`,
+/// `[tickets]` (ADR-0001 sections 6.9 to 6.16), each record in the order
+/// of section 7: dcrwallet's bucket rows as Go's exporter decodes them
+/// (`tools/oracle/internal/walletexport/txstore.go`), rendered from the
+/// rows ADR-0003 keeps.
+fn txstore_records(
+    tx: &ReadTx,
+    digest: bool,
+) -> Result<BTreeMap<&'static str, Vec<Record>>, AnyError> {
+    let mut out: BTreeMap<&'static str, Vec<Record>> = BTreeMap::new();
+
+    // [chain]
+    let zero = Hash32::default();
+    let tip = tx.tip().map_err(store_err)?;
+    let mut chain = vec![
+        (0, vec![vh(&tip.map_or(zero, |t| t.hash))]),
+        (
+            1,
+            vec![vh(&tx
+                .processed_marker()
+                .map_err(store_err)?
+                .unwrap_or(zero))],
+        ),
+        (
+            2,
+            vec![if tx.have_cfilters().map_err(store_err)? {
+                "01".to_owned()
+            } else {
+                ABSENT.to_owned()
+            }],
+        ),
+    ];
+    chain.push((
+        3,
+        match tx.birth_state().map_err(store_err)? {
+            Some(b) => vec![
+                vb(true),
+                vb(b.set_from_height),
+                vb(b.set_from_time),
+                vh(&b.hash),
+                vu(b.height),
+                b.time.to_string(),
+            ],
+            None => {
+                let mut v = vec![vb(false)];
+                v.extend(std::iter::repeat_n(ABSENT.to_owned(), 5));
+                v
+            }
+        },
+    ));
+    out.insert("chain", chain);
+
+    // [blocks], [headers], [cfilters]: one walk of the main chain.
+    let mut blocks = Vec::new();
+    let mut headers = Vec::new();
+    let mut hdr_missing = Vec::new();
+    let mut cfilters = Vec::new();
+    let mut cf_missing = Vec::new();
+    let mut block_seg = Segmenter::new(0);
+    let mut hdr_seg = Segmenter::new(0);
+    let mut cf_seg = Segmenter::new(0);
+    let mut main = std::collections::BTreeSet::new();
+    let mut block_of_height = BTreeMap::new();
+    for row in tx.blocks_in(..).map_err(store_err)? {
+        let (h, b) = row.map_err(store_err)?;
+        let height = h.0;
+        main.insert(b.hash);
+        block_of_height.insert(height, b.hash);
+        if digest && b.wallet_txs == 0 && !b.invalid {
+            let mut item = Vec::with_capacity(46);
+            item.extend_from_slice(&height.to_be_bytes());
+            item.extend_from_slice(&b.hash.0);
+            item.extend_from_slice(&b.time.to_be_bytes());
+            item.extend_from_slice(&b.vote_bits.to_be_bytes());
+            block_seg.add(height, &item);
+        } else {
+            let lo = HistoryKey {
+                height,
+                position: 0,
+            };
+            let hi = HistoryKey {
+                height,
+                position: u32::MAX,
+            };
+            let mut txs = Vec::new();
+            for r in tx
+                .range::<History>(Bound::Included(&lo), Bound::Included(&hi))
+                .map_err(store_err)?
+            {
+                txs.push(vh(&r.map_err(store_err)?.1));
+            }
+            let txs = if txs.is_empty() {
+                "_".to_owned()
+            } else {
+                txs.join(",")
+            };
+            let time = u64::try_from(b.time)
+                .map_err(|_| not_exported(&format!("the negative time of block {height}")))?;
+            blocks.push((
+                1,
+                vec![
+                    vu(height),
+                    vh(&b.hash),
+                    vu(time),
+                    vu(b.vote_bits),
+                    vb(b.invalid),
+                    txs,
+                ],
+            ));
+        }
+        match tx.header_at(height).map_err(store_err)? {
+            None => hdr_missing.push((2, vec![vu(height), vh(&b.hash)])),
+            Some(raw) if digest => {
+                let mut item = Vec::with_capacity(220);
+                item.extend_from_slice(&height.to_be_bytes());
+                item.extend_from_slice(&b.hash.0);
+                item.extend_from_slice(&be32(raw.0.len()));
+                item.extend_from_slice(&raw.0);
+                hdr_seg.add(height, &item);
+            }
+            Some(raw) => headers.push((1, vec![vu(height), vh(&b.hash), vx(&raw.0)])),
+        }
+        match tx.cfilter_at(height).map_err(store_err)? {
+            None => cf_missing.push((2, vec![vu(height), vh(&b.hash)])),
+            Some(f) if digest => {
+                let mut item = Vec::with_capacity(f.filter.len().saturating_add(56));
+                item.extend_from_slice(&height.to_be_bytes());
+                item.extend_from_slice(&b.hash.0);
+                item.extend_from_slice(&f.key);
+                item.extend_from_slice(&be32(f.filter.len()));
+                item.extend_from_slice(&f.filter);
+                cf_seg.add(height, &item);
+            }
+            Some(f) => cfilters.push((1, vec![vu(height), vh(&b.hash), vx(&f.key), vx(&f.filter)])),
+        }
+    }
+    let mut v = block_seg.finish();
+    v.extend(blocks);
+    out.insert("blocks", v);
+
+    let mut side_headers = Vec::new();
+    for r in tx.iter::<HeadersDetached>().map_err(store_err)? {
+        let (hash, raw) = r.map_err(store_err)?;
+        side_headers.push((vh(&hash), vx(&raw.0)));
+    }
+    side_headers.sort();
+    let mut v = hdr_seg.finish();
+    v.extend(headers);
+    v.extend(hdr_missing);
+    v.extend(side_headers.into_iter().map(|(h, raw)| (3, vec![h, raw])));
+    out.insert("headers", v);
+
+    let mut side_filters = Vec::new();
+    for r in tx.iter::<CFiltersDetached>().map_err(store_err)? {
+        let (hash, f) = r.map_err(store_err)?;
+        side_filters.push((vh(&hash), vx(&f.key), vx(&f.filter)));
+    }
+    side_filters.sort();
+    let mut v = cf_seg.finish();
+    v.extend(cfilters);
+    v.extend(cf_missing);
+    v.extend(side_filters.into_iter().map(|(h, k, f)| (3, vec![h, k, f])));
+    out.insert("cfilters", v);
+
+    // [txs]: mined records by (hash, height, block), then unmined by hash.
+    let mut mined = Vec::new();
+    for r in tx.iter::<TxMined>().map_err(store_err)? {
+        let (k, row) = r.map_err(store_err)?;
+        let block = block_of_height.get(&k.height).ok_or_else(|| {
+            not_exported(&format!(
+                "a mined transaction at height {} above the main chain",
+                k.height
+            ))
+        })?;
+        mined.push((
+            (vh(&k.hash), k.height, vh(block)),
+            row.received.to_string(),
+            vx(&row.tx),
+        ));
+    }
+    mined.sort();
+    let mut v: Vec<Record> = mined
+        .into_iter()
+        .map(|((hash, height, block), received, raw)| {
+            (0, vec![hash, vu(height), block, received, raw])
+        })
+        .collect();
+    let mut unmined = Vec::new();
+    for r in tx.iter::<TxUnmined>().map_err(store_err)? {
+        let (hash, row) = r.map_err(store_err)?;
+        unmined.push((vh(&hash), row.received.to_string(), vx(&row.tx)));
+    }
+    unmined.sort();
+    v.extend(
+        unmined
+            .into_iter()
+            .map(|(h, rc, raw)| (1, vec![h, rc, raw])),
+    );
+    out.insert("txs", v);
+
+    let mut unpublished = Vec::new();
+    for r in tx.iter::<Unpublished>().map_err(store_err)? {
+        unpublished.push(vh(&r.map_err(store_err)?.0));
+    }
+    unpublished.sort();
+    out.insert(
+        "unpublished",
+        unpublished.into_iter().map(|h| (0, vec![h])).collect(),
+    );
+
+    let mut uinputs = Vec::new();
+    for r in tx.iter::<UnminedInputs>().map_err(store_err)? {
+        let (op, spender) = r.map_err(store_err)?;
+        uinputs.push(((vh(&op.hash), op.index), vh(&spender)));
+    }
+    uinputs.sort();
+    out.insert(
+        "uinputs",
+        uinputs
+            .into_iter()
+            .map(|((h, i), s)| (0, vec![h, vu(i), s]))
+            .collect(),
+    );
+
+    let mut tickets = Vec::new();
+    for r in tx.iter::<Tickets>().map_err(store_err)? {
+        tickets.push(vh(&r.map_err(store_err)?.0));
+    }
+    tickets.sort();
+    out.insert(
+        "tickets",
+        tickets
+            .into_iter()
+            .map(|h| (0, vec![h, "-1".to_owned()]))
+            .collect(),
+    );
     Ok(out)
 }
 

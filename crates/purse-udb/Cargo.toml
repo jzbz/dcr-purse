@@ -47,6 +47,20 @@ purse-snacl = { path = "../purse-snacl" }
 # The wallet store (ADR-0003): the `wallet`, `accounts` and
 # `account_names` tables hold the address manager's rows.
 purse-store = { path = "../purse-store" }
+# The transaction store (`txstore`): `stake.DetermineTxType`, `IsSStx`,
+# `IsSSGen` and `SSGenBlockVotedOn`, without the `storage` feature, so
+# neither dcroxide-database nor its redb comes with it (ADR-0006 rule 5).
+dcroxide-stake.workspace = true
+# The transaction store: version 2 committed filters (`gcs.FromBytesV2`,
+# `blockcf2.Key`, and `blockcf2.Regular` for the genesis block's filter at
+# creation, as dcrwallet's upgrade 15 builds it). Default features off: the
+# precomputed signing tables are not needed to build or read a filter.
+dcroxide-gcs.workspace = true
+# The transaction store: `standalone.IsCoinBaseTx` (dcrwallet's
+# `compat.IsEitherCoinBaseTx`, which `Rollback` uses to drop coinbases).
+dcroxide-standalone.workspace = true
+# The transaction store: block and transaction hashes.
+dcroxide-chainhash.workspace = true
 # Constant-time comparison of passphrase hashes (Go's
 # `subtle.ConstantTimeCompare`). The release purse-snacl links.
 subtle = { version = "2.6.1", default-features = false }

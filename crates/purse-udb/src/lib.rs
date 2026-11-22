@@ -22,10 +22,14 @@
 //! conversion, public key imports), per-account passphrases (set, change,
 //! remove, unlock, lock), imported voting accounts and changes of the
 //! private and public passphrases: every entry point of the address
-//! manager. The whole transaction store is a later slice. The table below
-//! is the complete inventory of the address manager's Go entry points at
-//! the parity pin (dcrwallet `54b85b33`; spec 02 sections 3.3 and 3.4),
-//! each with its status.
+//! manager. The transaction store ([`txstore`]) is written in slices; the
+//! first (the main chain, headers and filters, mined and unmined
+//! transaction records, `Rollback` without its credit step, and the queries
+//! over them) is written, and its entry points are in the second table
+//! below ("Transaction store entry points"). The first
+//! table is the complete inventory of the address manager's Go entry
+//! points at the parity pin (dcrwallet `54b85b33`; spec 02 sections 3.3
+//! and 3.4), each with its status.
 //!
 //! # Go entry points
 //!
@@ -69,9 +73,52 @@
 //! | `Migrate`, `upgradeManager`, the 25 database upgrades | — | not ported: no dcrwallet database is read (ADR-0013); a new wallet is written in its final form |
 //! | `ObtainUserInputFunc`, `Manager.closed` | — | not ported: unused at the pin (spec 02 quirk 22) |
 //!
-//! The transaction store (`Store`, specs 03 and 04) and the aux buckets
-//! (spec 05: VSP, agenda and treasury records) are later slices of this
-//! crate.
+//! The aux buckets (spec 05: VSP, agenda and treasury records) are a later
+//! slice of this crate.
+//!
+//! # Transaction store entry points
+//!
+//! Every exported entry point of dcrwallet's transaction store at the
+//! parity pin (`wallet/udb/txmined.go`, `txunmined.go`, `txquery.go`,
+//! `cfilters.go`; spec 04 section 3), with the slice it belongs to. The
+//! design of the first slice, the rows it keeps and the rules that bound it
+//! are in [`txstore`]. "Slice 1" is ported: checked against Go through the
+//! oracle on all four networks; "later" is a later slice, with the reason;
+//! "blocked on script offsets" needs `wire.MsgTx.PkScriptLocs`, whose
+//! dcroxide port is not at dcr-purse's dcroxide pin. Rust names are methods
+//! of [`txstore::TxStore`] unless stated, in snake case of Go's.
+//!
+//! | Go (`wallet/udb`) | Rust | Status |
+//! |---|---|---|
+//! | `Initialize`, `InitializeWatchOnly` (transaction store part: `createStore`, and the rows upgrades 10, 11, 15 and 26 add) | [`txstore::TxStore::create`], run in the creating transaction after [`Manager::create`] or [`Manager::create_watch_only`], as Go's `Initialize` runs both in one | slice 1 |
+//! | `Open` (transaction store part: the `Store` value) | `TxStore::new` | slice 1 |
+//! | `NewTxRecord`, `NewTxRecordFromMsgTx` | [`txstore::TxRecord::new`], [`txstore::TxRecord::from_msg_tx`] | slice 1 |
+//! | `Store.MainChainTip` | `main_chain_tip` | slice 1 (returns a `Result`, ADR-0012 Rule 2(c)) |
+//! | `Store.ExtendMainChain` | `extend_main_chain` | slice 1 (the filter is optional below the birthday height, ADR-0019 FB4; of the parent's stake validation or invalidation, the block's flag; the move of its credits and debits: later, with the credits) |
+//! | `Store.ProcessedTxsBlockMarker`, `UpdateProcessedTxsBlockMarker` | `processed_txs_block_marker`, `update_processed_txs_block_marker` | slice 1 |
+//! | `SetBirthState`, `BirthState` | [`txstore::set_birth_state`], [`txstore::birth_state`] (free functions, as in Go) | slice 1 |
+//! | `Store.IsMissingMainChainCFilters`, `MissingCFiltersHeight` | `is_missing_main_chain_cfilters`, `missing_cfilters_height` | slice 1 (the walk starts at the birthday height, ADR-0019 FB9 and FB10: a PARITY.md line) |
+//! | `Store.InsertMissingCFilters`, `GetMainChainCFilters`, `CFilterV2`, `ImportCFiltersV2` | `insert_missing_cfilters`, `get_main_chain_cfilters`, `cfilter_v2`, `import_cfilters_v2` | slice 1 (`GetMainChainCFilters` from a detached start block answers as Go's, QK-0751) |
+//! | `ExtractBlockHeaderParentHash`, `ExtractBlockHeaderHeight`, `ExtractBlockHeaderTime`, `RawBlockHeader.Height` | free functions over a 180-byte header | slice 1 |
+//! | `Store.GetMainChainBlockHashForHeight`, `GetSerializedBlockHeader`, `GetBlockHeaderTime`, `GetBlockHeader`, `BlockInMainChain`, `GetBlockMetaForHash`, `GetMainChainBlockHashes` | the same names in snake case | slice 1 (a stale header gives the error Go's next comparison gives, where Go panics, QK-0086) |
+//! | `Store.Rollback` | `rollback` (the blocks with transactions, as Go's map) | slice 1 without its credit step (each mined credit back to an unmined one, which records a script offset: blocked on script offsets) and its other credit, debit, commitment and multisig steps (later, with them) |
+//! | `Store.InsertMinedTx` | `insert_mined_tx` | slice 1 (the debit loop and `moveMinedTx`'s credit move: later, with the credits; into a stake-invalidated block, an unmined transaction is refused where Go panics) |
+//! | `Store.InsertMemPoolTx`, `SetPublished`, `RemoveUnconfirmed`, `PruneUnmined` | `insert_mem_pool_tx`, `set_published`, `remove_unconfirmed`, `prune_unmined` | slice 1 (`RemoveUnconfirmed`'s credit, commitment and multisig steps: later) |
+//! | `Store.AddCredit` | — | blocked on script offsets (each of its three writes records `PkScriptLocs()[index]`, `txmined.go:1420`, `:1501`, `:1534`) |
+//! | `Store.AddTicketCommitment`, `RedeemTicketCommitments` | — | later: the commitments feed the balance tables (ADR-0003 Decision item 4, `LockedByTickets`) |
+//! | `Store.AddMultisigOut`, `SpendMultisigOut`, `GetMultisigOutput`, `UnspentMultisigCreditsForAddress` | — | later: `Rollback` changes multisig records only inside its credit and debit steps |
+//! | `Store.UnspentOutputCount` | `unspent_output_count` | slice 1 (the length of `unspent`, ADR-0003, addendum "Schema version 1 as built") |
+//! | `Store.RandomUTXO`, `UnspentOutputs`, `UnspentOutput`, `ForEachUnspentOutpoint`, `ExistsUTXO` | — | later: read the credits |
+//! | `Store.IsUnspentOutpoint` | — | later: reads the unspent set; spec 04 D-1 recommends not porting it (QK-0088), open |
+//! | `Store.MakeInputSource`, `InputSource.SelectInputs` | — | later: read the credits |
+//! | `Store.AccountBalance`, `AccountBalances` | — | later: read the credits and commitments |
+//! | `Store.UnspentTickets` | — | later: its first test is a credit of the ticket's output 0 |
+//! | `Store.OwnTicket`, `IterateTickets`, `TicketIterator.Next`, `Err`, `Close`, `TicketDetails` | `own_ticket`, `iterate_tickets` (a vector), `ticket_details` | slice 1 (the credit of output 0: later, with the credits) |
+//! | `Store.TxDetails`, `TxDetails.Height`, `UniqueTxDetails`, `Tx`, `ExistsTx`, `ExistsTxMinedOrUnmined`, `TxBlockHeight` | the same names in snake case | slice 1 (the credit and debit lists are empty without credits) |
+//! | `Store.RangeTransactions`, `RangeBlocks` | `range_transactions`, `range_blocks` | slice 1 (no context argument, ADR-0008) |
+//! | `Store.PreviousPkScripts` | — | later: reads the credits' stored script locations; spec 04 D-1 recommends not porting it (QK-0089), open |
+//! | `Store.Spender` | — | later: its first test is a credit of the outpoint |
+//! | `Store.UnminedTxs`, `UnminedTxHashes` | `unmined_txs`, `unmined_tx_hashes` | slice 1 (ties in the dependency order broken by hash, ADR-0012 Rule 3(a); QK-0092) |
 //!
 //! # Store rows
 //!
@@ -94,6 +141,9 @@
 //! | `addracctidx/<account>/` (per account) | `addr_by_acct_sha` row `<account LE> ‖ <SHA-256 of the HASH160>` → HASH160 | the key is dcrwallet's nested key, so a prefix walk is `ForEachAccountAddress` order; an entry left by a row recorded again under another account stays, as in dcrwallet (QK-0757) |
 //! | — | `addr_by_path` | not written: no operation reads it (ADR-0003's gap-limit use belongs to the wallet crate); the export refuses a store where it is not empty |
 //! | `main/mgrver`, `main/mgrcreated`, `meta/addrpool*`, `usedaddrs` | — | not kept: dead or write-only at the pin (ADR-0001 section 9; ADR-0003, addendum "Schema version 1 as built") |
+//!
+//! The transaction store's rows (dcrwallet's `wtxmgr` bucket tree) are in
+//! [`txstore`], "Rows".
 //!
 //! # Locking and secrets
 //!
@@ -222,17 +272,24 @@
 //! `udb.hd_keys_from_seed`,
 //! `udb.validate_account_name`, `udb.is_imported_voting`; every `mgr.`
 //! operation of the "ported" rows above; `rt.reopen`, `rt.clock_set`,
-//! `rt.clock_advance`), with Go's address reference forms and import
+//! `rt.clock_advance`; and the transaction store's operations of the
+//! first slice with the fixtures `tx.build` and `tx.raw` and the header
+//! builder of `store.extend_main_chain`, `tests/support/runner/txops.rs`),
+//! with Go's address reference forms and import
 //! labels, Go's bookkeeping of account passphrases (the export's
 //! `[privcheck]` unlocks each account with its own passphrase with the one
 //! last set or imported, as Go's runner passes them), `setup.ncpu` as
 //! the processor count new Argon2id parameters record
 //! ([`Manager::with_num_cpu`]) and Go's bookkeeping of the private and
 //! public passphrases (a successful `mgr.change_passphrase` replaces the
-//! one later reopens and the export use), and refuses every other
-//! operation, `update` and `view` groups
-//! and `rt.checkpoint` included, as not yet ported, so a script can never
-//! pass by skipping one. A setup may create a watching-only wallet from
+//! one later reopens and the export use), `update` and `view` groups
+//! whose members are transaction store operations
+//! (`tests/support/runner/groups.rs`: each member in its own transaction,
+//! committed even when the member fails, and the store file put back when
+//! an `update` group ends on an untolerated error, which is one
+//! transaction's outcome), and refuses every other operation,
+//! address manager operations in a group and `rt.checkpoint` included, as
+//! not yet ported, so a script can never pass by skipping one. A setup may create a watching-only wallet from
 //! `xpub` (a key spec, neutered, or `{"raw": string}`, the string passed
 //! unparsed); its exports carry no `[privcheck]`, as Go's runner passes no
 //! private passphrase for it or after a conversion.
@@ -333,6 +390,30 @@
 //!   passphrases opened, and the cache never holds one), and
 //!   that a converted one holds none of them, nor any sealed private key,
 //!   nor any key an account passphrase opened.
+//! - The transaction store's first slice: `tests/oracle.rs` runs the
+//!   hand-written scripts `28-txstore-chain`, `29-txstore-records`,
+//!   `30-txstore-stake` and `31-txstore-groups` (`update` and `view`
+//!   groups) and generated ones (`tests/support/txgen.rs`, all four
+//!   networks, `PURSE_UDB_TX_SCRIPTS`; the same with runs of operations in
+//!   groups, `PURSE_UDB_TX_GROUP_SCRIPTS`), comparing results and the
+//!   chain and transaction sections of the export (a Go `Panic` matched by
+//!   any Rust error, outside a tolerating group member, which the runner
+//!   refuses: `a_group_member_may_not_tolerate_a_panic_stand_in`); two
+//!   oracle tests pin reproduced Go defects on all four networks,
+//!   `an_unmined_coinbase_conflicts_with_votes` (QK-0780, with coinbases
+//!   and treasury spends; QK-0087) and
+//!   `a_transaction_mined_twice_and_rolled_back_is_mined_and_unmined`
+//!   (QK-0781); `tests/frozen.rs` replays the hand-written scripts and a
+//!   fixed generated set (`tests/data/txstore_genvectors.txt`);
+//!   `tests/txstore.rs` holds the reachable upstream tests
+//!   (`TestSetBirthState`, and `TestStakeInvalidationOfTip` without its
+//!   credits, on Go's header chain) and the property tests (row invariants
+//!   after every operation of random sequences, failed operations writing
+//!   nothing, reopens, record round trips, the dependency order of
+//!   `UnminedTxs`, ADR-0019's filter rules, the guard of all 13 later
+//!   tables, the rows the range walks read); and
+//!   `fuzz/fuzz_targets/udb_tx_record.rs` fuzzes `TxRecord::new`. Details
+//!   in [`txstore`], "How the first slice is verified".
 //! - `tests/export.rs`: the export parses under `purse-export-check`, its
 //!   registry equals the parser's, it refuses a store holding rows it
 //!   does not export, and its options' `Debug` hides the passphrases.
@@ -347,6 +428,7 @@
 
 pub mod addrmgr;
 pub mod export;
+pub mod txstore;
 
 pub use addrmgr::Manager;
 pub use export::export;

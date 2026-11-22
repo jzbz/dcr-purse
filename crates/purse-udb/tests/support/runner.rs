@@ -40,6 +40,10 @@ use purse_udb::addrmgr::{
     self, Address, BoxedRandom, ChainParams, ExtendedKey, ManagedAddress, StoreRead, Wif,
 };
 use purse_udb::export::{ExportOptions, export};
+use purse_udb::txstore::{TxRecord, TxStore};
+
+mod groups;
+mod txops;
 
 /// The operations this runner implements, every one with Go's arguments
 /// and result shape.
@@ -98,6 +102,50 @@ pub const SUPPORTED: &[&str] = &[
     "rt.reopen",
     "rt.clock_set",
     "rt.clock_advance",
+    "update",
+    "view",
+    "tx.build",
+    "tx.raw",
+    "store.main_chain_tip",
+    "store.extend_main_chain",
+    "store.processed_txs_block_marker",
+    "store.update_processed_txs_block_marker",
+    "udb.set_birth_state",
+    "udb.birth_state",
+    "store.is_missing_main_chain_cfilters",
+    "store.missing_cfilters_height",
+    "store.insert_missing_cfilters",
+    "store.get_main_chain_cfilters",
+    "store.cfilter_v2",
+    "store.import_cfilters_v2",
+    "udb.extract_block_header",
+    "store.get_main_chain_block_hash_for_height",
+    "store.get_serialized_block_header",
+    "store.get_block_header_time",
+    "store.get_block_header",
+    "store.block_in_main_chain",
+    "store.get_block_meta_for_hash",
+    "store.get_main_chain_block_hashes",
+    "store.rollback",
+    "store.insert_mined_tx",
+    "store.insert_mem_pool_tx",
+    "store.set_published",
+    "store.remove_unconfirmed",
+    "store.prune_unmined",
+    "store.unspent_output_count",
+    "store.own_ticket",
+    "store.iterate_tickets",
+    "store.tx_details",
+    "store.unique_tx_details",
+    "store.ticket_details",
+    "store.tx",
+    "store.exists_tx",
+    "store.exists_tx_mined_or_unmined",
+    "store.tx_block_height",
+    "store.range_transactions",
+    "store.range_blocks",
+    "store.unmined_txs",
+    "store.unmined_tx_hashes",
 ];
 
 /// The `@exporter` meta of this runner's exports.
@@ -168,6 +216,27 @@ struct Runner {
     clock: i64,
     /// The addresses of labelled imports (Go's `runner.addrs`).
     addrs: HashMap<String, Address>,
+    /// The transaction store.
+    txstore: TxStore,
+    /// The network's parameters (the headers' proof-of-work bits).
+    params: dcroxide_chaincfg::Params,
+    /// Records made by `tx.build` and `tx.raw`, by label (Go's
+    /// `runner.txs`).
+    txs: HashMap<String, TxRecord>,
+    /// Blocks connected by `store.extend_main_chain`, by label (Go's
+    /// `runner.blocks`).
+    blocks: HashMap<String, purse_store::Hash32>,
+    /// `setup.chain_time` (default `setup.clock`): the time of height 0 in
+    /// built headers.
+    chain_time: i64,
+    /// The number of headers built so far (Go's `runner.nonce`).
+    nonce: u32,
+    /// The export's chain mode (`export.chain` of the script).
+    digest: bool,
+    /// The members' records of the group the last operation was.
+    group_ops: Option<Vec<Value>>,
+    /// Whether an `update` group's member is running.
+    in_group: bool,
 }
 
 /// An address argument before its resolution: ready, or the P2PKH address
@@ -350,11 +419,18 @@ impl Runner {
     }
 
     /// Runs `f` in a write transaction, committed when `f` succeeds and
-    /// rolled back when it fails, as Go's `walletdb.Update`.
+    /// rolled back when it fails, as Go's `walletdb.Update`; inside an
+    /// `update` group, committed either way, as Go's group transaction
+    /// keeps what a member wrote before its error (`groups.rs`).
     fn update<T>(
         &self,
         f: impl FnOnce(&mut WriteTx<'_>) -> Result<T, AnyError>,
     ) -> Result<Result<T, AnyError>, String> {
+        if self.in_group {
+            let r: Result<Result<T, AnyError>, purse_store::Error> =
+                self.store().update(|tx| Ok(f(tx)));
+            return r.map_err(|e| fault(format!("update: {e}")));
+        }
         let r: Result<T, RunErr> = self.store().update(|tx| f(tx).map_err(RunErr::Udb));
         match r {
             Ok(v) => Ok(Ok(v)),
@@ -920,6 +996,12 @@ impl Runner {
                 self.clock = self.clock.saturating_add(a.i64("seconds")?);
                 Ok(Value::Null)
             }
+            "update" | "view" => {
+                let (r, records) = self.group(&a)?;
+                self.group_ops = Some(records);
+                r
+            }
+            other if txops::handles(other) => self.tx_op(&a)?,
             other => {
                 return Err(fault(format!(
                     "operation {other:?} is not ported to purse-udb yet"
@@ -993,6 +1075,28 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             .ok_or_else(|| fault(format!("setup.{k} must be a string")))
     };
     let chain = network(get_str("network")?)?;
+    let txstore = TxStore::new(&chain).map_err(|e| fault(format!("TxStore::new: {e:?}")))?;
+    let params = match chain.name {
+        "mainnet" => dcroxide_chaincfg::mainnet_params(),
+        "testnet3" => dcroxide_chaincfg::testnet3_params(),
+        "simnet" => dcroxide_chaincfg::simnet_params(),
+        _ => dcroxide_chaincfg::regnet_params(),
+    };
+    // The script's export options: the chain mode is read; the others
+    // shape only Go's export and are ignored here, as before.
+    let digest = match s.get("export") {
+        None => false,
+        Some(x) => {
+            let o = x
+                .as_object()
+                .ok_or_else(|| fault("export must be an object"))?;
+            match o.get("chain").and_then(Value::as_str) {
+                None | Some("full") => false,
+                Some("digest") => true,
+                Some(m) => return Err(fault(format!("export.chain {m:?}"))),
+            }
+        }
+    };
     // Go's setup: exactly one of a seed (Initialize) and an extended key
     // (InitializeWatchOnly): a key spec, neutered, or {"raw": string}
     // passed unparsed.
@@ -1016,6 +1120,12 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         .get("clock")
         .and_then(Value::as_i64)
         .ok_or_else(|| fault("setup.clock must be an integer"))?;
+    let chain_time = match setup.get("chain_time") {
+        None => clock,
+        Some(v) => v
+            .as_i64()
+            .ok_or_else(|| fault("setup.chain_time must be an integer"))?,
+    };
     // Go's setup.ncpu: 1 unless given, within 1 to 1024.
     let ncpu = match setup.get("ncpu") {
         None => 1,
@@ -1058,7 +1168,10 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
                 &Limits::DEFAULT,
             ),
         }
-        .map_err(RunErr::Udb)
+        .map_err(RunErr::Udb)?;
+        // Go's Initialize creates the transaction store in the same
+        // transaction.
+        txstore.create(tx).map_err(RunErr::Udb)
     });
     match created {
         Ok(()) => {}
@@ -1085,6 +1198,15 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         rng,
         clock,
         addrs: HashMap::new(),
+        txstore,
+        params,
+        txs: HashMap::new(),
+        blocks: HashMap::new(),
+        chain_time,
+        nonce: 0,
+        digest,
+        group_ops: None,
+        in_group: false,
     };
     match runner.reopen()? {
         Ok(_) => {}
@@ -1110,6 +1232,9 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             Ok(v) => rec.insert("ok".to_owned(), v),
             Err(e) => rec.insert("err".to_owned(), error_value(&e)),
         };
+        if let Some(members) = runner.group_ops.take() {
+            rec.insert("ops".to_owned(), Value::Array(members));
+        }
         results.push(Value::Object(rec));
     }
 
@@ -1124,6 +1249,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         acct_pass: &acct_pass,
         exporter: EXPORTER,
         limits: Limits::DEFAULT,
+        digest: runner.digest,
     };
     let tx = runner
         .store()

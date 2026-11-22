@@ -22,6 +22,8 @@ dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec
 dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
+dcroxide-gcs = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9", default-features = false }
+dcroxide-stake = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9", default-features = false }
 dcroxide-standalone = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
 dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }

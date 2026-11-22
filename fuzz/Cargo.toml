@@ -114,6 +114,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "udb_tx_record"
+path = "fuzz_targets/udb_tx_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "wif_decode"
 path = "fuzz_targets/wif_decode.rs"
 test = false

@@ -324,9 +324,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcroxide-gcs"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+dependencies = [
+ "dcroxide-chainhash",
+ "dcroxide-stake",
+ "dcroxide-txscript",
+ "dcroxide-wire",
+ "siphasher",
+]
+
+[[package]]
 name = "dcroxide-secp256k1-vartime"
 version = "0.1.0"
 source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+
+[[package]]
+name = "dcroxide-stake"
+version = "0.1.0"
+source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+dependencies = [
+ "dcroxide-chainhash",
+ "dcroxide-txscript",
+ "dcroxide-uint256",
+ "dcroxide-wire",
+]
 
 [[package]]
 name = "dcroxide-standalone"
@@ -783,8 +806,12 @@ name = "purse-udb"
 version = "0.1.0"
 dependencies = [
  "dcroxide-chaincfg",
+ "dcroxide-chainhash",
  "dcroxide-dcrec",
  "dcroxide-dcrjson",
+ "dcroxide-gcs",
+ "dcroxide-stake",
+ "dcroxide-standalone",
  "dcroxide-txscript",
  "dcroxide-wire",
  "hmac",
@@ -974,6 +1001,12 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "siphasher"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "sntrup4591761"

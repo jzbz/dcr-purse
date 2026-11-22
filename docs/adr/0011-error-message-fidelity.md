@@ -47,7 +47,7 @@ harness needs a mask rule for error text; the Phase 8 config suite requires
   crate) and go-socks texts (`dcroxide:crates/dcroxide-node/src/socks.rs:50-64`).
   dcrd-module texts come through dcroxide: `purse-hdkeychain` returns
   `secp256k1.ParsePubKey`'s texts at v4.4.1
-  (`crates/purse-hdkeychain/src/lib.rs:316-366`).
+  (`crates/purse-hdkeychain/src/lib.rs:337-387`).
 - Network-stack leaves reach clients too. A failed `RpcSync` dial reports
   `Wallet synchronization stopped: rpcsyncer.Run: …` around the
   `wsrpc.Dial` error: connection refused, a TLS failure, or
@@ -63,7 +63,7 @@ harness needs a mask rule for error text; the Phase 8 config suite requires
   (secp256k1 v4.4.1, txscript v4.1.2, dcrjson v4.2.0, go-flags v1.5.0,
   vspd client v4.0.2, wsrpc v2.3.8, gorilla/websocket v1.5.1, grpc
   v1.83.2). Go is pinned because it authors part of what the oracle pins
-  (`crates/purse-testutil/src/lib.rs:31-36`). dcroxide's reference is
+  (`crates/purse-testutil/src/lib.rs:41-46`). dcroxide's reference is
   go1.27.3, and its dcrjson Go-JSON texts still follow go1.26.2, a
   recorded divergence (`dcroxide:docs/PARITY.md:132-148`). A file-by-file
   comparison of go1.27.3 and go1.27.4 (non-test sources of strconv,

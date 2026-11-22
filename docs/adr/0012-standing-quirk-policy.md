@@ -21,7 +21,8 @@
 - **Decided, 2026-11-21 (project owner):** the digit search of the wiped
   base58 codecs, which decode private strings, is to be replaced with a
   constant-time lookup under Rule 6; scheduled at low priority, not yet
-  done. See "Addendum, 2026-11-21" at the end.
+  done. See "Addendum, 2026-11-21" at the end. *Done, 2026-11-22: that
+  addendum's note of that date.*
 - **Decided, 2026-11-22 (project owner):** a Rule 7 case whose difference
   a client could observe is brought as Rule 11 brings one, as proposed;
   and brief §3 W1's text stays as it is, the funds Rule 7's default fixes
@@ -189,7 +190,8 @@ changes, so it is no divergence. Variable time stays only on values a
 holder of public data can compute, with the residual exposure documented
 (`crates/purse-hdkeychain/src/lib.rs:73-91`). *2026-11-21: the
 base58 codecs' digit search is covered and its replacement scheduled,
-addendum of that date.*
+addendum of that date.* *2026-11-22: replaced, the same addendum's note
+of that date.*
 
 **Rule 7 — Funds.** It triggers on an outcome W1 forbids: a key, address
 or output not derived or not recognised; a spend unrecorded or wrongly
@@ -575,6 +577,180 @@ a dudect-style check of its own. It is to land before anything that
 parses private strings ships. The change is not made, and nothing of the
 "Not examined" paragraph above has been examined since.
 
+**Note, 2026-11-22: the replacement is made.** Both codecs
+(`crates/purse-hdkeychain/src/base58.rs`,
+`crates/purse-dcrutil/src/base58.rs`) find a character's digit with
+`digit_plus_one` and, in the encoders, which indexed the alphabet by
+each digit (`ALPHABET[d]`, as decred/base58 v1.0.6 does,
+`base58.go:147`), a digit's character with `char_of`. Neither reads the
+alphabet. Each computes, from the bounds of the alphabet's six runs of
+consecutive characters (`1`-`9`, `A`-`H`, `J`-`N`, `P`-`Z`, `a`-`k`,
+`m`-`z`), masks that say which run the character is in or which runs
+the digit is past, using subtractions and shifts only; packs them into one
+word; passes that word through `core::hint::black_box`; and only then
+selects with them by AND and OR. A compile-time assertion checks that
+the runs spell the alphabet. This differs in method from the decision
+above, which named a lookup that reads all 58 entries and selects the
+match; it is the same in effect (no output changes, no time that
+depends on the character) with six masks in place of 58 and no read of
+the alphabet. Whether that substitution stands is the owner's to
+confirm.
+
+The barrier sits on the masks for a reason found in review. The first
+form of the change, a masked scan of all 58 entries with only the
+alphabet behind `black_box`, was branch-free in the workspace's release
+build on x86_64 only because the compiler vectorised the scan: the
+compiler still read each mask as a comparison and each masked AND as a
+select, and at opt-level "s", and in the crate's object code before
+linking, it compiled the select into a conditional branch on the
+secret character (the decoder's per-entry `je`, and a 58-way
+compare-and-jump chain on the digit in the encoder). The timing check
+then failed at "s" by several hundred nanoseconds an operation. With the
+masks behind the barrier, nothing after it is a select at all; before
+it, the compiler may still form a mask with a compare and a conditional
+move (it does at "s"), which takes the same time either way, and the
+disassembly check below is what shows that no branch came of it. The
+barrier also keeps the loops scalar.
+
+The decoder now maps the whole string before its arithmetic and returns
+nothing afterwards if any character was outside the alphabet, where it
+stopped at the first such character before. No output, error or order
+of errors changes: each decoder returns nothing for exactly the inputs it
+did, and its callers are untouched. So this is no divergence, and
+`docs/PARITY.md` has no row.
+
+What is constant time, and on what evidence: on x86_64, with the pinned
+compiler, both lookups compile to code with no conditional branch and no
+memory access that depends on the character or the digit, and the
+big-number arithmetic to code with no division instruction, at
+opt-levels 1, 2, 3, "s" and "z", by the disassembly check below at each
+level on an x86_64 Linux desktop; and the timing check found no difference at
+opt-levels 3 and "s" on the same desktop, in runs that are not recorded.
+No other architecture or compiler was examined, and the property is the
+compiler's output, not the source's: a consumer building these crates
+another way gets code these checks did not see, which the crates'
+documentation says. What still takes a time that depends on the input, as
+each module's documentation ("Timing") sets out: the length, which is
+public; whether a string holds a character outside the alphabet, an
+early exit kept because the result says the same; the count of leading
+`1` characters, which encode leading zero bytes, none in any extended
+key or WIF of the four networks, whose version and network bytes are not
+zero; and the big-number arithmetic, whose limbs (decoding) and digits
+(encoding) grow with the magnitude of each prefix of the value, which the
+public leading fields set except through a carry near a boundary. The
+rest of a parse (the checksum comparison, the field checks, a private
+key's public key) was not examined with this change.
+
+The encoders' division by 58. Review found that each encoder's
+`val / 58` and `val % 58`, on a dividend that depends on every payload
+byte before it (the chain code and key of an extended private key, the
+key of a WIF), compiled at opt-level "z" to a hardware divide (`div`)
+on x86_64, inside the digit loop of `ExtendedKey::string` and
+`Wif::string`; at levels 1, 2, 3 and "s" the compiler turned it into a
+multiplication, as the modules' documentation then said of "an optimised
+build" without naming a level. A divide's latency depends on its
+operands on several x86-64 and AArch64 cores; that a leak is measurable
+here was inferred from published latencies, not shown. Each encoder now
+divides with `divmod58`, a multiplication by 18,079 (ceil(2^20 / 58)) and
+a shift for the quotient and a multiplication and a subtraction for the
+remainder, exact below 2^17 against the encoder's largest dividend of
+14,847 (a compile-time assertion), and tested against `/` and `%` on
+every value below 2^17 (`divmod58_matches_division`). The digit loop is
+kept out of line as `value_digits`, and each decoder as a whole, so that
+the disassembly check reads them and fails on any division instruction;
+with the plain division restored in a scratch build, the check failed in
+both crates at "z" (two `div` each) and passed at 1, 2, 3 and "s",
+which is the gap it closes. The arithmetic's other operations (additions, subtractions,
+shifts, 32- and 64-bit multiplications) take a time that does not depend
+on their operands on x86-64 and AArch64 cores by those cores'
+documentation; that was not measured, and a 32-bit target, where the
+decoder's 64-bit multiplication is several instructions or a call, was
+not considered. The encoder's `len * 137 / 100`, which sizes the WIF
+encoder's buffer, divides the public length and stays.
+
+The checks. In each crate, `lookups_match_the_search_for_every_byte`
+compares both lookups, one value at a time and through the slice maps
+the codecs call, with the old search over all 256 byte values; the
+equivalence tests against `dcroxide-base58`, the oracle differentials,
+the frozen vectors and the `hdkeychain_parse` fuzz target are unchanged
+and pass; a fuzz target for WIF strings, `wif_decode`, is added, since
+that parser had none. Each crate's `src/ct_check.rs` holds ignored
+targets of two kinds:
+
+- `disassembly`, on `purse-testutil`'s `disasm` module (new): the test
+  binary's own code, read with GNU binutils, for a probe of each lookup
+  with no loop around it, which must have no conditional jump, no call
+  and no memory access but a fixed address or an unindexed stack slot,
+  and for the two loops the codecs call (`map_digits`, `map_chars`, kept
+  out of line for it), which must have no call, take no table's address,
+  and jump conditionally only backward or out of every loop; and for the
+  big-number arithmetic (`value_digits` and each decoder), which may
+  branch on the value's magnitude and call, and must have no division
+  instruction, the one rule every shape of the check now has. dcroxide
+  has no such check; it is added because the timing test cannot see a
+  table load (below). Each of four regressions, built in a scratch copy,
+  fails it at both opt-levels 3 and "s": a linear search like the
+  decoder's old one, the first form's masked scan, the encoder's old
+  `ALPHABET[d]` load, and the first form's masked scan in the encoder.
+  Removing the barrier makes the compiler vectorise the decoder's loop
+  at opt-level 3, whose length dispatch the loop rule rejects; that
+  failure is the rule's, not a leak, and at "s" the form without the barrier passed. So the barrier
+  was not shown necessary for the arithmetic form with this compiler; it
+  is kept because the first form showed what the compiler may do with an
+  unguarded select. The crate's object code before linking, emitted at
+  opt-levels 3 and "s", was also read for the two loops: their only
+  conditional jumps are a length guard and the back edge (at "s",
+  `map_digits` there also calls the iterator adapter that pairs the two
+  slices, on their lengths alone, which linking inlines). The loop rule
+  is a heuristic on layout: a branch on the data laid out as a back edge
+  or an exit passes it, and loop structure it does not know (an unrolled
+  remainder, a vectorised loop) fails it.
+- dudect's fixed-against-random timing test, following dcroxide's
+  method: a reduced port of its harness (`crates/purse-testutil/src/ct.rs`;
+  the workspace does not link `dcroxide-testutil`), on the lookups, the
+  decoder and the encoder against random secrets, with the old search as
+  a positive control that must be found. Only `digits` reliably finds a
+  variable-time decoder lookup: the old search as it was written passed
+  `decode`, while the same search written another way failed it. `chars`
+  and `encode` cannot see the encoder's old form, a load from the 58-byte
+  alphabet indexed by the digit, which stays in the first-level cache:
+  with it restored both passed. That is why the disassembly check exists.
+
+A new job of `.github/workflows/ci.yml` runs the timing targets and the
+disassembly at the release profile and again at opt-level "s", 10 s a
+timing target, pinned to one processor, failing as dcroxide's job does
+on |t| above 10 with a difference of 1 ns an operation or more, and the
+disassembly alone at opt-levels 1, 2 and "z". Whether the timing steps
+stay free of false failures on shared runners is not established: the
+targets were run only on an x86_64 Linux desktop, at 2 s, 5 s and 10 s a
+target, as smoke tests of the harness; in the runs of the final form every
+target passed at 3 and at "s" and both controls were found, as they
+did again, at 10 s a target, after the encoders' division was rewritten.
+None is recorded. There is no timing of record and no ledger entry.
+
+Speed, unrecorded, on the same desktop. The final form against the
+parent commit, in six interleaved `purse-bench run` sessions each,
+Rust alone, pinned to one processor at a load average near 2:
+`hd.xpub_string` about 6.5% slower and `hd.parse_xpub` about 1% quicker
+(medians). The barrier keeps the encoder's character pass scalar, under
+3 ns a character more than the parent's table load; the old search's
+branch on every character cost the decoder about as much as the
+arithmetic does. The CI gate's step was run
+locally on this tree, unrecorded, as follows. The first form was run
+five times and passed three: one run at a load average near 100 failed
+on seven rows (`hd.pub_child`, `hd.addr20k`, `crypto.hmac_sha512`,
+`crypto.hash160`, `crypto.base58check_decode`, `snacl.seal_32`,
+`snacl.seal_111`) and one near 46 on `hd.addr20k` alone, none of which
+uses these codecs, and in all five the two extended-key rows were within
+their limits. The final form was run twice at a load average near 2
+and passed both (`hd.xpub_string` 1.011 against its baseline of 0.955,
+limit 1.910, and `hd.parse_xpub` 0.547 against 0.576, limit 1.152, in
+the first). After the encoders' division was rewritten (above) the step
+was run once more, at a load average near 3, and passed
+(`hd.xpub_string` 1.024, `hd.parse_xpub` 0.547); the interleaved
+comparison with the parent commit, and its 6.5%, predate that change and
+were not repeated. The "Not examined" paragraph above stands.
+
 ## Addendum, 2026-11-22 — Decisions of the project owner: how a Rule 7 case is brought, and W1
 
 **What was put.** The two points of D10's record that the owner had not
@@ -621,7 +797,8 @@ What it defers stays deferred: QK-0203 (Phase 5) and the fee
 credits of QK-0282 (Phase 9), each decided after an oracle run (addendum
 of 2026-11-19, "Entries met so far"), and the replacement of the base58
 digit search, scheduled at low priority and not done (addendum of
-2026-11-21).
+2026-11-21). *Done later on 2026-11-22: the note of that date at the end
+of the addendum of 2026-11-21.*
 
 **Places amended with this addendum:** the Status line (a dated bullet);
 procedure item 3 and the second point under "Not settled" in the addendum

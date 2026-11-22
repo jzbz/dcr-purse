@@ -14,6 +14,10 @@
 //! Without a Go toolchain a differential test skips with a notice, unless
 //! `PURSE_REQUIRE_ORACLE` is set (as in CI), which makes it a failure, so
 //! differential coverage cannot silently disappear.
+//!
+//! [`ct`] is dudect's fixed-against-random timing test, and [`disasm`] a
+//! structural check of the test executable's own machine code, for the
+//! `ct_check` targets of crates whose code handles secrets.
 
 use std::env;
 use std::fmt::Write as _;
@@ -27,6 +31,8 @@ use std::time::Duration;
 pub use serde_json;
 use serde_json::Value;
 
+pub mod ct;
+pub mod disasm;
 pub mod skew;
 
 /// The dcrwallet commit every parity claim names (master, 2.2.0-pre).

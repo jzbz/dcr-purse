@@ -89,9 +89,27 @@
 //!   rather than `key.neuter().child(i)?` (the same extended public key):
 //!   that path runs only the constant-time arithmetic above (the stored
 //!   length, as just said, aside).
-//! - Anything outside that arithmetic: this crate makes no other
-//!   constant-time claim. For example the base58 codec of an extended key
-//!   string branches on its digits, as Go's does.
+//! - Anything outside that arithmetic and the base58 lookups below: this
+//!   crate makes no other constant-time claim.
+//!
+//! The base58 codec of an extended key string computes each character's
+//! digit, and each digit's character, from the bounds of the alphabet's
+//! runs by arithmetic on masks that pass through `black_box` before they
+//! select, written with no comparison and compiled with no table and no
+//! branch on a character of a private key string (ADR-0012, addendum of
+//! 2026-11-21, and its note of 2026-11-22); its big-number arithmetic
+//! divides by 58 with a multiplication and a shift, so that no build
+//! keeps a hardware divide on secret digits. That is checked on x86_64 at
+//! opt-levels 1, 2, 3, "s" and "z" by a disassembly of the test binary,
+//! and the lookups by timing at 3 and "s"; no other architecture was
+//! looked at. What the codec's time still
+//! follows (the length, whether every character is in the alphabet, the
+//! count of leading `1` characters, and the magnitude of each prefix of
+//! the value, which the public version, depth, parent fingerprint and
+//! child number set but for carries) is set out in the documentation of
+//! its module (`src/base58.rs`), whose checks are in `src/ct_check.rs`.
+//! Go's decoder looks each character up in a table indexed by it, and
+//! Go's encoder indexes the alphabet by each digit.
 //!
 //! ## Wiping
 //!
@@ -179,6 +197,8 @@
 extern crate alloc;
 
 mod base58;
+#[cfg(test)]
+mod ct_check;
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};

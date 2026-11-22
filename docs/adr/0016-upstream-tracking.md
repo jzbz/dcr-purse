@@ -100,7 +100,7 @@ not counted).
 ### What names the pin in this repository
 
 - **Code and the oracle.** `DCRWALLET_PARITY_COMMIT`
-  (`crates/purse-testutil/src/lib.rs:31`); the oracle's requirement
+  (`crates/purse-testutil/src/lib.rs:39`); the oracle's requirement
   (`tools/oracle/go.mod:11`, `go.sum:3-4`); the verbatim copy of
   dcrwallet's `go.mod` (`tools/oracle/dcrwallet.go.mod`), whose hash a Go
   test holds to `go.sum` (`tools/oracle/internal/deps/gomod_test.go:80-90`);
@@ -290,7 +290,7 @@ citations, so it can only report.
      acceptance work picks the releases, not by this record.
    - *dcroxide revision:* not tied to the dcrwallet pin; ADR-0006 rule 2.
    - *Reference Go:* not tied; it moves by its own deliberate bump
-     (`crates/purse-testutil/src/lib.rs:33-38`; ADR-0009).
+     (`crates/purse-testutil/src/lib.rs:41-46`; ADR-0009).
 5. **The move.** One change on master, containing nothing but the move
    and what the move requires, made by an engineer and signed by the
    owner. In order:

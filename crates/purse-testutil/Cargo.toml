@@ -1,6 +1,6 @@
 [package]
 name = "purse-testutil"
-description = "Internal test utilities: the dcrwallet oracle harness and a deterministic PRNG (not for release)"
+description = "Internal test utilities: the dcrwallet oracle harness, a deterministic PRNG, a dudect-style timing test and a disassembly check (not for release)"
 publish = false
 version.workspace = true
 authors.workspace = true

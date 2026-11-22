@@ -68,7 +68,7 @@ dcroxide's v1.6.1 layer, logrotate v1.0.0 against its v1.1.2 rotator
 A second axis is the Go toolchain (spec 24 §4.1, last paragraph).
 Behaviour taken from Go's standard library follows the reference Go:
 go1.27.3 for dcroxide (dcroxide `.github/workflows/ci.yml:42`), go1.27.4
-for dcr-purse (`crates/purse-testutil/src/lib.rs:36`). dcroxide's
+for dcr-purse (`crates/purse-testutil/src/lib.rs:46`). dcroxide's
 Go-JSON error texts are still Go 1.26's, an interim divergence there.
 `purse-dcrutil` already takes Go's `FormatFloat` from `dcroxide-dcrjson`
 (`crates/purse-dcrutil/Cargo.toml:18-20`). dcroxide's tie check covers
@@ -85,7 +85,7 @@ go-flags (`tools/oracle/go.mod:5-53`). One differential crosses the skew:
 HD entry points and `dcroxide-crypto`'s hashes against hdkeychain v3.1.3
 on secp256k1 v4.4.1; it covers the crate's own base58 codec, not
 dcroxide's. Spec 23 §5.4.2 item 2's check is not built: `purse-testutil`
-checks only the dcrwallet pin (`crates/purse-testutil/src/lib.rs:469-477`),
+checks only the dcrwallet pin (`crates/purse-testutil/src/lib.rs:650-659`),
 and `build.info` reports only the Go release. Spec 23 §5.4.2 item 4 and
 §12.2 require re-running every reused crate's differentials against the
 wallet oracle. dcroxide's handlers are `package main`

@@ -168,6 +168,69 @@ jobs:
           --only hd.,crypto.,snacl.seal,snacl.open,dcrutil.
           --gate crates/purse-bench/gate-baseline.tsv
 
+  constant-time:
+    name: constant time (wiped base58 codecs, ADR-0012)
+    # The checks of the extended-key and WIF codecs' lookups
+    # (src/ct_check.rs in purse-hdkeychain and purse-dcrutil):
+    #
+    # - disassembly: the test binary's own code for one lookup in each
+    #   direction, for the two loops the codecs call, and for their
+    #   big-number arithmetic (each encoder's value_digits and each
+    #   decoder), read with nm and objdump
+    #   (crates/purse-testutil/src/disasm.rs). It fails on a conditional
+    #   branch or a load indexed by the data in the lookups, and on a
+    #   division instruction anywhere in them; it is the only check that
+    #   sees a lookup made a table index again, or a division by 58 the
+    #   optimiser kept (it keeps one at opt-level "z").
+    # - dudect's fixed-against-random t-test (crates/purse-testutil/src/ct.rs,
+    #   a reduced port of the harness dcroxide's "Constant time" workflow
+    #   runs) on the lookups, the decoders and the encoders, with the
+    #   linear search the lookups replaced as a positive control that must
+    #   be found: ten targets at 10 s each. A target fails when a fixed
+    #   class's |t| is above 10 on a difference of 1 ns an operation or
+    #   more.
+    #
+    # Both at the release profile (opt-level 3), and again at opt-level
+    # "s": the optimisation level decides whether a select becomes a
+    # branch, and the lookups' first form branched on the secret at "s"
+    # alone. The disassembly also runs at opt-levels 1, 2 and "z", which
+    # take seconds each and no timing; "z" is where a plain division by 58
+    # stays a hardware divide. Each timed step's binary is built
+    # first, so that the timed step compiles nothing, and the timed steps
+    # are pinned to the runner's last processor, so that the scheduler
+    # never moves a sample from one processor to another. Each target
+    # prints its row ("ct_check row |", "ct_disasm |") and one line per
+    # class ("ct_check class |").
+    runs-on: ubuntu-latest
+    env:
+      PURSE_CT_SECONDS: "10"
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-run
+      - name: timing and disassembly at opt-level 3 (the release profile)
+        run: >-
+          taskset -c "$(( $(nproc) - 1 ))"
+          cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-fail-fast ct_check --
+          --ignored --test-threads=1 --nocapture
+      - run: cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-run
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: s
+      - name: timing and disassembly at opt-level s
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: s
+        run: >-
+          taskset -c "$(( $(nproc) - 1 ))"
+          cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-fail-fast ct_check --
+          --ignored --test-threads=1 --nocapture
+      - name: disassembly at opt-levels 1, 2 and z
+        run: |
+          for level in 1 2 z; do
+            CARGO_PROFILE_RELEASE_OPT_LEVEL="$level" cargo test --release -p purse-hdkeychain -p purse-dcrutil \
+              --lib --locked --no-fail-fast ct_check::disassembly -- --ignored --exact --nocapture
+          done
+
   deny:
     name: cargo-deny (licenses, advisories, sources, bans)
     runs-on: ubuntu-latest

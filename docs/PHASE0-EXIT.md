@@ -62,20 +62,23 @@ release builds ship; rustfmt and clippy with `-D warnings`; `cargo doc` with
 `-D warnings`; cargo-deny; `go vet` and `go test` for `tools/oracle` and
 `tools/pinmove`; the FLINT differential of `purse-mixsolver`; the
 mixsolver speed gate (ADR-0010); the benchmark ratio gate against Go
-(ADR-0014); and a fuzz smoke of 60 s per target. The run on `69a6f6d`, the
-commit the check was made at, is GitHub Actions run 44892877145: all 14
-jobs passed. The run on `6fa3851` (ADR-0019 and pointers to it) is run
-44989643104: all 14 jobs passed. The run on `ff59d84` (the owner's answers
-to ADR-0019's FB1 to FB10) is run 44997525002: all 14 jobs passed. In
-each of the three the `test` job on `ubuntu-latest`, `ubuntu-24.04-arm`,
-`macos-latest` and `windows-latest` was among them. The clause rests on
-those three runs. No run exists yet for the commit carrying this record,
-which changes documents only. Of the files it changes, a test reads only
-ADR-0001 (`crates/purse-export-check/tests/frozen.rs`, which checks that
-every registry section is specified there; the commit changes it by
-dated pointers only), and the workspace suite passes on this record's
-tree on an x86_64 Linux desktop ("Verdict"). That commit's CI result is
-not claimed here.
+(ADR-0014); and a fuzz smoke of 60 s per target *(and, since later on
+2026-11-22, a constant-time job for the wiped base58 codecs, timing and
+disassembly: ADR-0012, the note of that date under the addendum of
+2026-11-21)*. The run on `69a6f6d`, the commit the check was made at, is
+GitHub Actions run 44892877145: all 14 jobs passed. The run on `6fa3851`
+(ADR-0019 and pointers to it) is run 44989643104: all 14 jobs passed. The
+run on `ff59d84` (the owner's answers to ADR-0019's FB1 to FB10) is run
+44997525002: all 14 jobs passed. In each of the three the `test` job on
+`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-latest` and `windows-latest`
+was among them. The clause rests on those three runs. No run exists yet
+for the commit carrying this record, which changes documents only. Of the
+files it changes, a test reads only ADR-0001
+(`crates/purse-export-check/tests/frozen.rs`, which checks that every
+registry section is specified there; the commit changes it by dated
+pointers only), and the workspace suite passes on this record's tree on
+an x86_64 Linux desktop ("Verdict"). That commit's CI result is not
+claimed here.
 
 ## 2. The reader's dump against Go's
 
@@ -172,7 +175,7 @@ the owner as point 11 and decided ("Proposed in ADR-0013" below).
 | D7 Version skew against dcroxide | ADR-0009; the ledger `docs/SKEW.md` | "Accepted as proposed (decision D7; project owner, 2026-11-18), the answers proposed under Open points included"; addenda of 2026-11-19, 2026-11-20 and 2026-11-21 record the pin moves to dcroxide `f4b3d2e`, `2074168` and `48f5b5e` | Deferred by the record: open point 3, reusing `dcroxide-addrmgr` with four recorded divergences "conditional on the Phase 10 differential" | decided, with a point the record defers |
 | D8 Mixing root solver | ADR-0010 | "Accepted as proposed (decision D8; project owner, 2026-11-18), the answers proposed under Open points included: a native solver in process, and `--csppsolver` accepted and never executed" | nothing undecided; `purse-mixsolver` is built, with the FLINT differential and the speed gate in CI | decided |
 | D9 Error-message fidelity | ADR-0011 | "Accepted as proposed (decision D9; project owner, 2026-11-18), the answers proposed under Open points included" | nothing undecided; open point 7 names the Decrediton reading before Phase 8 as a trigger for revisiting, and "This decision does not wait for it" | decided |
-| D10 Standing quirk policy | ADR-0012 | "Accepted (decision D10; project owner, 2026-11-18) as proposed, with one change" (QK-0279 fixed); "Amended, 2026-11-19 (project owner)" (Rule 7's default: funds held until a restart or an unlock are fixed); "Settled, 2026-11-20 (project owner)"; "Decided, 2026-11-21 (project owner)" (the base58 digit search to be replaced, scheduled at low priority, not yet done); "Decided, 2026-11-22 (project owner)" (addendum of 2026-11-22) | **Decided on 2026-11-22, as recommended** (points 7 and 8 under "Verdict"): item 3 of the addendum of 2026-11-19, how a Rule 7 case whose difference a client could observe is brought to the owner, "as Rule 11 brings one, the proposed disposition in the QUIRKS entry, marked \"pending owner\", named in the change submitted for signing", confirmed as proposed; and the second point under "Not settled" in the same addendum, "Whether brief §3 W1 itself should cover these funds", which had no proposal: W1's text stays as it is and the class is governed by Rule 7's default alone. Not counted: "what, if anything, must be run before the owner passes a report on is the owner's to decide" (addendum of 2026-11-19 on the route of upstream reports, item 1), which is the owner's standing discretion over delivering reports, not a pending decision. Deferred by the record: QK-0203 (Phase 5) and the fee credits of QK-0282 (Phase 9), each decided after an oracle run; the base58 digit search's replacement, decided and scheduled at low priority with no phase named, not done (addendum of 2026-11-21). Not counted, and named: QK-0760's residual case (`docs/QUIRKS.md`, QK-0760; `docs/PARITY.md`, `purse-udb`), a per-case ruling under Rules 7 and 11 that waits on the owner, with a proposed deferral to Phase 5 the owner has not accepted. It is a case brought under the decided policy, not a point of D10's record, which does not name it ("A case open for the owner under ADR-0012" below) | decided, with points the record defers (to Phases 5 and 9), and a decided change not yet made (the base58 digit search); one case under the policy, QK-0760's residual case, waits on the owner outside the record |
+| D10 Standing quirk policy | ADR-0012 | "Accepted (decision D10; project owner, 2026-11-18) as proposed, with one change" (QK-0279 fixed); "Amended, 2026-11-19 (project owner)" (Rule 7's default: funds held until a restart or an unlock are fixed); "Settled, 2026-11-20 (project owner)"; "Decided, 2026-11-21 (project owner)" (the base58 digit search to be replaced, scheduled at low priority, not yet done) *(done later on 2026-11-22: ADR-0012's Status line now says so)*; "Decided, 2026-11-22 (project owner)" (addendum of 2026-11-22) | **Decided on 2026-11-22, as recommended** (points 7 and 8 under "Verdict"): item 3 of the addendum of 2026-11-19, how a Rule 7 case whose difference a client could observe is brought to the owner, "as Rule 11 brings one, the proposed disposition in the QUIRKS entry, marked \"pending owner\", named in the change submitted for signing", confirmed as proposed; and the second point under "Not settled" in the same addendum, "Whether brief §3 W1 itself should cover these funds", which had no proposal: W1's text stays as it is and the class is governed by Rule 7's default alone. Not counted: "what, if anything, must be run before the owner passes a report on is the owner's to decide" (addendum of 2026-11-19 on the route of upstream reports, item 1), which is the owner's standing discretion over delivering reports, not a pending decision. Deferred by the record: QK-0203 (Phase 5) and the fee credits of QK-0282 (Phase 9), each decided after an oracle run; the base58 digit search's replacement, decided and scheduled at low priority with no phase named, not done (addendum of 2026-11-21) *(made later on 2026-11-22: the note of that date under the same addendum)*. Not counted, and named: QK-0760's residual case (`docs/QUIRKS.md`, QK-0760; `docs/PARITY.md`, `purse-udb`), a per-case ruling under Rules 7 and 11 that waits on the owner, with a proposed deferral to Phase 5 the owner has not accepted. It is a case brought under the decided policy, not a point of D10's record, which does not name it ("A case open for the owner under ADR-0012" below) | decided, with points the record defers (to Phases 5 and 9), and a decided change not yet made (the base58 digit search) *(made later on 2026-11-22: ADR-0012, the note of that date under the addendum of 2026-11-21)*; one case under the policy, QK-0760's residual case, waits on the owner outside the record |
 
 All ten hold: D1, D2, D3, D5, D7 and D10 decided with points their
 records defer to later phases or events, D6, D8 and D9 decided with
@@ -418,7 +421,7 @@ question then does not reopen Phase 0.
 |---|---|
 | Cargo workspace under dcroxide's lint, deny and toolchain policy | built. `Cargo.toml` `[workspace.lints]` is dcroxide's at `48f5b5e` (`unsafe_code` forbid, `missing_docs` deny, clippy `all` warn and `arithmetic_side_effects`); `deny.toml` keeps dcroxide's pure-Rust bans, `multiple-versions = "deny"` and crates.io plus dcroxide's repository as the only sources; `rust-toolchain.toml` pins 1.100.0, equal to `rust-version`, the latest stable as ADR-0006 rule 8 has it. CI runs clippy with `-D warnings` and cargo-deny. **Left:** dcroxide's `clippy.toml` (`disallowed-methods`: rustls's default-provider builders, `install_default` and ureq's default agent) has no counterpart here. No crate of the main workspace links rustls or ureq yet; the two gRPC spikes call `builder_with_provider` by hand. Wanted when TLS enters the workspace (Phases 7 and 12) |
 | CI on Linux, macOS and Windows | built (clause 1) |
-| Fuzz infrastructure | built: `fuzz/`, a cargo-fuzz workspace of its own on nightly, 11 targets (`backup_verify`, `boltread_open`, `hdkeychain_parse`, `mixsolver_roots`, `seed_decode`, `sntrup_decapsulate`, `store_decode`, `store_open`, `txauthor`, `udb_account_keys`, `udb_imported_data`); CI's fuzz smoke runs each for 60 s. No longer soak of any target has been run (PARITY.md, status values) |
+| Fuzz infrastructure | built: `fuzz/`, a cargo-fuzz workspace of its own on nightly, 11 targets (`backup_verify`, `boltread_open`, `hdkeychain_parse`, `mixsolver_roots`, `seed_decode`, `sntrup_decapsulate`, `store_decode`, `store_open`, `txauthor`, `udb_account_keys`, `udb_imported_data`) *(a twelfth, `wif_decode`, added later on 2026-11-22 with the base58 change)*; CI's fuzz smoke runs each for 60 s. No longer soak of any target has been run (PARITY.md, status values) |
 | `tools/oracle`, a Go module pinned to dcrwallet `54b85b33` | built: `tools/oracle/go.mod` requires `decred.org/dcrwallet/v5` at `v5.0.1-0.20261105142009-54b85b336077`, with Go 1.25's GODEBUG defaults as dcrwallet's daemon; 17 commands under `cmd/`, each a line-JSON binary; the Rust side is `purse-testutil` (`oracle_or_skip`, `PURSE_REQUIRE_ORACLE`) |
 | First shim: database dumper | built: `cmd/boltdump` (commands `dump`, `stats`, `cursor`, `generate` and the lock holders `hold`, `hold_start`, `hold_wait`), used by clause 2 |
 | First shim: logical exporter | built: `cmd/walletexport`, format `purse-export 2` (ADR-0001, accepted by the project owner, 2026-11-19); the strict parser and conformance checks are `crates/purse-export-check`, the Rust producer of the address-manager sections is in `purse-udb`; the transaction-store sections' Rust producer waits for Phase 3 |
@@ -840,7 +843,8 @@ close:
   credits, each decided after an oracle run);
 - D10's replacement of the base58 digit search with a constant-time
   lookup, decided and scheduled at low priority, not done, no phase named
-  (ADR-0012, addendum of 2026-11-21);
+  (ADR-0012, addendum of 2026-11-21) *(made later on 2026-11-22: the note
+  of that date under the same addendum)*;
 - QK-0760's residual case, pending owner under ADR-0012 Rules 7 and 11:
   whether account 0's legacy keys and rows are kept after the SLIP0044
   upgrade, so that a payment to a legacy address an earlier instance of

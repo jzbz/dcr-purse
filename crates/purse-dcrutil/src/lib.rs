@@ -48,6 +48,8 @@
 
 pub mod amount;
 mod base58;
+#[cfg(test)]
+mod ct_check;
 mod gomath;
 pub mod gosort;
 pub mod txsort;

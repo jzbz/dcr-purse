@@ -23,7 +23,10 @@
   and where: the addendum of that date.* *Phase 1's dedicated-machine run
   was made later on 2026-11-21 and met every clause of the row, base58check
   decode at 0.78: the addendum "Phase 1's run of record". The row of
-  Phases 2 and 3 has not had its dedicated-machine run.*
+  Phases 2 and 3 has not had its dedicated-machine run.* *Also on
+  2026-11-21 the owner decided that the store is to keep no committed
+  filter the wallet fetches below its birthday, which widens S15 (Open
+  point 5): ADR-0019, decided, not implemented.*
 - **Date:** 2026-11-19
 
 ## Context
@@ -163,7 +166,7 @@ change), **TIMING** (more in flight), **SHAPE** (another pattern),
 | S12 | Peers kept after sync, heights from headers | M: 7 of 8 dropped | SHAPE | DO |
 | S13 | getcfsv2 always, never 2,000 pipelined getcfilterv2 (`p2p/peering.go:1787-1811`) | avoids dcroxide's drop | SHAPE | DO |
 | S14 | Several connections to a node the user names | E | SHAPE | opt-in: ≤5 to a loopback or whitelisted node, else ≤3, ≥5 s apart |
-| S15 | No filters below a typed birthday (`spv/sync.go:1736-1748`) | E: most of 453 MB for a recent date | SHAPE | DO (Open point 5) |
+| S15 | No filters below a typed birthday (`spv/sync.go:1736-1748`) | E: most of 453 MB for a recent date | SHAPE | DO (Open point 5) *(2026-11-21, decided, not implemented: the store is to keep no fetched filter below the wallet's birthday however set, ADR-0019; whether the sync fetches them for a birthday nobody typed is its open question FB1)* |
 | S16 | Several connections to a public node; >100 filters; second getinitstate; getdata >505 | none | OUT | REJECT |
 | S17 | Protocol 12; SIMD BLAKE-256 | none; 0.03 s | — | REJECT |
 
@@ -313,6 +316,8 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
    compare "the same probe decisions and outcomes", not "the requests the
    backend saw" or "the non-bisecting probe sequence"; under S15, "the same
    filters" means above a typed birthday; M5 gains "N times faster".
+   *(2026-11-21: from the wallet's birthday on, however set, ADR-0019; the
+   Phase 10 exit and the §11 M5 row gain the clause with this pointer.)*
 6. **§8** names `purse-bench` and the ledger; **§10** gains the first two
    risks below.
 
@@ -368,6 +373,11 @@ Most valuable first.
    decoding), with amendment 5, without which R1 and R2 fail Layer 6.
 5. *S15* **Decided as recommended (project owner, 2026-11-19).** tells peers the wallet has no interest before a date.
    Recommended: yes, fetching on demand for rescans below it.
+   *2026-11-21 (project owner): "we will drop filters below the wallet's
+   birthday", which widens S15 from a typed birthday to the wallet's
+   birthday however set, and from what the sync fetches to what the store
+   keeps; ADR-0019, whose open questions FB1 and FB2 ask whether the
+   fetching and the on-demand rule follow it.*
 6. *S4 against ADR-0003 item 2* **Decided as recommended (project owner, 2026-11-19).** (Phase 2 keys by hash). Recommended:
    decide in Phase 2 from a grown-file measurement of both, detached rows
    by hash (ADR-0003 Open point 5). *Measured (ADR-0003, addendum of

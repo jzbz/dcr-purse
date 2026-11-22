@@ -13,6 +13,12 @@
   addendum "`purse-store` against dcrwallet on the same workload", each as
   recommended; the store's file name is `wallet.redb` (ADR-0018); Phase 2
   is closed. See "Addendum, 2026-11-21" at the end.
+- **Pointer, 2026-11-21:** the project owner decided "we will drop
+  filters below the wallet's birthday" (ADR-0019), so the store is to keep
+  none of the committed filters the wallet fetches below it; decided, not
+  implemented (the sync phases). The chain tables already allow that, so
+  the schema does not change (ADR-0019 Decision item 3). See "Addendum,
+  2026-11-21 — Committed filters below the birthday" at the end.
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -602,6 +608,9 @@ part of ingest (48,000, 98,000 and 198,000 blocks in batches of 2,000) took
 prototype, every commit durable. Discovery is mostly key derivation and
 requests to the node or peers, and was not measured. Before that, an SPV
 restore downloads and stores every header and filter, measured next.
+*(2026-11-21: dcr-purse is to keep the filters only from the wallet's
+birthday on, ADR-0019, decided and not implemented; a restore without a
+birthday would still keep every one.)*
 
 **Header and filter ingest (SPV initial sync).** 1,050,000 generated headers
 (mainnet had passed height 1,030,629 when chaincfg v3.3.0, the release
@@ -647,7 +656,7 @@ to allow it is Open point 4.
 
    | table | key | value | dcrwallet access path it serves |
    |---|---|---|---|
-   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker *(as built: no unspent count, which is the length of `unspent`; birth state and have-cfilters added; addendum of 2026-11-19)* | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
+   | `meta` | name | schema version; tip (height, hash); unspent count; processed-transactions marker *(as built: no unspent count, which is the length of `unspent`; birth state and have-cfilters added; addendum of 2026-11-19)* *(2026-11-21: what have-cfilters means for a store without the filters below the birthday is open, ADR-0019 FB9)* | `MainChainTip`, `KeyN` of `u`, `ProcessedTxsBlockMarker` |
    | `wallet` *(added, addendum of 2026-11-19)* | name | master-key parameters, sealed crypto keys, coin-type keys, slip0044 account 0, watch-only, last account, last imported account | the address manager's wallet-wide rows (`waddrmgr/main`, `waddrmgr/meta`) |
    | `accounts` | account u32 **LE** | last used and last returned child per branch; name | account iteration in dcrwallet's order, `AccountProperties`, `MarkUsedChildIndex` |
    | `account_names` | name | account | `LookupAccount` |
@@ -657,7 +666,7 @@ to allow it is Open point 4.
    | `headers` | height (spike); block hash (Phase 2) *(as built: height, the main chain's headers only; addendum "Chain tables keyed by height, as built")* | 180-byte header | `GetBlockHeader` |
    | `blocks` | height | hash, time, vote bits, invalid flag, wallet transactions | `RangeBlocks`, `GetMainChainBlockHashForHeight`, `BlockInMainChain` |
    | `block_by_hash` | hash | height | `GetBlockMetaForHash` |
-   | `cfilters` | height (spike); block hash (Phase 2) *(as built: height, the main chain's filters only; same addendum)* | key (16), filter | `GetMainChainCFilters`, `CFilterV2` |
+   | `cfilters` | height (spike); block hash (Phase 2) *(as built: height, the main chain's filters only; same addendum)* *(2026-11-21, decided, not implemented: to hold filters only from the wallet's birthday on, ADR-0019)* | key (16), filter | `GetMainChainCFilters`, `CFilterV2` |
    | `headers_detached` *(added, same addendum)* | block hash | 180-byte header | `GetBlockHeader` of a block not in the main chain (Open point 5) |
    | `cfilters_detached` *(added, same addendum)* | block hash | key (16), filter | `CFilterV2` of a block not in the main chain |
    | `tx_mined` | tx hash, height BE | position in block, received time, transaction | `TxDetails`, `Tx`, `ExistsTx` (highest height of a hash) |
@@ -870,7 +879,10 @@ to allow it is Open point 4.
      as dcrwallet does, because `getblockheader` returns them; the
      invalidated rows of detached blocks are not kept, and ADR-0001 skips
      them on the Go side, with the call-site trace ADR-0012 Rule 5 asks for
-     (the Go export of this spike already skips them).
+     (the Go export of this spike already skips them). *(2026-11-21,
+     decided, not implemented: the filters of detached blocks whose header
+     states a height below the wallet's birthday are not to be kept;
+     detached headers still are, ADR-0019.)*
   6. *Compaction policy* **Decided as recommended (project owner, 2026-11-19).** (on backup, which compacts anyway, and on demand).
      Recommended: compact only through backup in 1.0.
   7. *Whether `addr_by_hash` stores public keys* **Decided as recommended (project owner, 2026-11-19).** (33 bytes per address)
@@ -1767,3 +1779,48 @@ the two addenda of 2026-11-20, by dated pointers; ADR-0014 (its
 addendum of the same date); ADR-0018 (its addendum of the same date); `docs/QUIRKS.md`
 (QK-0047 and QK-0054); `docs/PHASE2-EXIT.md`; the brief's Phase 2
 status; the README; the ADR index.
+
+## Addendum, 2026-11-21 — Committed filters below the birthday
+
+On 2026-11-21 the project owner decided "we will drop filters below the
+wallet's birthday". [ADR-0019](0019-filters-below-the-birthday.md)
+records the decision, what reads stored filters in dcrwallet and what
+dcr-purse must do instead, and the open questions FB1 to FB10. Decided,
+not implemented: the code belongs to the sync phases, and the store as
+built writes whatever filter it is given at any height. For this record,
+once ADR-0019 is implemented:
+
+- Of the filters the wallet obtains itself, `cfilters` is to hold those of
+  main-chain blocks at or above the birthday height only, and
+  `cfilters_detached` those of detached blocks whose header states such a
+  height; the genesis block's filter, which dcrwallet writes at creation,
+  is kept only when the birthday is genesis. Filters a client supplies
+  (`importcfiltersv2`, `repaircfilters`) are ADR-0019's open question FB5.
+  `headers`, `headers_detached`, `blocks` and `block_by_hash` are
+  unchanged. A wallet whose birthday is the genesis block keeps every
+  filter, as dcrwallet does.
+- No table, key, value or invariant changes, and schema version 1 stands:
+  the chain tables already allow a main-chain block without its filter and
+  a detached header without its filter (the third and seventh of the
+  seven invariants of the addendum "Chain tables keyed by height, as
+  built", numbered 3 and 7 in `purse_store::chain`).
+- The `meta` row `have_cfilters` keeps its layout. What it means for a
+  store without the filters below the birthday is ADR-0019's open
+  question FB9, **Proposed**: "no filter at or above the birthday is
+  missing", so that the row stays 1 as in Go, with the udb-level
+  missing-filter walk starting at the birthday height; the alternative
+  keeps dcrwallet's meaning, writes 0, and needs four changes to the
+  ported code: the `ExtendMainChain` gate, the missing-filter walk's start
+  and its `NotExist` when nothing is missing, `InsertMissingCFilters`'
+  check of the parent's filter, and its write of 1 at the tip, with
+  another way for the pass's loop to stop. The doc comments in
+  `purse-store` that give dcrwallet's meaning stay until FB9 is answered
+  and the code implementing ADR-0019 is written.
+- The measurements above stand as made: every one of them stored a filter
+  for every block. The file size of a store that keeps headers for every
+  block and filters only from a recent birthday on was not measured.
+
+Nothing in `purse-store` changes with this addendum: the store as built
+does not yet apply the rule. **Places amended:**
+the Status line, the paragraph "Restore and rescan", the `meta` and
+`cfilters` rows of Decision item 2 and Open point 5, by dated pointers.

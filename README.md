@@ -46,7 +46,11 @@ ticket records and fee-payment state; unmined and unpublished transactions;
 outpoint locks. A user who no longer has the seed cannot move to dcr-purse,
 and coins beyond the discovery gap limit are found only once it is raised.
 Under Decrediton, the wallet is created or restored through Decrediton's
-own flow. ADR-0013 records the decision and these costs.
+own flow. ADR-0013 records the decision and these costs. The store is
+also to keep the committed filters the wallet fetches only from the
+wallet's birthday on, where dcrwallet keeps one for every block, which
+makes a new wallet's file smaller by an amount not yet measured (project
+owner, 2026-11-21; ADR-0019); this is not implemented yet.
 
 ## What exists
 

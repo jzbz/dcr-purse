@@ -3,6 +3,13 @@
 - **Status:** **Accepted** as proposed (project owner, 2026-11-19), with the five
   questions put to the owner answered as recommended; see "Decision by the
   project owner" before "Discrepancies found".
+- **Pointer, 2026-11-21:** dcr-purse's store is to keep none of the
+  committed filters the wallet fetches below its birthday (project owner,
+  2026-11-21; [ADR-0019](0019-filters-below-the-birthday.md)); decided,
+  not implemented (the sync phases). Item 5 of the owner's decision below
+  no longer holds for those filters, and the projection open item 2 asks
+  for also covers a wallet born after genesis (ADR-0019, open question
+  FB6). The format is unchanged.
 - **Date:** 2026-11-19 (format 1 drafted; revised the same day to format 2
   after an adversarial review and the owner's decisions of 2026-11-18 and
   2026-11-19, ADR-0013 above all)
@@ -1265,7 +1272,10 @@ section 9, each resting on the absence of a reader at the pin.
    if the two sides sync different header ranges (a restore in SPV mode
    against one in RPC mode), comparisons need a projection that excludes
    `[headers]`, `[cfilters]` and the empty `block` records; it is not yet
-   specified.
+   specified. *(2026-11-21: the store is to keep no fetched filter below
+   the wallet's birthday, ADR-0019, decided and not implemented; a
+   comparison of a wallet born after genesis will need the projection for
+   `[cfilters]` too, ADR-0019 open question FB6.)*
 3. `[orphans]` and `[bad]` describe Go-written fixtures and fault
    injections only: dcr-purse's store never holds such states (ADR-0013,
    Consequences), so a Rust producer emits them empty, and no policy for
@@ -1315,7 +1325,11 @@ rest"):
 5. *Chain data in comparisons* (open item 2). ADR-0003 answers the first
    half: the store keeps every header and committed filter, detached ones
    included (its open point 5). The projection for two sides that synced
-   different header ranges is still to be specified.
+   different header ranges is still to be specified. *(2026-11-21: no
+   longer so for filters once ADR-0019 is implemented: the store is to
+   keep every header, and the committed filters the wallet fetches only
+   from the wallet's birthday on, project owner, ADR-0019; not yet
+   implemented.)*
 
 The other items of "What remains open" stand as open.
 

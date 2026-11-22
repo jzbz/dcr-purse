@@ -19,6 +19,15 @@ holds dated notes on what dcrwallet has done past the pin.
 **Status: early. This is not a wallet yet, and nothing here should hold
 funds.** The first libraries exist, the wallet's store among them with no
 wallet logic over it yet; there is no daemon, no sync and no RPC server.
+Phase 0 (the oracle rig and decisions D1 to D10) was closed on
+2026-11-22 ([PHASE0-EXIT.md](docs/PHASE0-EXIT.md)), and Phases 1 and 2
+on 2026-11-21 ([PHASE1-EXIT.md](docs/PHASE1-EXIT.md),
+[PHASE2-EXIT.md](docs/PHASE2-EXIT.md)); each record lists what it leaves
+to later phases. Phase 0's closing followed the project owner's
+decisions of 2026-11-22 on the last open points of D1 to D10, among them
+ADR-0019's FB1 to FB13 and ADR-0013's remaining open points, and a rule
+that questions arising later in working out ADR-0019 are settled in the
+phase that implements it.
 
 ## What "drop-in" means
 
@@ -43,7 +52,11 @@ scripts and extended public keys; voting accounts; account names (accounts
 are rediscovered by number); per-account passphrases; mixed-account
 configuration; agenda, tspend and treasury-key voting preferences; VSP
 ticket records and fee-payment state; unmined and unpublished transactions;
-outpoint locks. A user who no longer has the seed cannot move to dcr-purse,
+outpoint locks; the last-returned address counters as dcrwallet keeps them,
+so an address handed out but never paid can be handed out again; and the
+birthday, unless one is given at the restore prompt, so that the rescan
+starts from genesis (the last two added on 2026-11-22, ADR-0013 Open point
+8). A user who no longer has the seed cannot move to dcr-purse,
 and coins beyond the discovery gap limit are found only once it is raised.
 Under Decrediton, the wallet is created or restored through Decrediton's
 own flow. ADR-0013 records the decision and these costs. The store is

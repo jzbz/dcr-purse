@@ -28,6 +28,44 @@
   once the birthday is resolved (the addendum's FB12). FB11 and FB12 are
   **Proposed**, each with a recommendation. Still not implemented: the
   addendum changes no code, no schema, no export format and no test.
+  *(Both decided as recommended later the same day; next bullet.)*
+- **Decided, 2026-11-22, later (project owner):** FB11 as recommended,
+  option (i) with (r2), and FB12 as recommended, option (a). Shown FB11
+  and FB12 in a table with those recommendations, and told that accepting
+  them would let Phase 0 close, the owner answered "Accept both"; that is
+  the whole of the answer. Each is marked, and "Addendum, 2026-11-22
+  (later) — FB11 and FB12 decided as recommended" at the end restates the
+  rules they change. Checking the two answers against each other and
+  against the rules already decided found one case neither covers: a
+  block the store holds without its filter, below the stored tip, that the
+  first block a reorganisation attaches shows to be the birthday block
+  (that addendum's FB13), **Proposed** with a recommendation. Still not
+  implemented: the addendum changes no code, no schema, no export format
+  and no test. *(FB13 decided as recommended later the same day, with a
+  cut-off rule for questions found later; next bullet.)*
+- **Decided, 2026-11-22, after FB11 and FB12 (project owner):** FB13 as
+  recommended, option (a): the syncer fetches the fork-point block's
+  filter, checks it and writes it as part of the same chain switch. The
+  owner was shown three things with recommendations: FB13, option (a);
+  ADR-0013's remaining proposals, accept as proposed; and a cut-off rule.
+  The owner answered "Accept all three"; that is the whole of the answer.
+  FB13 is marked, and "Addendum, 2026-11-22 (FB13) — FB13 decided as
+  recommended, and the cut-off rule" at the end states the rule once.
+  **The cut-off rule**, in the words the owner accepted: "Questions that
+  arise in working out ADR-0019 are settled in the phase that implements
+  it and do not count against Phase 0's exit." It covers questions that
+  arise in working out this record and nothing else; it defers nothing in
+  D1 to D10 that is not such a question. A question found later in
+  working out this record is put to the owner, with a recommendation, in
+  the phase that implements this record, and is settled there; this
+  record's code lies in the Phase 3 port of `purse-udb`'s transaction
+  store (FB4, FB9), in the sync phases (brief §6 Phases 5, 6 and 10), in
+  the RPC servers for the filter RPCs of rules 3 and 5 (Phase 7 for
+  `getcfilterv2`, `validatepredcp0005cf` and `importcfiltersv2`; Phase 12
+  for gRPC `GetCFilters`), and in `purse-tools`' port of
+  `cmd/repaircfilters`, whose phase the brief does not fix.
+  Still not implemented: the addendum changes no code, no schema, no
+  export format and no test.
 - **Date:** 2026-11-21. Citations of dcrwallet source are to the parity pin
   `54b85b33` (index, second paragraph).
 
@@ -157,7 +195,11 @@ sentence leaves open.
      now;
    - the committed filter of every main-chain block at or above the birthday
      height (`cfilters`), and of every detached block whose header states a
-     height at or above it (`cfilters_detached`);
+     height at or above it (`cfilters_detached`) *(2026-11-22, later:
+     apart from blocks detached while a birthday set from time was
+     pending that the store held without a filter, whose filters are not
+     fetched when the birthday then resolves at or below them, FB11,
+     project owner)*;
    - the `birth` and `have_cfilters` rows.
 
    No other filter the wallet obtains itself is kept: none the syncers
@@ -178,7 +220,11 @@ sentence leaves open.
    therefore holds it although no block connection writes it, written at
    creation as dcrwallet writes it or, for a birthday pending at creation
    that resolves at genesis (item 3: a height birthday of 0, or a time
-   birthday earlier than block 1's timestamp), when it resolves. The
+   birthday earlier than block 1's timestamp), when it resolves.
+   *(2026-11-22, later: for a height birthday of 0, at creation instead,
+   as dcrwallet writes it, FB12 (a) 1, project owner; a time birthday that
+   resolves at genesis still gets it when it resolves, through
+   `put_cfilter_at`, FB11 (i).)* The
    headers stay because difficulty validation walks back over stored headers
    (`wallet/difficulty.go:54`, `:593`, `:864`), the filter checks of the
    missing-filter fetch read them (`wallet/wallet.go:1377`), and
@@ -214,7 +260,9 @@ sentence leaves open.
    rule does not apply to them. `ChainSwitch`'s read when it detaches a
    block only carries the stored filter into the side-chain node it
    rebuilds; below the birthday dcr-purse rebuilds that node without one,
-   neither fetching nor failing (item 7). No reader would use a filter
+   neither fetching nor failing (item 7). *(2026-11-22, later: while a
+   birthday is pending, also for every main-chain block the store holds
+   without a filter, FB11, project owner.)* No reader would use a filter
    fetched there: the SPV announcement path fetches a fresh filter for
    every node of the new best chain (`spv/sync.go:1488-1519`), RPC mode one
    for every announced block (`chain/sync.go:860-869`), and the store keeps
@@ -301,7 +349,9 @@ birthday into it. Nothing here was run.
    known only when its child arrives, so the syncer keeps the birthday
    block's filter by deciding one block late or by fetching it then (FB8).
    *(2026-11-22: one block late, FB8, project owner; for a block connected
-   before its child is known, the addendum's FB11.)*
+   before its child is known, the addendum's FB11, decided later that day:
+   connected without its filter, which is written when its child shows it
+   to be the birthday block, (i) with (r2).)*
    A birthday above the tip stays pending ("searches until it is passed",
    `:208-209`), the marker stays at genesis, where creation put it
    (`wallet/udb/upgrades.go:909`), and the first rescan starts at height 1
@@ -363,7 +413,13 @@ birthday into it. Nothing here was run.
      its filter for the store, since `ExtendMainChain` serializes it
      (`txmined.go:269-271`; spec 09 §3.3: a nil filter panics); below the
      birthday the store keeps none (where that rule lives is FB4;
-     *2026-11-22: in the syncers, FB4, project owner*).
+     *2026-11-22: in the syncers, FB4, project owner*). *(2026-11-22,
+     later: while a birthday is pending, the exception covers every
+     main-chain block the store holds without a filter, below the
+     birthday or not, FB11, project owner; for a block held without its
+     filter that a reorganisation shows to be the birthday block, FB13,
+     Proposed; decided later the same day as option (a), its filter
+     fetched, checked and written with the chain switch, project owner.)*
    - *The SPV initial sync.* Its second stage fetches the filters of every
      node of the new best chain from the first one lacking a filter
      (`spv/sync.go:1736-1748`; the forest copies a filter between duplicate
@@ -554,6 +610,8 @@ item 7 were read in the source, not exercised.
   sets from height 0, gets it when block 1 resolves the birthday under
   decision item 1 as written, so a comparison before block 1 still
   differs; the addendum's FB12 recommends writing it at creation.)*
+  *(2026-11-22, later: decided so, FB12 (a) 1, project owner; such a
+  wallet holds the genesis filter from creation, as Go's does.)*
 - Amended with dated pointers by this record: ADR-0003 (Status, the Context
   paragraph on restore and rescan, the `meta` and `cfilters` rows of
   Decision item 2, Open point 5, and an addendum), ADR-0001 (Status, open
@@ -577,7 +635,14 @@ item 7 were read in the source, not exercised.
 Each with a recommendation. *All ten decided as recommended (project
 owner, 2026-11-22), FB9 as option (a); each is marked, its options and
 reasoning kept as the record of what was chosen between, and the addendum
-of that date states the rules.*
+of that date states the rules.* *FB11 and FB12, found while recording
+those answers, were decided as recommended later the same day; the
+addendum "2026-11-22 (later)" restates the rules they change and puts
+FB13, found in checking them, **Proposed**.* *FB13 was decided as
+recommended later the same day, option (a); the addendum "2026-11-22
+(FB13)" states its rule and records the cut-off rule the owner accepted
+with it, under which a question found later in working out this record
+is settled in the phase that implements it.*
 
 - **FB1. Fetching below the birthday during the initial sync.**
   **Decided as recommended (project owner, 2026-11-22); for the birthday
@@ -652,7 +717,11 @@ of that date states the rules.*
   2026-11-22); for a block connected before its child is known under a
   pending time birthday it conflicts with decision item 1 as worded, the
   addendum's FB11, and while a birthday is pending its check has no
-  birthday height to use, the addendum's FB12.** Recommended: in the
+  birthday height to use, the addendum's FB12.** *(2026-11-22, later:
+  both decided as recommended, project owner: the check widened under
+  FB11 (i), and the height while a birthday is pending given by FB12 (a);
+  rule 4 as it now stands is in the addendum "2026-11-22 (later)".)*
+  Recommended: in the
   syncers, which do not
   pass a filter below the birthday to the store; the `purse-udb` port of
   `ExtendMainChain` accepts a block without a filter only below the birthday
@@ -822,12 +891,19 @@ What dcr-purse is to do, each stated once.
    lacks a filter and requests none below it. The announcement paths after
    the initial sync are unchanged: they fetch, check and, in SPV mode, scan
    the filters of every block of the new best chain as dcrwallet does, and
-   the store keeps those at or above the birthday only (item 7). Under a
+   the store keeps those at or above the birthday only (item 7).
+   *(2026-11-22, FB13 decided as option (a), project owner: in one case
+   the announcement paths make one request more than this sentence says.
+   When the first block a chain switch attaches resolves a pending time
+   birthday at a fork point the store holds without its filter, they also
+   request, check and write that fork point's filter; rule 13 of the
+   addendum "2026-11-22 (FB13)".)* Under a
    pending time birthday, a block connected before its child is known
    (the last block of a batch, the initial-sync tip) has its filter
    requested only when the child arrives and shows it to be the birthday
    block, with rule 8 (FB11, "Requests"); for the birthday height while a
-   birthday is pending, FB12.
+   birthday is pending, FB12. *(Both decided later the same day, FB11 (r2)
+   and FB12 (a); addendum "2026-11-22 (later)".)*
 2. **FB2 — Rescans and discoveries from below the birthday, SPV mode.** For
    each block of the range below the birthday whose filter the store does
    not hold (FB5), the rescan or discovery fetches the filter from peers,
@@ -864,7 +940,9 @@ What dcr-purse is to do, each stated once.
    operation scripts, which always supply filters, compare as before. For
    a block connected before its child is known while a birthday set from
    time is pending, see FB11 below; for what "the birthday height" is
-   while a birthday is pending, FB12.
+   while a birthday is pending, FB12. *(Both decided later the same day;
+   the rule as widened by FB11 (i) and read under FB12 (a) is restated in
+   the addendum "2026-11-22 (later)".)*
 5. **FB5 — Filters a client supplies.** The owner's sentence of 2026-11-21
    is read as being about the filters the wallet fetches and keeps of its
    own accord. `importcfiltersv2` and `repaircfilters` write the filters
@@ -901,6 +979,11 @@ What dcr-purse is to do, each stated once.
    yet known), and the genesis filter in both, since decision item 1 writes
    it only when such a birthday resolves at genesis. A comparison in
    either state would report that difference as a divergence.
+   *(Decided later the same day, FB12 (a), project owner: a pending height
+   birthday counts at its height from creation, a height-0 birthday's
+   genesis filter is written at creation, and under a pending time
+   birthday the projection drops every `[cfilters]` record on both sides;
+   addendum "2026-11-22 (later)".)*
 7. **FB7 — Wallets created through gRPC.** QK-0247 and QK-0554 are left to
    their own dispositions under ADR-0012 Rule 1. A wallet whose
    `CreateWallet` request gives it a genesis birthday keeps every filter,
@@ -913,6 +996,9 @@ What dcr-purse is to do, each stated once.
    filter a second time when the child arrives. For a block whose child
    is not known when it is connected, its filter is first requested when
    the child arrives (rule 1); how the store records it is FB11 below.
+   *(Decided later the same day, FB11 (i): connected without it, and
+   written through `put_cfilter_at` in the transaction that connects the
+   child; addendum "2026-11-22 (later)".)*
 9. **FB9 — What `have_cfilters` means.** Option (a). The row keeps its
    layout and means "no filter at or above the birthday height is
    missing". Every store dcr-purse creates writes 1 and keeps it. The
@@ -925,7 +1011,10 @@ What dcr-purse is to do, each stated once.
    `birth` row's height is not the birthday height (rule 6), and a walk
    from it would find the genesis filter missing and return 0 while the
    row reads 1, the disagreement option (a) chose the new start to remove;
-   where the walk starts in that state is FB12. The doc comments of
+   where the walk starts in that state is FB12. *(Decided later the same
+   day, FB12 (a): from H under a pending height birthday H, and, under a
+   pending time birthday, `NotExist`; addendum "2026-11-22 (later)".)*
+   The doc comments of
    `purse-store` that give dcrwallet's meaning of the row (listed under
    Consequences) change with the code that implements this record.
 10. **FB10 — A store with no `birth` row** is treated as born at genesis:
@@ -977,10 +1066,20 @@ accepted, and against ADR-0001 and ADR-0003 as accepted.
   is keyed on the birthday height, which decision item 1 defines only
   once the birthday is resolved. Found in review of this addendum's
   first draft. See FB12.
+- *(Later on 2026-11-22: FB11 and FB12 decided as recommended, project
+  owner. The conflict and the gap are resolved by those answers; the check
+  of the answers is in the addendum "2026-11-22 (later)", which found one
+  more case, FB13.)*
 
 ### FB11. A block connected before its child is known, under a pending time birthday
 
-**Proposed.** Found while recording the answers; open for the owner.
+**Decided as recommended (project owner, 2026-11-22, later): option (i)
+with (r2).** Found while recording the answers, and Proposed until the
+owner's "Accept both". The options and reasoning below stay as the record
+of what was chosen between. For a block the store holds without its
+filter that a reorganisation's first attached block shows to be the
+birthday block, which this question does not cover, see FB13 in the
+addendum "2026-11-22 (later)".
 
 With a birthday set from time T, a block is known to be the birthday
 block only when its child arrives (item 3), and FB8 keeps its filter by
@@ -1157,8 +1256,10 @@ batch-boundary case can arise in any initial sync.
 
 ### FB12. The birthday height while a birthday is pending
 
-**Proposed.** Found in review of this addendum's first draft; open for
-the owner.
+**Decided as recommended (project owner, 2026-11-22, later): option
+(a).** Found in review of this addendum's first draft, and Proposed until
+the owner's "Accept both". The options and reasoning below stay as the
+record of what was chosen between.
 
 Decision item 1 defines the birthday height only once the birthday is
 resolved. Rules 1, 4, 6 and 9 compare heights with it, and none of them
@@ -1238,7 +1339,9 @@ restored wallets wait for block 1, and frozen fixtures must contain it.
 ### What the code owes
 
 With the code that implements this record, besides the tests listed under
-Consequences:
+Consequences *(later on 2026-11-22 FB11 and FB12 were answered as
+recommended, so the items below that wait on them apply as their
+recommendations state; the addendum "2026-11-22 (later)" adds items)*:
 
 - a test for each syncer that no filter below the birthday is requested in
   the initial sync, for a height birthday, a time birthday and a birthday
@@ -1339,3 +1442,528 @@ divergence, revised in place as that file's rows are); the brief (a
 pointer of 2026-11-22 after each pointer of 2026-11-21 that named FB6 as
 open: the Phase 4, 5, 8 and 1.0 exits and §7 Layer 7); the README; the
 ADR index (the rows for ADR-0001, ADR-0014 and this record).
+
+## Addendum, 2026-11-22 (later) — FB11 and FB12 decided as recommended (project owner)
+
+Later on 2026-11-22 the project owner was shown FB11 and FB12 in a table
+with their recommendations, FB11's option (i) with (r2) and FB12's option
+(a), and was told that accepting them would let Phase 0 close. The owner
+answered "Accept both". That is the whole of the answer: each of the two
+is decided as recommended. The two questions keep their options and
+reasoning as the record of what was chosen between. The text above stays
+as written apart from a third bullet in the Status block, the marks on
+FB11 and FB12, and the dated pointers added to it.
+
+What FB11's recommendation names as the owner's to decide, and so what
+the answer decides, is the widening of FB4 (rule 4 below) and, for blocks
+detached while a time birthday is pending, that their side-chain nodes
+are rebuilt without a filter and that `cfilters_detached` goes without
+the filters decision item 1 would ask for once the birthday resolves at
+or below them, none being fetched. FB12's answer decides the reading of
+the pending states below, and the one change to accepted text it names:
+the timing, in decision item 1, of a height-0 birthday's genesis filter.
+
+Decided, not implemented: nothing of it exists in code yet.
+
+### The rules where FB11 and FB12 change them
+
+Each stated once, as what dcr-purse is to do. The rules of the addendum
+above that are not named here stand as written.
+
+1. **The birthday height (decision item 1, with FB12 (a)).** Once the
+   birthday is resolved, it is the height in the `birth` row. While a
+   birthday set from height H is pending, it is H, from creation. While a
+   birthday set from time T is pending there is none, and the syncer
+   classes blocks from their headers along the chain being connected,
+   whatever the `birth` row says when a request is decided: the first
+   block whose own timestamp is after T resolves the birthday and lies
+   above it, and so does every block after it, whatever their own
+   timestamps; the block whose child is that block is the birthday block;
+   a block whose child is known and is not that block lies below the
+   birthday block; a block whose child is not yet known is a block in
+   doubt (FB11).
+2. **The genesis filter (decision item 1, its timing changed by FB12 (a)
+   1).** Written at creation, as dcrwallet writes it, when the birthday is
+   the genesis block or is set from height 0: block 1 always resolves such
+   a birthday at genesis, so nothing is kept that decision item 1 drops.
+   For a birthday set from time that resolves at genesis, written when it
+   resolves, built locally, through `put_cfilter_at` in the transaction
+   that connects block 1 (FB11 (i)). Otherwise it is not kept.
+3. **Rule 1 (FB1) under a pending time birthday (FB12 (a) 2, FB11
+   (r2)).** The filters of the block that resolves the birthday and of
+   every block after it are requested and passed to `ExtendMainChain`,
+   whether the resolving block lies inside a batch, is the last of a batch
+   or is the tip. The birthday block's filter is requested with them: with
+   its batch when its child is in the same batch; with the next batch, as
+   the filter of the block below that batch's first block, when the
+   birthday block was the last of a batch; and when the child is
+   announced, the child's connection waiting for it, when the birthday
+   block was the initial-sync tip. A block shown below the birthday block
+   gets no request, and a block in doubt gets none until its child shows
+   it to be the birthday block. The announcement paths after the initial
+   sync stay as rule 1 states them. *(2026-11-22, FB13 decided as option
+   (a), project owner: except that, when the first block a chain switch
+   attaches resolves a pending time birthday at a fork point the store
+   holds without its filter, they also request, check and write that fork
+   point's filter. In the initial sync of either mode, when the first
+   block a batch attaches resolves the birthday at a fork point the store
+   holds without its filter, the request this rule already makes for the
+   birthday block (with the batch, whether the fork point's header is in
+   the batch or the fork point is the block below the batch's first
+   block) is that request, made once, and the filter is written as rule
+   13 of the addendum "2026-11-22 (FB13)" says.)*
+4. **Rule 4 (FB4), as widened by FB11 (i).** The syncers pass no filter
+   below the birthday to the store. `purse-udb`'s port of `ExtendMainChain`
+   accepts a block without a filter when, and only when, the block lies
+   below the birthday height (the resolved birthday's, or a pending height
+   birthday's H), or a birthday set from time T is pending and the block's
+   own timestamp is not after T. It refuses every other block without a
+   filter, the block that resolves a pending time birthday among them, and
+   in a store with no `birth` row (rule 10) it accepts none. Its other
+   operations stay as rule 4 says. Operation scripts supply every filter,
+   so the widening changes nothing they compare.
+5. **Rule 8 (FB8), with FB11 (i).** The birthday block's filter is kept.
+   When the block's child is known as the block is connected, the filter is
+   passed with the block. When the block is in doubt, it is connected
+   without its filter, and the syncer writes the filter through
+   `put_cfilter_at` in the transaction that connects the child resolving
+   the birthday at it: the filter requested as item 3 says or, for a block
+   announced after the initial sync, the filter the announcement path
+   fetched, which the syncer keeps until the child arrives and fetches
+   again when the child arrives only after a restart in between. Nothing
+   is written when the child shows the block below the birthday block.
+   Nothing is held between batches of the initial sync.
+6. **Detaching while a birthday is pending (decision item 4 and item 7 of
+   "What reads stored filters", widened by FB11).** While a birthday is
+   pending, `ChainSwitch` rebuilds without a filter the side-chain node of
+   every main-chain block the store holds without one, below the birthday
+   or not, neither fetching nor failing. If such a block returns to the
+   best chain, the announcement path fetches a fresh filter for it. Of the
+   blocks detached while a birthday set from time is pending, those held
+   without a filter get none in `cfilters_detached` when the birthday
+   later resolves at or below their height; none is fetched, and
+   `getcfilterv2` asked for one by hash falls under rule 3.
+7. **Rule 6 (FB6) in the pending states (FB12 (a)).** Under a pending
+   height birthday H, the projection drops the `[cfilters]` records of
+   heights below H: none for H = 0, whose genesis filter both sides now
+   hold. Under a pending time birthday it drops, on both sides, every
+   `[cfilters]` record, main-chain and side, the genesis block's included.
+   The `sidecfilter` records Go's export carries for blocks detached while
+   a time birthday was pending, which the Rust store lacks under item 6,
+   are for the projection to account for when it is specified. All of it
+   is specified in ADR-0001 with the rest of the projection, and is not
+   specified yet.
+8. **Rule 9 (FB9) in the pending states (FB12 (a)).** Under a pending
+   height birthday H, `MissingCFiltersHeight` walks from H. Under a pending
+   time birthday it returns `NotExist`, in agreement with the row's 1,
+   which speaks of the birthday once resolved.
+
+### The two answers checked
+
+Before they were recorded, the two answers were read against each other,
+against FB1 to FB10 as decided and against decision items 1 to 5, case by
+case under a pending birthday. The cases were read in the source at the
+pin; nothing was run.
+
+- *A block inside a batch.* Its child's header is in the batch, so the
+  syncer knows whether it is the birthday block, lies below it or lies
+  above; rules 1 and 8 request accordingly, and `ExtendMainChain`
+  receives the birthday block's filter with the block. This agrees with
+  FB8 and with FB4 as widened.
+- *The last block of a batch.* Connected without its filter, which item 4
+  accepts, its timestamp not being after T (a later one would have
+  resolved the birthday). The next batch's first block decides: if its
+  timestamp is after T, the last block is the birthday block, whose filter
+  is requested with that batch and written in the child's transaction;
+  otherwise nothing is requested or written. No state crosses the batch
+  boundary, so a restart between batches needs no path of its own, and
+  rule 1 holds exactly.
+- *The initial-sync tip.* As the last block of a batch, with the request
+  made when the child is announced. While the birthday is pending above
+  the tip, the SPV initial rescan and discovery fetch the tip's filter
+  under rule 2 and keep none, so the tip's filter can be requested twice;
+  FB11 accepted that, building no hand-off.
+- *Blocks announced after the initial sync.* The announcement path
+  fetches, checks and, with the rescan point nil, scans the filter of
+  every attached block (rule 1). The store keeps the filters of the block
+  that resolves the birthday and of those after it, and that of a block in
+  doubt only once its child shows it to be the birthday block.
+- *A detach while pending.* Item 6. While a time birthday is pending the
+  store holds no filter for any main-chain block apart from supplied ones
+  (FB5), since only the birthday block's is ever written, in the
+  transaction that resolves the birthday; without item 6 every
+  reorganisation in that state would fail a chain switch dcrwallet makes.
+  With it, none fails. The fork point of such a reorganisation is FB13
+  below.
+- *A height birthday above 0.* Known from creation (item 1), so no block
+  is in doubt and FB11's widening does not apply: block H's filter is
+  requested and passed when the block is connected, and block H+1
+  resolves the birthday. Rules 1, 4, 6 and 9 key on H. A reorganisation
+  that detaches block H after the birthday resolves leaves the `birth`
+  row naming the old block, as item 7 of "What reads stored filters" says.
+- *A height-0 birthday.* The genesis filter is written at creation, so the
+  Rust store holds every filter Go's holds from creation: the projection
+  drops nothing, `ExtendMainChain` accepts no block without a filter, and
+  `MissingCFiltersHeight` from 0 returns `NotExist` when nothing is
+  missing. This agrees with FB10, under which a store with no `birth` row
+  keeps every filter, and makes the Consequences fallback hold from
+  creation.
+- *A time birthday that resolves at genesis.* Block 1's timestamp is after
+  T: `ExtendMainChain` refuses it without its filter, the syncer passes it
+  with its filter, and the genesis filter, built locally, is written in
+  the same transaction (item 2).
+- *Supplied filters (FB5) while pending.* Written as dcrwallet writes
+  them and served by every reader (rules 2 and 3); under a pending time
+  birthday the projection drops them on both sides.
+
+The two answers agree with each other: FB12 (a) 2's classing gives FB11
+its block in doubt and the resolving block that FB11 (i)'s widening still
+refuses without its filter, and FB12 (a) 1's write at creation leaves
+FB11 (i)'s write of the genesis filter only the time birthday that
+resolves at genesis. No PARITY.md row follows from them: neither changes
+an RPC reply, and the one case they add for a filter RPC, a block detached
+while a time birthday was pending and asked for by `getcfilterv2`, falls
+under the rows rule 3 already names.
+
+- **One case neither answer covers.** A reorganisation while a time
+  birthday is pending can resolve the birthday at a block the store
+  already holds without its filter. See FB13.
+
+### FB13. A stored block that a reorganisation shows to be the birthday block
+
+**Decided as recommended (project owner, 2026-11-22, after FB11 and
+FB12): option (a).** Found in checking the answers to FB11 and FB12, and
+Proposed until the owner's "Accept all three". The options and reasoning
+below stay as the record of what was chosen between; the rule is stated
+once in the addendum "2026-11-22 (FB13)".
+
+While a birthday set from time T is pending, every block on the main
+chain has a timestamp not after T, since the first block with a later one
+resolves the birthday. A reorganisation in that state detaches the blocks
+above a fork point F and attaches a new branch. `ChainSwitch` reads the
+birthday state once, before it connects the attached blocks
+(`wallet/chainntfns.go:169`), and the first attached block whose
+timestamp is after T resolves the birthday at its parent (`:186-196`).
+When that is the first attached block, the birthday block is F. If F is
+the stored tip, the reorganisation only extends the chain, F is a block in
+doubt, and FB11 covers it. If F is the genesis block, decision item 1
+covers it: the filter is built locally and written when the birthday
+resolves (item 2 above). Otherwise F lies below the stored tip, and its
+child on the detached branch, known before the reorganisation, showed it
+below the birthday block, so the store holds F without its filter. No
+decided rule obtains or writes that filter:
+
+- FB11 (i)'s write is of a block in doubt, one whose child was not known
+  when it was connected; F's child was known.
+- The announcement paths fetch the filters of the attached blocks only: in
+  SPV mode those of the nodes `EvaluateBestChain` returns, which start at
+  the root of the side chain, above the fork point
+  (`wallet/sidechains.go:417-462`; `spv/sync.go:1488-1519`), and in RPC
+  mode that of each block dcrd announces (`chain/sync.go:860-869`). Rule
+  1 leaves both as they are, and FB11's request of a block in doubt's
+  filter when its child is announced covers the initial-sync tip only.
+- In the SPV initial sync, after a reorganisation of the stored chain
+  (item 7 of "What reads stored filters"), FB12 (a) 2's classing names F
+  as the birthday block, so rule 1 requests its filter, but no rule names
+  the write. *(The RPC initial sync, `getHeaders`, carries the same case:
+  it fetches headers from the wallet's block locators and makes a chain
+  switch per batch, which can detach stored blocks
+  (`chain/sync.go:219-340`, `ChainSwitch` at `:325`, the reorganisation
+  logged at `:329-331`), and it runs again after the initial sync when
+  `getMissingHeaders` falls back to it (`:419-424`, reached from
+  `handleBlockConnected`, `:857`). Not named in this list when FB13 was
+  put; option (a)'s "whenever" covers it, and rule 13 of the addendum
+  "2026-11-22 (FB13)" names it.)*
+
+Left so, the store lacks a main-chain filter at the birthday height.
+Decision item 1 is not met for it. Under FB9 (a) the `have_cfilters` row
+reads 1, meaning that no filter at or above the birthday height is
+missing, while one is; `MissingCFiltersHeight`, walking from the birthday
+height, returns F's height while the row reads 1, the disagreement FB9
+(a) and FB12 (a) were chosen to remove. A later reorganisation that
+detaches F fails, since the exception of decision item 4 covers blocks
+below the birthday and, while a birthday is pending, blocks held without
+a filter, and F is neither once the birthday has resolved. Rules 2 and 3
+fetch only the filters of blocks below the birthday, and F is the
+birthday block, so the readers of F's filter keep dcrwallet's behaviour,
+which fails on a missing filter (decision item 4): a rescan or discovery
+in SPV mode that reads it fails with dcrwallet's missing-filter error
+(`NotExist`, `wallet/udb/txdb.go:1992-1999`; `spv/backend.go:528-532`),
+and so do `getcfilterv2` asked for F, gRPC `GetCFilters` over a range
+that holds it (`wallet/wallet.go:833-878`) and `validatepredcp0005cf`
+when F lies below the DCP0005 height, a backend connected or not, where
+dcrwallet, holding F's filter, serves it. A comparison with Go after the
+birthday has resolved reports F's filter missing, which the projection of
+rule 6 does not drop.
+
+Options:
+
+- *(a)* Whenever the first attached block resolves a pending time
+  birthday at a fork point the store holds without its filter, the
+  syncer requests that block's filter with the attached blocks' filters,
+  from peers in SPV mode and through dcrd's `getcfilterv2` in RPC mode,
+  checks it against the stored header as rule 2 checks a filter, and
+  writes it through `put_cfilter_at` in the transaction that connects the
+  resolving block, as FB11 (i) writes a block in doubt's. F is on the new
+  best chain, so its filter is served. The chain switch waits for it, as
+  the child's connection waits at the initial-sync tip, and a filter that
+  cannot be fetched or fails its check fails the chain switch, as an
+  attached block's does (`spv/sync.go:1502-1508`). It is one request
+  dcrwallet does not make at that point, since dcrwallet holds F's filter
+  from when it connected F; it tells the peer which block is the birthday
+  block, a disclosure of the kind FB1 accepted, the initial sync having
+  already shown peers roughly where the birthday lies. It adds no store
+  operation, keeps decision item 1, FB9 (a) and rule 9 exact, and leaves
+  the detach exception as it is.
+- *(b)* Leave F without its filter. That narrows decision item 1 by one
+  main-chain filter at the birthday height, and the narrowing does not
+  stay local: FB9 (a)'s meaning of the row needs an exception for it,
+  `MissingCFiltersHeight` must step over it, the detach exception must
+  cover it, rules 2 and 3 must be extended to it (or its readers fail
+  where dcrwallet's serve its filter, a divergence of its own), and the
+  projection of rule 6 must account for it.
+
+Recommended: (a). It is the only option that keeps the rules already
+decided as they stand; (b) would reopen FB9. Not examined: how often such
+a reorganisation happens. It needs a reorganisation while a time birthday
+is pending, so a tip more than a day old (FB11), and a first attached
+block whose timestamp is after T where the detached child's was not.
+
+### What the code owes, added
+
+- tests that `ExtendMainChain`, while a birthday set from time T is
+  pending, accepts a block without a filter only when its timestamp is not
+  after T, and refuses the resolving block without its filter (rule 4 as
+  widened);
+- a test, for each syncer, that a block in doubt at a batch boundary and
+  at the initial-sync tip gets no request until its child arrives, gets
+  one with the child's when the child shows it to be the birthday block
+  and none when the child shows it below, and that its filter is written
+  in the child's transaction (items 3 and 5);
+- a test that a block announced after the initial sync while a time
+  birthday is pending has the filter the announcement path fetched written
+  when its child shows it to be the birthday block, fetched again only
+  after a restart in between;
+- a test that a store created with a height-0 birthday holds the genesis
+  filter before block 1 is connected, and, once the Rust producer of
+  `[cfilters]` exists, a comparison with Go in that state (item 2);
+- the detach tests "What the code owes" above lists for FB11, with
+  `cfilters_detached` holding no filter for a block detached while held
+  without one (item 6);
+- tests of the projection in the pending states of item 7, with the rest
+  of the projection;
+- once FB13 is answered, a test, in each sync mode, of a reorganisation
+  whose first attached block resolves a pending time birthday at a fork
+  point below the stored tip, showing what the answer gives the store for
+  that block. *(Answered later the same day, option (a); the tests are
+  listed in the addendum "2026-11-22 (FB13)".)*
+
+### Not measured, not examined, not done
+
+- Nothing is implemented. No code, schema, export format or test changed
+  with this addendum, and nothing was run for it: no oracle run, no
+  benchmark, no timed measurement, no sync.
+- How often a block in doubt turns out to be the birthday block, and how
+  often a reorganisation happens while a time birthday is pending, were
+  not examined.
+- FB13 is open. *(Decided later the same day, option (a), project owner;
+  addendum "2026-11-22 (FB13)".)*
+- The items listed under "Not measured, not examined, not done" in the
+  addendum above stand.
+
+### Places amended
+
+This record: a pointer at the end of the Status block's second bullet and
+a third bullet; dated pointers in decision items 1 and 4, items 3 and 7 of
+"What reads stored filters", the Consequences, the preamble of the open
+questions, FB4's mark, rules 1, 4, 6, 8 and 9 and the checks of the
+addendum above, and the head of its "What the code owes"; the marks on
+FB11 and FB12; this addendum. ADR-0003 (the pointer of 2026-11-22 in its
+addendum of 2026-11-21); ADR-0001 (the pointer under its Status line);
+`docs/PARITY.md` (the deliberate divergence, revised in place); the
+README; the ADR index (the rows for ADR-0001, ADR-0003 and this record);
+the brief (the Phase 0 status, §9 D2 and the M0 row);
+`docs/PHASE0-EXIT.md`.
+
+## Addendum, 2026-11-22 (FB13) — FB13 decided as recommended, and the cut-off rule (project owner)
+
+Later on 2026-11-22 the project owner was shown three things, each with a
+recommendation: FB13 above, recommended option (a), that the syncer
+fetches the fork-point block's filter, checks it and writes it as part of
+the same chain switch; the proposals ADR-0013 still marked Proposed (its
+Open point 6's bullets other than Phase 8's, and its Open point 8),
+recommended: accept as proposed; and a cut-off rule, proposed to the owner
+in these words: "Questions that arise in working out ADR-0019 are settled
+in the phase that implements it and do not count against Phase 0's exit."
+The owner answered "Accept all three". That is the whole of the answer.
+For this record it decides FB13 as option (a) and adopts the cut-off rule;
+ADR-0013 records its own part. FB13 keeps its options and reasoning as the
+record of what was chosen between. The text above stays as written apart
+from a fourth bullet in the Status block, the mark on FB13, and the dated
+pointers added to it.
+
+Decided, not implemented: nothing of it exists in code yet.
+
+### The rule FB13 adds
+
+13. **FB13 — A stored block that a chain switch shows to be the birthday
+    block.** While a birthday set from time T is pending, when the first
+    block a chain switch attaches has a timestamp after T, so that it
+    resolves the birthday at the fork point F, and the store holds F
+    without its filter (F below the stored tip and not the genesis block,
+    whose filter rule 2 of the addendum "2026-11-22 (later)" builds
+    locally), the syncer requests F's filter with the attached blocks'
+    filters, from peers in SPV mode and through dcrd's `getcfilterv2` in
+    RPC mode; checks it against F's stored header as FB2's rule 2 checks
+    a filter; and writes it through `put_cfilter_at` in the transaction
+    that connects the resolving block, as rule 5 of that addendum writes
+    the filter of a block in doubt. The chain switch waits for the
+    filter, and one that cannot be fetched or fails its check fails the
+    chain switch, as an attached block's filter does
+    (`spv/sync.go:1502-1508`). This holds for every `ChainSwitch` call
+    of both syncers, which at the pin are four:
+    - the SPV announcement path, `handleBlockAnnouncements`
+      (`spv/sync.go:1542`), and the RPC announcement path,
+      `handleBlockConnected` (`chain/sync.go:891`), after the initial
+      sync;
+    - the SPV initial sync after a reorganisation of the stored chain,
+      `initialSyncHeaders` (`spv/sync.go:1811`);
+    - the RPC initial sync after a reorganisation of the stored chain,
+      `getHeaders` (`chain/sync.go:325`), which also runs after the
+      initial sync when `getMissingHeaders` falls back to it on a full
+      batch of missing headers (`chain/sync.go:419-424`, reached from
+      `handleBlockConnected` at `:857`).
+
+    In both initial syncs (`getHeaders` included when the fallback runs
+    it), rule 3 of that addendum, by FB12 (a) 2's classing, already
+    requests F's filter with the batch, whether F's header is in the
+    batch or F is the block below the batch's first block; that request
+    is the one this rule names, and no second one is made. On the
+    announcement paths the request is one more than rule 1 and rule 3 of
+    that addendum say those paths make, and each carries a dated pointer
+    here. It is one request dcrwallet does not make at that point, since
+    dcrwallet holds F's
+    filter from when it connected F, and it tells the peer, or dcrd, which
+    block is the birthday block: a disclosure of the kind FB1 accepted,
+    which the owner's answer accepts. Decision item 1, FB9 (a), rule 9
+    with rule 8 of that addendum, and the detach exception of rule 6 of
+    that addendum stand as they are: once the birthday has resolved, the
+    store holds F's filter, `have_cfilters` reads 1 truly under FB9 (a),
+    `MissingCFiltersHeight` walking from the birthday height does not
+    stop at F, and a later chain switch that detaches F reads F's stored
+    filter as dcrwallet does.
+
+### The cut-off rule
+
+In the words the owner accepted: "Questions that arise in working out
+ADR-0019 are settled in the phase that implements it and do not count
+against Phase 0's exit."
+
+- **Scope.** It covers questions that arise in working out this record,
+  and nothing else. It defers nothing in D1 to D10 that is not such a
+  question, and it changes nothing already decided here: Decision items
+  1 to 5 and the rules of FB1 to FB13 stand, and are what the
+  implementing phases build.
+- **What it does.** A question found from now on in working out this
+  record (in specifying the projection of rule 6 in ADR-0001, in writing
+  the syncers, the rescans, the filter RPCs or the Phase 3 port, or in
+  reviewing any of them) is put to the owner, with a recommendation, in
+  the phase that implements this record, and is settled there. While it
+  waits, it is marked Proposed as FB1 to FB13 were, and it neither counts
+  against Phase 0's exit nor reopens Phase 0. In D2's record (ADR-0003,
+  addendum of 2026-11-21) such a question is deferred by this rule.
+- **Which phase.** This record is implemented in more than one phase: its
+  store rules in the Phase 3 port of `purse-udb`'s transaction store
+  (`ExtendMainChain`'s check, FB4 and FB11; `MissingCFiltersHeight`'s
+  start, FB9 and FB12), its fetching rules in the sync phases (brief
+  §6 Phases 5, 6 and 10), the replies of the filter RPCs under rules 3
+  and 5 in the RPC servers (brief §6 Phase 7, JSON-RPC, for
+  `getcfilterv2`, `validatepredcp0005cf` and `importcfiltersv2`, specs 16
+  to 18; Phase 12, gRPC, for `GetCFilters`, spec 19), and FB5's
+  `cmd/repaircfilters` in `purse-tools`' port of it (brief §5, spec 22),
+  whose phase the brief does not fix. The on-demand fetch behind the
+  filter RPCs may sit in wallet code an earlier phase writes; the replies
+  rule 3 leaves to the code are built in Phases 7 and 12. The rule's
+  words name "the phase that implements it"; this record reads that as
+  the phase that implements the part of the record the question bears
+  on. The owner has not ruled on that reading.
+- **Already left to the code.** What `getcfilterv2`, `GetCFilters` and
+  `validatepredcp0005cf` reply when a connected backend fails to serve a
+  filter is, under rule 3, the code's to settle and its PARITY.md row's
+  to record; the projection and the range record of rule 6 are decided
+  and are specified with the Rust producer of `[cfilters]`. Both were
+  already left to the implementing phases by this record; the cut-off
+  rule adds that whatever question their working out raises is settled
+  there too.
+
+### The answer checked
+
+Before it was recorded, the answer was read against FB1 to FB12 as
+decided and against decision items 1 to 5, in the source at the pin;
+nothing was run. Rule 13 adds a request and a write only in the case FB13
+names. In the initial sync of either mode it adds no request, since rule
+3 of the addendum "2026-11-22 (later)" already requests F's filter with
+the batch, so the initial-sync requests of rule 1 and rule 3 are
+unchanged and FB11 (r2) still holds exactly. On the announcement paths
+it adds one request, so the sentences of rule 1 and rule 3 that say those
+paths are unchanged no longer hold in that case; each carries a dated
+pointer to rule 13. It adds no store operation: `put_cfilter_at` is the write FB11 (i) already
+uses. It keeps decision item 1 exact at the birthday height, FB9 (a)'s
+meaning of `have_cfilters` true, and rule 8 of that addendum (`NotExist`
+while a time birthday is pending) unchanged, since F's filter is written
+in the transaction that resolves the birthday. The detach exception is
+not widened. The projection of rule 6 needs nothing for F: both stores
+hold its filter once the birthday has resolved. No PARITY.md row follows:
+`getcfilterv2` asked for F, `GetCFilters` over a range holding it and
+`validatepredcp0005cf` read F's stored filter, as dcrwallet's do. The
+paths that carry such a chain switch were read as the `ChainSwitch` calls
+of both syncers at the pin, four in all (rule 13). FB13's analysis had
+not named one of them, the RPC initial sync (`getHeaders`), which also
+runs after the initial sync through `getMissingHeaders`' fallback;
+option (a)'s "whenever" covers it, and rule 13 names it. No further case
+was found.
+
+### What the code owes, added
+
+- a test, in each sync mode, of a chain switch whose first attached block
+  resolves a pending time birthday at a fork point below the stored tip
+  that the store holds without its filter: the fork point's filter is
+  requested with the attached blocks', checked against its stored header
+  and written in the transaction that connects the resolving block; after
+  it, `have_cfilters` reads 1, `MissingCFiltersHeight` returns `NotExist`
+  when nothing else is missing, and a later chain switch that detaches the
+  fork point reads its stored filter;
+- a test that such a chain switch fails when the fork point's filter
+  cannot be fetched or fails its check;
+- the same case in the SPV initial sync after a reorganisation of the
+  stored chain, with the fork point's filter requested once;
+- the same case in the RPC initial sync after a reorganisation of the
+  stored chain, with the fork point's `getcfilterv2` made once, and in
+  `getHeaders` run through `getMissingHeaders`' fallback after the
+  initial sync, likewise.
+
+### Not measured, not examined, not done
+
+- Nothing is implemented. No code, schema, export format or test changed
+  with this addendum, and nothing was run for it: no oracle run, no
+  benchmark, no timed measurement, no sync.
+- How long a chain switch waits for the extra request was not measured,
+  and how often the case arises was not examined (FB13 above).
+- The items listed under "Not measured, not examined, not done" in the two
+  addenda above stand.
+
+### Places amended
+
+This record: a pointer at the end of the Status block's third bullet and
+a fourth bullet; dated pointers in item 7 of "What reads stored filters",
+the preamble of the open questions, rule 1 (after its sentence on the
+announcement paths), rule 3 of the addendum "2026-11-22 (later)" (after
+"stay as rule 1 states them"), the third bullet of FB13's analysis (the
+RPC initial sync), and "What the code owes, added" and "Not measured,
+not examined, not done" of the addendum "2026-11-22 (later)"; the mark on
+FB13; this addendum. ADR-0003 (a pointer in its
+addendum of 2026-11-21); ADR-0001 (the pointer under its Status line);
+`docs/PARITY.md` (the deliberate divergence, revised in place); the
+README; the ADR index (the rows for ADR-0001, ADR-0003 and this record);
+the brief (the Phase 0 status, §9 D2 and the M0 row);
+`docs/PHASE0-EXIT.md`.

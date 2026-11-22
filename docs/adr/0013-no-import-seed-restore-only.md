@@ -12,6 +12,18 @@
   items 1 to 10. Everything under Open points, and the statements Context
   marks "found after the decision", are Proposed: not put to the owner, not
   decided by this record.
+- **Open points all decided, 2026-11-22 (project owner):** points 1 to 5
+  and 7 on 2026-11-19; point 9 and point 6's Phase 8 bullet on 2026-11-22
+  ("Accept all eight"); and later the same day point 6's other bullets
+  and point 8, each as proposed. Shown them with the recommendation to
+  accept them as proposed, together with ADR-0019's FB13 and a cut-off
+  rule for questions arising in working out ADR-0019, the owner answered
+  "Accept all three"; that is the whole of the answer. Point 8 confirms
+  the three statements Context marks "found after the decision" other
+  than watching-only wallets (point 7): the first two join Decision item
+  4's list, by a dated note there, and its copies; the third is owed to
+  the user documentation of point 4, which is not yet written. No point of
+  this record is marked Proposed.
 - **Date:** 2026-11-18
 
 ## Context
@@ -111,7 +123,9 @@ and not yet committed. It also has a fuzz target
 
 **Found after the decision; not put to the owner.** Writing this record
 turned up four points the owner was not told about. They are not part of
-what was accepted; Open points 7 and 8 put them to the owner.
+what was accepted; Open points 7 and 8 put them to the owner. *(All four
+since decided as proposed: the first by Open point 7, project owner,
+2026-11-19; the other three by Open point 8, project owner, 2026-11-22.)*
 
 - A watching-only dcrwallet wallet has no seed. dcrwallet creates one from
   an account extended public key (`--createwatchingonly`, spec 21 §5.4.2);
@@ -196,6 +210,15 @@ and the parsing of untrusted files in the wallet. Cost: Decision items 3 to
    mixed-account configuration; agenda, tspend and treasury-key voting
    preferences; VSP ticket records and fee-payment state; unmined and
    unpublished transactions; outpoint locks.
+
+   *2026-11-22 (project owner, Open point 8, decided as proposed): two
+   items join this list. The last-returned address counters, as dcrwallet
+   keeps them: after discovery each branch's last-returned index is raised
+   only to its last-used index, so an address handed out but never paid
+   can be handed out again (spec 09 §4.16.1 step 6.3). And the birthday,
+   unless the user gives one at the restore prompt: without one, the
+   rescan starts from genesis (spec 21 §5.4.1 step 2.4, §5.4.11, §9 item
+   17).*
 
    Notes on that list, which add no item to it. Rediscovered accounts are
    named `account-<n>` (`wallet/discovery.go:786`). The `--create` flow
@@ -374,8 +397,34 @@ cannot serve users moving from dcrwallet.
 
 Points 1, 2, 3, 4, 5 and 7 were decided as proposed by the project owner
 on 2026-11-19; each is marked. Points 6, 8 and 9 remain Proposed.
+*2026-11-22 (project owner, "Accept all eight", on the points of the
+Phase 0 exit check, [PHASE0-EXIT.md](../PHASE0-EXIT.md)): this record's
+Open point 9 is decided, with its deadline changed (ADR-0006, addendum of
+that date), and this record's Open point 6's Phase 8 bullet is decided as
+proposed (ADR-0005, addendum of that date); each is marked. Open point
+6's other bullets and Open point 8 remain Proposed. The Phase 0 exit
+record puts both to the owner with a recommendation, since this record
+is listed against D1 (part) and neither point is deferred (PHASE0-EXIT.md,
+"Verdict", point 11; 2026-11-22). Nothing here is decided by that.*
+*2026-11-22, later (project owner, "Accept all three"): Open point 6's
+other bullets and Open point 8 are decided as proposed, as the Phase 0
+exit record recommended (PHASE0-EXIT.md, "Verdict", point 11, option
+(A)); each is marked. No open point of this record remains Proposed.
+Places amended with it: this record's Status (a dated bullet), Context's
+"Found after the decision", Decision item 4 and Open point 4 (dated
+notes), and the marks on Open points 6 and 8; the brief (§1 item 2 and
+the paragraph after the list, the *Proposed* markers on Open point 6's
+texts in the Phase 3, 4 and 5 exits, Phase 6's M2 exit, the Phase 7
+golden-capture item, §7 Layers 3 and 6 and the M1 and M2 rows of §11,
+§9 D1 and the paragraph on these open points); `README.md`;
+`docs/PARITY.md`; ADR-0002 and ADR-0005 (dated pointers where they name
+Open point 6 Proposed); `docs/specs/README.md`; the ADR index;
+`docs/PHASE0-EXIT.md`.*
 
-All Proposed; none is decided by this record. This is the one list of open
+All Proposed; none is decided by this record. *(2026-11-22: that sentence
+dates from the record's drafting and has not held since 2026-11-19; the
+paragraph above says which points are decided and which remain
+Proposed, and each point is marked.)* This is the one list of open
 points left by dropping the import; the brief (§9) and the other ADRs refer
 to it by number.
 
@@ -466,6 +515,12 @@ to it by number.
    dcr-purse's `rpccert` and `rpckey` options (spec 21 §4.1.1, options 50
    and 51); dcr-purse copies nothing. The page warns that a private key
    moved this way is exposed to the terminal and the RPC connection.
+   *(2026-11-22, project owner, Open point 8: the documentation also
+   carries the third fact of that point, that account discovery runs only
+   when the wallet is unlocked as the syncer is created, and the two
+   losses Decision item 4's list gained; Open point 5's documentation
+   already tells the user to unlock before the sync starts. Not yet
+   written.)*
 
 5. **Should the restore's gap-limit defaults differ from dcrwallet's, now
    that restore is the only migration path?** **Decided as proposed (project owner, 2026-11-19).** Proposed: no. Keep
@@ -483,7 +538,28 @@ to it by number.
    15 Q22; spec 14 Q-52).
 
 6. **How do the tests that relied on import reach matching state?**
-   Proposed:
+   **Decided as proposed (project owner, 2026-11-22): the Phase 8 bullet
+   with ADR-0005's addendum of that date ("Accept all eight"), the other
+   bullets later the same day ("Accept all three").** The brief's texts
+   for each bullet lose their *Proposed* markers. One part of the §7
+   Layer 6 bullet below had already been changed in the brief by an
+   accepted decision before this one: where ADR-0014's R1, R2 and R6 to
+   R8 apply, the layer compares the probe decisions and outcomes, not
+   "the requests the backend saw" (ADR-0014 §5, amendment 5, which the
+   owner accepted on 2026-11-19 with ADR-0014 Open point 4, "with
+   amendment 5, without which R1 and R2 fail Layer 6"; and "the same
+   filters" from the wallet's birthday on, ADR-0019). The bullet's own
+   words, accepted as proposed, still say "the requests the backend
+   saw". This record reads the two accepted texts together: amendment 5
+   stands over those words where R1, R2 and R6 to R8 apply, so the layer
+   is the one the brief carries. That is this record's reading, not the
+   owner's words. It rests on amendment 5 having been accepted for this
+   layer, after the bullet was drafted on 2026-11-18, and on R1 and R2,
+   both accepted, failing Layer 6 without it; and the option accepted
+   named the brief's texts as those whose *Proposed* markers would be
+   lifted. But the point as put to the owner (PHASE0-EXIT.md, "Verdict",
+   point 11) did not show the difference between the bullet and the
+   brief's text, and the owner has not ruled on that reading. Proposed:
    - **Phases 3 and 4.** The wallet shapes the import corpus was to cover
      (many accounts, imported keys and scripts, voting accounts, tickets in
      every state, multisig, VSP records, unmined and unpublished
@@ -517,8 +593,10 @@ to it by number.
      §5.8.4, or structurally as spec 23 §5.8.3 does for live results. This
      replaces spec 23 §5.8.2 step 4 and the port's half of §5.8.3, which
      start the port on a copy of the Go-written fixture.
-   - **Phase 8, M3.** "After an import, an existing `dcrctl` configuration
-     with the old `rpc.cert` connects unchanged" becomes: an existing
+   - **Phase 8, M3.** **Decided as proposed (project owner, 2026-11-22;
+     ADR-0005, addendum of that date, item 3).** "After an import, an
+     existing `dcrctl` configuration with the old `rpc.cert` connects
+     unchanged" becomes: an existing
      `dcrctl --wallet` configuration connects once its `rpccert` names
      dcr-purse's `rpc.cert`; nothing is carried over.
    - **§7 Layer 6** becomes a Restore layer: restore-from-seed
@@ -541,7 +619,12 @@ to it by number.
    such; until then the documents say only that a user without the seed
    cannot migrate.
 
-8. **Further points found after the decision.** Proposed: put to the owner
+8. **Further points found after the decision.** **Decided as proposed
+   (project owner, 2026-11-22, "Accept all three").** The first two facts
+   join Decision item 4's list (a dated note there) and its copies in the
+   brief (§1, item 2), `README.md` and `docs/PARITY.md`; the third is owed
+   to the user documentation of Open point 4 (a dated note there), which
+   is not yet written. Proposed: put to the owner
    the three points of Context, "Found after the decision", other than
    watching-only wallets: the last-returned counters, the birthday, and
    account discovery needing an unlocked wallet. Once confirmed, the first
@@ -549,7 +632,14 @@ to it by number.
    `README.md`, `docs/PARITY.md`), and the third joins the user
    documentation of Open point 4.
 
-9. **`PkScriptLocs` in `dcroxide-wire`.** Proposed: as ADR-0006's addendum
+9. **`PkScriptLocs` in `dcroxide-wire`.** **Decided (project owner,
+   2026-11-22), with one change: the item is kept, and is due before
+   `purse-udb`'s transaction store, the part of Phase 3 that writes
+   credits, not before Phase 3 (ADR-0006, addendum of 2026-11-22).**
+   Keeping it was already settled by ADR-0006 rule 3's table (accepted
+   2026-11-18) and ADR-0003 Decision item 2 (accepted 2026-11-19), which
+   keeps each credit's script offset and length, so the condition for
+   dropping it cannot be met. Proposed: as ADR-0006's addendum
    item 1 states, keep it due before Phase 3, and drop it if ADR-0003's
    schema stores no script offset and no other caller appears (the
    logical export of ADR-0001 is the other candidate, brief §5).

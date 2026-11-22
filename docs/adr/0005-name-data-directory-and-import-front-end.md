@@ -1,4 +1,4 @@
-# ADR-0005 — Name, data directory and the import front end
+# ADR-0005 — Name, data directory and identity
 
 - **Addendum, 2026-11-18:** the import front end is void (ADR-0013, project
   owner, 2026-11-18); the name, data directory, file names, version string
@@ -10,6 +10,13 @@
   amended to that extent and Open point 2 reversed for the user agent; see
   "Addendum, 2026-11-19 — Decision by the project owner", before
   Appendix A.
+- **Decided, 2026-11-22 (project owner):** the three items the addendum
+  of 2026-11-18 marks Proposed are accepted as proposed: the shared
+  directory; the title (the record was "Name, data directory and the
+  import front end"; the file name is kept); and the Phase 8 exit's
+  replacement of the brief's M3 sentence on `rpc.cert`, with the same
+  bullet of ADR-0013 Open point 6. See "Addendum, 2026-11-22 —
+  Decisions of the project owner", before Appendix A.
 - **Status:** Accepted (decision D1; project owner, 2026-11-18) as
   proposed, with one change: the dcrd certificate fallback also tries
   dcroxide's directory (Decision item 2; Open point 5). The name
@@ -60,7 +67,10 @@ written, and the whole of "Constraints".
 
 **What follows, added by this addendum.** These sentences were not part of
 what the owner accepted with this record; each follows from item 2 or from
-ADR-0013, and those marked Proposed await the owner.
+ADR-0013, and those marked Proposed await the owner. *(The three marked
+Proposed, the shared directory, the title and the Phase 8 exit's
+replacement sentence, were accepted as proposed by the project owner on
+2026-11-22; addendum of that date.)*
 
 - **Configuration.** With item 2's last two sentences void, dcr-purse reads
   no `dcrwallet.conf`: its configuration file is `dcr-purse.conf` alone.
@@ -96,8 +106,12 @@ ADR-0013, and those marked Proposed await the owner.
   `dcrctl` configuration with the old `rpc.cert` connects unchanged" no
   longer applies. Its Proposed replacement is ADR-0013 Open point 6: an
   existing `dcrctl --wallet` configuration connects once its `rpccert`
-  names dcr-purse's `rpc.cert`; nothing is carried over.
-- **Shared directory, Proposed.** With no import, `--appdata` naming a
+  names dcr-purse's `rpc.cert`; nothing is carried over. *Accepted as
+  proposed (project owner, 2026-11-22), with the same bullet of ADR-0013
+  Open point 6; the brief's Phase 8 exit now reads so. Addendum of that
+  date.*
+- **Shared directory.** *Accepted as proposed (project owner, 2026-11-22;
+  addendum of that date); until then marked Proposed.* With no import, `--appdata` naming a
   dcrwallet directory no longer recreates (d)'s stale-database risk: dcr-purse
   then uses that directory's `rpc.cert`, `rpc.key` and `clients.pem` (spec
   21 §9 item 5), shares `<net>/peers.json` and puts its store in `<net>/`,
@@ -111,7 +125,9 @@ ADR-0013, and those marked Proposed await the owner.
   `dcr-purse.conf` and the own data directory), brief §1 and W6, and
   `docs/specs/README.md`, which marks spec 21 §9 item 1 and §13 item 11
   superseded.
-- **Title, Proposed.** Retitle this record "Name, data directory and
+- **Title.** *Accepted as proposed (project owner, 2026-11-22; addendum of
+  that date); until then marked Proposed. The heading and the ADR index
+  now carry the new title.* Retitle this record "Name, data directory and
   identity", keeping the file name, which the brief and `docs/adr/README.md`
   link to.
 
@@ -280,7 +296,8 @@ Items 3 to 8: void (ADR-0013); the accepted text is in Appendix A.
   `docs/specs/README.md`. (Done; see the Addendum.)
 - **Risks accepted.** Void as written (ADR-0013); the accepted text is in
   Appendix A, and the Addendum's "Shared directory" proposes what replaces
-  it.
+  it. *(Accepted as proposed, project owner, 2026-11-22; addendum of that
+  date.)*
 - **Constraints.** Void (ADR-0013); the accepted text is in Appendix A.
 - **Revisit** when Decrediton's launcher is read or a consumer of the user
   agent is found. *(For the user agent this was overtaken on 2026-11-19 by
@@ -395,6 +412,67 @@ shape of the value under the new `dcr-purse` key (proposed: the same
 fields as under `dcrwallet`), fixed when Phase 7 builds the reply.
 *Decided (project owner, 2026-11-20): the shape is decided in Phase 7,
 when the JSON-RPC server is written.*
+
+## Addendum, 2026-11-22 — Decisions of the project owner: the shared directory, the title and the Phase 8 exit
+
+**What was put.** The three items of the addendum of 2026-11-18 marked
+Proposed, each with the recommendation of the Phase 0 exit check
+([PHASE0-EXIT.md](../PHASE0-EXIT.md), points 1 to 3 of the eight it put
+to the owner): accept the shared directory as proposed, on the ground the
+owner gave on 2026-11-18 for the larger risk, that only an explicit choice
+produces it; retitle the record "Name, data directory and identity",
+keeping its file name, since the import front end the old title names is
+void; and accept the Phase 8 exit's replacement sentence as proposed,
+which accepts the same bullet of ADR-0013 Open point 6.
+
+**Decision.** On 2026-11-22 the owner, shown the eight points of that
+check with their recommendations, answered "Accept all eight". For this
+record that is the three items, each as recommended. The text above stays
+as written, apart from the heading and the dated pointers added to it.
+
+1. **Shared directory.** When `--appdata` names a dcrwallet directory,
+   dcr-purse uses that directory's `rpc.cert`, `rpc.key` and `clients.pem`
+   (spec 21 §9 item 5), shares `<net>/peers.json`, and keeps its store,
+   `wallet.redb`, in `<net>/` beside a `wallet.db` it never opens. Only
+   the operator's explicit choice produces this: dcr-purse never looks for
+   a dcrwallet directory (ADR-0013 Open point 3) and copies nothing
+   (ADR-0013 Open point 4). Whether dcr-purse's `peers.json` stays
+   readable by dcrwallet's addrmgr v3.0.0 is not settled here; ADR-0009
+   Decision item 5 governs the address manager.
+2. **Title.** "Name, data directory and identity". The file name
+   `0005-name-data-directory-and-import-front-end.md` is kept, since the
+   brief, the README, the ADR index and other records link to it.
+3. **Phase 8 exit.** The brief's M3 sentence "after an import, an
+   existing `dcrctl` configuration with the old `rpc.cert` connects
+   unchanged" is replaced by: an existing `dcrctl --wallet` configuration
+   connects once its `rpccert` names dcr-purse's `rpc.cert`; nothing is
+   carried over. ADR-0013 Open point 6's Phase 8 bullet, the same
+   sentence, is decided with it; that point's other bullets stay Proposed.
+   *(Decided as proposed later the same day, project owner, "Accept all
+   three"; ADR-0013 Open point 6.)*
+
+**What follows.**
+
+- **The TLS bullet** of the addendum of 2026-11-18 ("No file is taken from
+  dcrwallet's directory") describes dcr-purse's default directory. Under
+  item 1 a dcrwallet directory named by `--appdata` is dcr-purse's data
+  directory by the operator's choice; its TLS files are used where they
+  are, and nothing is copied.
+- **Nothing is built by this decision.** No code reads a data directory
+  yet (`purse-config`, Consequences "Work"); the shared directory is
+  neither implemented nor tested.
+- **D1** has no point marked Proposed left in this record. What it defers
+  stays deferred: (c), installing as `dcrwallet` for Decrediton, waits for
+  a Phase 8 addendum (item 10), and the shape of the value under the
+  `dcr-purse` key is decided in Phase 7 (addendum of 2026-11-19).
+
+**Places amended with this addendum:** the heading; the Status lines (a
+dated bullet); in the addendum of 2026-11-18, the paragraph before "What
+follows" and the bullets "Phase 8 exit", "Shared directory" and "Title",
+and Consequences "Risks accepted", each by a dated pointer; ADR-0013 (the Open
+points preamble and Open point 6); the brief's Phase 8 exit, §9 D1 and
+the paragraph on ADR-0013's open points; the ADR index;
+`docs/PHASE0-EXIT.md`.
 
 ## Appendix A — Void text, as accepted on 2026-11-18
 

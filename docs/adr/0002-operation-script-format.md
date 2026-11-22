@@ -29,8 +29,9 @@ that the next address issued is the one dcrwallet would issue", the same
 balances and history). A Go wallet and a Rust wallet are therefore compared
 only when both reached their state by the same operations or by restoring
 the same seed against the same chain (brief §7 Layer 2). Operation scripts
-are the first of those two paths, and ADR-0013 Open point 6 (Proposed)
-gives them more to carry: the wallet shapes the import corpus was to cover
+are the first of those two paths, and ADR-0013 Open point 6 (Proposed;
+*decided as proposed, project owner, 2026-11-22*) gives them more to
+carry: the wallet shapes the import corpus was to cover
 are to be built on both sides by the same scripts (brief §6 Phase 3 exit),
 and the golden-capture harness is to prepare its states with this runner
 (brief §6 Phase 7). Because restore is the only migration path, address
@@ -606,8 +607,8 @@ The differential is then:
 - Phase 3's operation-script differential has its Go half: a corpus that
   runs every operation (18 hand-written scripts, together covering the
   whole vocabulary, and generated scripts) and six frozen vectors. The same
-  scripts can build the wallet shapes ADR-0013 Open point 6 (Proposed)
-  assigns to them.
+  scripts can build the wallet shapes ADR-0013 Open point 6 (Proposed;
+  *decided as proposed, project owner, 2026-11-22*) assigns to them.
 - Coin selection (`MakeInputSource`, `RandomUTXO`) is testable byte for
   byte, given a Rust store that consumes the stream as Go does (spec 04
   §5.1).

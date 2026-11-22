@@ -23,7 +23,20 @@
   exporter. Until then §6.10 describes `[cfilters]` version 1 as built,
   and the format is unchanged. The `birth` record's height names the
   birthday only once it is resolved; what the projection drops while a
-  birthday is pending is ADR-0019's FB12, **Proposed**.
+  birthday is pending is ADR-0019's FB12, **Proposed**. *(Later on
+  2026-11-22: decided as recommended, FB12 (a), project owner; ADR-0019,
+  addendum "2026-11-22 (later)". Under a pending height birthday H the
+  projection drops the records below H, none for H = 0, whose genesis
+  filter both sides hold from creation; under a pending time birthday it
+  drops every `[cfilters]` record on both sides, main-chain and side, the
+  genesis block's included. The specification also accounts for the
+  `sidecfilter` records of blocks detached while a time birthday was
+  pending, which the Rust store does not hold (FB11). Specified with the
+  rest, not yet.)* *(Later still on 2026-11-22: ADR-0019's FB13 decided
+  as recommended, option (a), project owner; ADR-0019, addendum
+  "2026-11-22 (FB13)". The store keeps the filter of a block a chain
+  switch shows to be the birthday block, so the projection needs nothing
+  for that case.)*
 - **Date:** 2026-11-19 (format 1 drafted; revised the same day to format 2
   after an adversarial review and the owner's decisions of 2026-11-18 and
   2026-11-19, ADR-0013 above all)

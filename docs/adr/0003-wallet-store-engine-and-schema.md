@@ -19,6 +19,28 @@
   implemented (the sync phases). The chain tables already allow that, so
   the schema does not change (ADR-0019 Decision item 3). See "Addendum,
   2026-11-21 — Committed filters below the birthday" at the end.
+- **Confirmed, 2026-11-22 (project owner):** redb 5 is D2's engine. The
+  decision of 2026-11-14 made redb "the default candidate ... to be
+  confirmed by a Phase 0 prototype measured against a large wallet's
+  workload" (brief §9 D2), and the acceptance of 2026-11-19 covered
+  Decision items 2 to 8, not the engine. The owner, shown that point with
+  the recommendation to confirm on two sets of figures already accepted,
+  answered "Accept all eight" (the eight points of
+  [PHASE0-EXIT.md](../PHASE0-EXIT.md), point 4). The prototype's, from
+  `spikes/store-redb` against `tools/oracle/cmd/storebench` on wallets of
+  10k, 100k and 1m transactions ("Results" and "Performance" above):
+  balances 670x to 465,000x faster at the depths the wallet asks for,
+  header and filter ingest 2.3x to 3.0x faster with every commit
+  durable; slower on opening for writing, on hot backup (4x to 8x), on
+  recovery after a crash and in file size at 1m, each weighed there.
+  Phase 2's, of `purse-store` as built against dcrwallet's udb (addendum
+  "`purse-store` against dcrwallet on the same workload" and M1 of the
+  addendum of 2026-11-21): 36,800x on a balance query and 1.86x on a
+  range query at their lowest, and "no slower than Go on ADR-0003's
+  workload" holding on every figure. Both sets are from a shared desktop;
+  the dedicated-machine run (M2) is still owed before Phase 3's exit, and
+  could move the commit rows, which are bound by the machine's sync time,
+  not the several-fold ones. Nothing else in this record changes.
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -644,8 +666,9 @@ to allow it is Open point 4.
 
 ## Decision (accepted: item 1 on 2026-11-14 and 2026-11-18, the rest on 2026-11-19)
 
-1. **Engine: redb 5** (accepted). Pinned to one exact release and moved in
-   step with dcroxide, per ADR-0006 rule 5. `Durability::Immediate` for
+1. **Engine: redb 5** (accepted; *confirmed by the project owner on
+   2026-11-22 on the prototype's figures and Phase 2's, Status line*).
+   Pinned to one exact release and moved in step with dcroxide, per ADR-0006 rule 5. `Durability::Immediate` for
    every logical operation and redb's default one-phase commit with
    checksums, unless the owner accepts item 9's exception.
 2. **Schema.** Every table maps raw bytes to raw bytes, so key order is byte
@@ -1831,7 +1854,39 @@ once ADR-0019 is implemented:
   and adds no table or store operation. Where `MissingCFiltersHeight`
   starts while a birthday is pending, and whether a height-0 birthday's
   genesis filter is written at creation, is ADR-0019's FB12,
-  **Proposed**.)*
+  **Proposed**.)* *(2026-11-22, later: FB11 and FB12 decided as
+  recommended, project owner; ADR-0019, addendum "2026-11-22 (later)".
+  FB11 (i): while a birthday set from time is pending, `ExtendMainChain`
+  also accepts a block without its filter if the block's timestamp is not
+  after the birthday's time, and the birthday block's filter is written
+  through `put_cfilter_at` in the transaction that connects the child
+  resolving the birthday; blocks detached in that state while held
+  without a filter keep none in `cfilters_detached`. FB12 (a): a pending
+  height birthday counts at its height from creation, a height-0
+  birthday's genesis filter is written at creation, and while a time
+  birthday is pending `MissingCFiltersHeight` returns `NotExist`. No
+  table, key, value or invariant changes. Which request and write record
+  the filter of a block the store already holds without it, below the
+  stored tip, when the first block a reorganisation attaches shows it to
+  be the birthday block, is ADR-0019's FB13, **Proposed**; its
+  recommendation uses the same `put_cfilter_at` write and keeps exact
+  both the content of `cfilters` stated above and the meaning of
+  `have_cfilters` under FB9 (a), which its alternative would narrow.)*
+  *(2026-11-22, after FB11 and FB12: FB13 decided as recommended, option
+  (a), project owner, "Accept all three"; ADR-0019, addendum "2026-11-22
+  (FB13)". The syncer fetches the fork-point block's filter with the
+  attached blocks', checks it against the stored header and writes it
+  through `put_cfilter_at` in the transaction that connects the block
+  resolving the birthday, so the content of `cfilters` stated above and
+  the meaning of `have_cfilters` under FB9 (a) stay exact. No table, key,
+  value or invariant changes. With it the owner accepted a cut-off rule,
+  in these words: "Questions that arise in working out ADR-0019 are
+  settled in the phase that implements it and do not count against Phase
+  0's exit." A question that arises in working out ADR-0019 from now on,
+  including one that bears on what this record's tables hold, is
+  therefore deferred by that rule to the phase that implements ADR-0019,
+  and is not a point of D2 left undecided. The rule covers such questions
+  and nothing else in this record.)*
 - The measurements above stand as made: every one of them stored a filter
   for every block. The file size of a store that keeps headers for every
   block and filters only from a recent birthday on was not measured.

@@ -22,6 +22,11 @@
   base58 codecs, which decode private strings, is to be replaced with a
   constant-time lookup under Rule 6; scheduled at low priority, not yet
   done. See "Addendum, 2026-11-21" at the end.
+- **Decided, 2026-11-22 (project owner):** a Rule 7 case whose difference
+  a client could observe is brought as Rule 11 brings one, as proposed;
+  and brief §3 W1's text stays as it is, the funds Rule 7's default fixes
+  being governed by that default alone. See "Addendum, 2026-11-22" at the
+  end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -455,7 +460,8 @@ unchanged. The first half of Rule 7, W1's outcomes, is unchanged.
    case is brought is not in the owner's words; proposed, the owner's to
    confirm: as Rule 11 brings one, the proposed disposition in the QUIRKS
    entry, marked "pending owner", named in the change submitted for
-   signing.
+   signing. *Confirmed as proposed (project owner, 2026-11-22); addendum
+   of that date.*
 
 **Entries met so far.** No QUIRKS entry has a disposition reproducing such
 a defect by default, so no disposition changes. QK-0279's disposition
@@ -492,7 +498,9 @@ ADR index.
   S-list for it. *Decided 2026-11-20 (project owner): it is not; see the
   addendum of that date.*
 - Whether brief §3 W1 itself should cover these funds; the decision
-  amends this policy only.
+  amends this policy only. *Decided 2026-11-22 (project owner): W1's
+  text stays as it is, and the class is governed by Rule 7's default
+  alone; see the addendum of that date.*
 
 ## Addendum, 2026-11-20 — Decisions of the project owner: Rule 7 fixes and D13, and QK-0035
 
@@ -513,6 +521,8 @@ above stays as written, apart from the dated pointers added to it.
    other defects; no entry is added to ADR-0017's S-list (ADR-0017,
    addendum of 2026-11-20, item 2). The second point left open, whether
    brief §3 W1 itself should cover these funds, is not decided.
+   *Decided 2026-11-22 (project owner): it should not; addendum of that
+   date.*
 2. **QK-0035, first half: reproduced (Rule 1), not a Rule 7 case.** An
    `Unlock` with a wrong passphrase on an unlocked wallet locks it, as
    dcrwallet documents (`wallet/udb/addressmanager.go:1510-1516`) and
@@ -564,3 +574,57 @@ with the codecs' existing equivalence tests against `dcroxide-base58` and
 a dudect-style check of its own. It is to land before anything that
 parses private strings ships. The change is not made, and nothing of the
 "Not examined" paragraph above has been examined since.
+
+## Addendum, 2026-11-22 — Decisions of the project owner: how a Rule 7 case is brought, and W1
+
+**What was put.** The two points of D10's record that the owner had not
+settled and the record defers to no phase, each with the recommendation
+of the Phase 0 exit check ([PHASE0-EXIT.md](../PHASE0-EXIT.md), points 7
+and 8 of the eight it put to the owner). Point 7: item 3 of the procedure
+in the addendum of 2026-11-19, marked "proposed, the owner's to confirm":
+a Rule 7 case whose difference a client could observe is brought as Rule
+11 brings one. Recommended: confirm as proposed. Point 8: the second
+point under "Not settled" in the same addendum, whether brief §3 W1
+itself should cover funds a defect leaves unavailable only until a
+restart or a manual unlock, left to the owner with no proposal.
+Recommended: W1's text stays as it is and the class is governed by Rule
+7's default alone. W1 is the surface where a failure loses money; these
+funds are not lost, and Rule 7 already fixes every such defect with a
+PARITY.md row and a test of Go's behaviour, so widening W1 would change
+no code.
+
+**Decision.** On 2026-11-22 the owner, shown the eight points of that
+check with their recommendations, answered "Accept all eight". For this
+record that is both points, each as recommended. The text above stays as
+written, apart from the dated pointers added to it.
+
+1. **How a Rule 7 case is brought.** A defect under Rule 7's second half
+   whose difference a client could observe in a reply goes to the owner
+   as Rule 11 brings a case: the implementer writes the proposed
+   disposition into the QUIRKS entry, marked "pending owner", and names it
+   in the change submitted for signing. Unlike Rule 11's own cases, the
+   code applies the fix while the case waits, since the fix is the default
+   (procedure item 3, settled on 2026-11-19).
+2. **W1.** Brief §3 W1's text stays as it is. Funds a defect leaves
+   unavailable only until a restart or a manual unlock are governed by
+   Rule 7's default alone; "It does not widen W1" (addendum of 2026-11-19)
+   stands as the reading of both texts. The question was about the brief,
+   not about this policy, and the answer changes neither.
+
+**What follows.** No QUIRKS entry or PARITY.md row changes: no case of
+the class is pending, and the procedure's items 1 and 2 are unchanged.
+D10's record has no point marked Proposed or left to the owner without a
+phase, apart from the owner's standing discretion over what, if
+anything, is run before a report is passed on (addendum of 2026-11-19 on
+the route of upstream reports, item 1), which is not a pending decision.
+What it defers stays deferred: QK-0203 (Phase 5) and the fee
+credits of QK-0282 (Phase 9), each decided after an oracle run (addendum
+of 2026-11-19, "Entries met so far"), and the replacement of the base58
+digit search, scheduled at low priority and not done (addendum of
+2026-11-21).
+
+**Places amended with this addendum:** the Status line (a dated bullet);
+procedure item 3 and the second point under "Not settled" in the addendum
+of 2026-11-19, and the last sentence of item 1 of the addendum of
+2026-11-20, by dated pointers; the brief (§3, last paragraph, and §9
+D10); the ADR index; `docs/PHASE0-EXIT.md`.

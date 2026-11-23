@@ -61,8 +61,10 @@
 //! many threads run. The `argon2` crate fills the lanes of each slice in
 //! parallel through rayon, as Go starts a goroutine per lane, and each
 //! derivation runs them on a rayon pool made for it alone: one thread per
-//! lane, at most one per CPU this process may use ([`num_cpu`]), the
-//! calling thread among them and working with the rest. The others are
+//! lane, at most one per CPU this process may use
+//! (`std::thread::available_parallelism`, which honours a cgroup CPU quota;
+//! the count new parameters store is [`num_cpu`], Go's), the calling thread
+//! among them and working with the rest. The others are
 //! scoped threads, joined before the derivation returns, so a derivation
 //! leaves no thread running and rayon's global pool is never started. A
 //! count of 255 runs on as many threads as a count equal to the CPU count,

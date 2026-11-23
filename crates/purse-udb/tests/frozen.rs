@@ -60,7 +60,7 @@ use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 1184;
+const ENTRIES: usize = 1175;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;

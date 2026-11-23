@@ -636,6 +636,10 @@ to it by number.
    2026-11-22), with one change: the item is kept, and is due before
    `purse-udb`'s transaction store, the part of Phase 3 that writes
    credits, not before Phase 3 (ADR-0006, addendum of 2026-11-22).**
+   *(Restated later on 2026-11-22, project owner: due before the slice of
+   that store that ports `AddCredit` and `Rollback`'s credit step, its
+   first slice, which writes no credit, having shipped without it;
+   ADR-0006, addendum "2026-11-22 (later)".)*
    Keeping it was already settled by ADR-0006 rule 3's table (accepted
    2026-11-18) and ADR-0003 Decision item 2 (accepted 2026-11-19), which
    keeps each credit's script offset and length, so the condition for

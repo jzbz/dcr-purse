@@ -40,6 +40,53 @@
 //! there is no `Display`, the string form comes only from [`Wif::string`]
 //! as a [`zeroize::Zeroizing`] string, and no error quotes the input.
 //!
+//! # Timing
+//!
+//! What of a WIF's handling runs in constant time, and what does not. The
+//! full account, with the evidence and its limits, is the note on the
+//! base58 codec in this crate's `src/base58.rs` (its "Timing" section),
+//! after ADR-0012's addendum of 2026-11-21 and its note of 2026-11-22.
+//!
+//! Constant time, on x86_64 with the pinned compiler:
+//!
+//! - the base58 lookups of [`Wif::decode`] and [`Wif::string`], from a
+//!   character to its digit and from a digit to its character, which use
+//!   no comparison, no table and no read of the alphabet (decred/base58,
+//!   which Go's dcrutil uses, looks both up in tables indexed by the
+//!   secret; the outputs are the same). That is a property of the
+//!   compiler's output, not of the source: a disassembly check of the
+//!   test binary finds no conditional branch and no memory access that
+//!   depends on the character or the digit, and no division instruction
+//!   in the big-number arithmetic, at opt-levels 1, 2, 3, "s" and "z" (in
+//!   CI on every push), and dudect's timing test finds no difference at
+//!   opt-levels 3 and "s" (in CI when a path that can change its result
+//!   changes, and nightly). No other architecture or compiler was
+//!   examined, and a consumer that builds this crate another way gets
+//!   code these checks did not see;
+//! - an Ed25519 key's range checks and public key ([`Wif::new`], and
+//!   [`Wif::decode`] of signature type 1), but for which error, if any, is
+//!   returned;
+//! - a secp256k1 key's public key, `dcroxide-dcrec`'s multiplication by
+//!   the generator, constant time on the reduced key as that crate
+//!   documents it (whether the key reduces to zero is not hidden).
+//!
+//! Not constant time:
+//!
+//! - the string's and the key's lengths, which are public;
+//! - whether a string holds a character outside the alphabet, an early
+//!   exit whose result, [`WifError::MalformedPrivateKey`], says the same;
+//! - the count of leading `1` characters, which encode leading zero bytes
+//!   (none in a WIF of the four networks, whose network bytes are not
+//!   zero);
+//! - the base58 big-number arithmetic, whose work follows the magnitude
+//!   of each prefix of the value: set by the network and signature type
+//!   bytes, which are public, and by the private key only through a carry
+//!   near a boundary;
+//! - the rest of a decode or an encode, not examined for timing: the
+//!   BLAKE-256 checksum over the key (`dcroxide-crypto`), the comparison
+//!   of a decoded checksum with it (a slice comparison), and the network
+//!   and signature type checks, which read public bytes.
+//!
 //! # Panics in Go
 //!
 //! No input makes this crate panic. Go's `Amount.Format` panics for units

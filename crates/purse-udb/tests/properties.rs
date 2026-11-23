@@ -43,7 +43,12 @@
 //!   crypto keys seal opens as before, a failed change leaves the store as
 //!   it was, and a successful one rewrites only its half's two rows; an
 //!   account its own passphrase unlocked stays unlocked across a private
-//!   change.
+//!   change. A refused change, like a refused watching-only creation from
+//!   an extended private key, draws nothing from the random source.
+//! - Conversions to watching-only: no value the conversion removes is left
+//!   in any row or in a backup of the converted store (the live file may
+//!   keep earlier copies in freed pages, QK-0761), and an account row whose
+//!   key material does not decode is left as Go leaves it.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -53,6 +58,8 @@
 mod support;
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dcroxide_txscript::stdaddr;
 use purse_errors::{AnyError, Kind};
@@ -72,6 +79,18 @@ fn rng_source(rng: &mut SplitMix64) -> BoxedRandom {
     let mut r = SplitMix64(rng.next_u64());
     Box::new(move |buf: &mut [u8]| -> Result<(), RandomSourceError> {
         r.fill(buf);
+        Ok(())
+    })
+}
+
+/// [`rng_source`], adding the bytes it hands out to `drawn`, so a test can
+/// show that an operation drew nothing, or exactly what it should.
+fn counted_source(rng: &mut SplitMix64, drawn: &Arc<AtomicU64>) -> BoxedRandom {
+    let mut r = SplitMix64(rng.next_u64());
+    let drawn = Arc::clone(drawn);
+    Box::new(move |buf: &mut [u8]| -> Result<(), RandomSourceError> {
+        r.fill(buf);
+        drawn.fetch_add(u64::try_from(buf.len()).expect("small"), Ordering::Relaxed);
         Ok(())
     })
 }
@@ -425,6 +444,15 @@ fn imported_data_codec_round_trips_and_refuses_malformed_values() {
 /// A seeded wallet on simnet in a file store, opened, with its private
 /// passphrase.
 fn wallet(rng: &mut SplitMix64, label: &str) -> (Store, Manager, ChainParams) {
+    let (_, store, mgr, chain) = wallet_file(rng, label);
+    (store, mgr, chain)
+}
+
+/// [`wallet`], with the path of its store file.
+fn wallet_file(
+    rng: &mut SplitMix64,
+    label: &str,
+) -> (std::path::PathBuf, Store, Manager, ChainParams) {
     let chain = ChainParams::by_name("simnet").expect("simnet");
     loop {
         let seed = rng.bytes(32);
@@ -432,7 +460,8 @@ fn wallet(rng: &mut SplitMix64, label: &str) -> (Store, Manager, ChainParams) {
             continue;
         }
         let dir = scratch(label);
-        let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
+        let path = dir.join(purse_store::STORE_FILE_NAME);
+        let store = Store::create(&path).expect("create store");
         let mut src = rng_source(rng);
         update(&store, |tx| {
             Manager::create(
@@ -456,7 +485,7 @@ fn wallet(rng: &mut SplitMix64, label: &str) -> (Store, Manager, ChainParams) {
         )
         .expect("open");
         drop(tx);
-        return (store, mgr, chain);
+        return (path, store, mgr, chain);
     }
 }
 
@@ -1034,6 +1063,93 @@ fn reopen_equals_in_memory_state() {
     }
 }
 
+/// QK-0767 (ADR-0012 Rule 7; the report decided by the project owner on
+/// 2026-11-22): over random wallets whose account 0 has no passphrase of its
+/// own, has one, had one removed, or had one set in a transaction that
+/// rolled back, the SLIP0044 upgrade returns `true` exactly when account 0
+/// had its own passphrase, in a transaction that rolls back as in one that
+/// commits. A rolled-back upgrade leaves the passphrase as it was. After a
+/// committed one account 0 has no passphrase of its own, live and after a
+/// reopen, and the wallet passphrase opens its key; a second upgrade is
+/// refused and writes nothing.
+#[test]
+fn coin_type_upgrade_reports_a_dropped_passphrase() {
+    let mut rng = SplitMix64::from_env("purse-udb-upgrade-report");
+    let mut seen = BTreeSet::new();
+    for case in 0..cases().div_ceil(2).max(8) {
+        let (store, mgr, chain) = wallet(&mut rng, "prop-upgrade-report");
+        mgr.unlock(b"private").expect("unlock");
+        let state = case % 4;
+        match state {
+            1 => {
+                update(&store, |tx| mgr.set_account_passphrase(tx, 0, b"zero")).expect("set");
+            }
+            2 => {
+                update(&store, |tx| mgr.set_account_passphrase(tx, 0, b"zero")).expect("set");
+                update(&store, |tx| mgr.set_account_passphrase(tx, 0, b"")).expect("remove");
+            }
+            3 => {
+                let r = update(&store, |tx| {
+                    mgr.set_account_passphrase(tx, 0, b"zero")?;
+                    Err::<(), _>(AnyError::new("roll back"))
+                });
+                assert!(r.is_err());
+            }
+            _ => {}
+        }
+        if (case / 4) % 2 == 1 {
+            mgr.lock().expect("lock");
+        }
+        let had = state == 1;
+        seen.insert((had, mgr.is_locked()));
+        let what = format!("case {case} (state {state}, locked {})", mgr.is_locked());
+        let has = |m: &Manager| {
+            let tx = store.read().expect("read");
+            m.account_has_passphrase(&mut &tx, 0).0
+        };
+        assert_eq!(has(&mgr), had, "{what}");
+        // Rolled back: the report is the same, and nothing changes.
+        let r = update(&store, |tx| {
+            let dropped = mgr.upgrade_to_slip0044_coin_type(tx)?;
+            assert_eq!(dropped, had, "{what}: inside a transaction that rolls back");
+            Err::<(), _>(AnyError::new("roll back"))
+        });
+        assert!(r.is_err());
+        assert_eq!(has(&mgr), had, "{what}: after the rollback");
+        let dropped = update(&store, |tx| mgr.upgrade_to_slip0044_coin_type(tx)).expect("upgrade");
+        assert_eq!(dropped, had, "{what}");
+        assert!(!has(&mgr), "{what}: after the upgrade");
+        // A second upgrade is refused and writes nothing.
+        let before = change_rows(&store);
+        let err = update(&store, |tx| mgr.upgrade_to_slip0044_coin_type(tx))
+            .expect_err("a second upgrade");
+        assert!(err.is_kind(Kind::Invalid), "{what}: {err}");
+        assert_eq!(
+            change_rows(&store),
+            before,
+            "{what}: a refused upgrade wrote"
+        );
+        drop(mgr);
+        let tx = store.read().expect("read");
+        let reopened = Manager::open(
+            &mut &tx,
+            &chain,
+            b"public",
+            rng_source(&mut rng),
+            Limits::DEFAULT,
+        )
+        .expect("open");
+        drop(tx);
+        assert!(!has(&reopened), "{what}: after a reopen");
+        reopened.unlock(b"private").expect("unlock");
+        let tx = store.read().expect("read");
+        reopened
+            .account_extended_priv_key(&mut &tx, 0)
+            .unwrap_or_else(|e| panic!("{what}: the wallet passphrase opens account 0: {e}"));
+    }
+    assert_eq!(seen.len(), 4, "reports and lock states: {seen:?}");
+}
+
 /// The coin type upgrade replaces account 0's keys, the one change to
 /// cached key material: an upgrade that rolls back leaves the legacy keys
 /// in use, and a snapshot taken before an upgrade commits, read after it,
@@ -1136,7 +1252,8 @@ fn coin_type_upgrade_keeps_memory_with_the_store() {
 /// `coin_type_upgrade_rederives_legacy_rows` in `tests/oracle.rs`.
 ///
 /// The test also pins the case the fix leaves (QK-0760, residual case,
-/// open for the owner): no legacy address is recognised after the
+/// deferred to Phase 5 by the project owner on 2026-11-22): no legacy
+/// address is recognised after the
 /// upgrade, so a later payment to one is neither recognised nor
 /// spendable until the seed is restored again, as in Go, whose filter
 /// misses it too. A decision to keep the legacy keys and rows changes
@@ -1384,7 +1501,10 @@ fn open_with_private_crypto_key(store: &Store, pass: &[u8], sealed: &[u8]) -> Op
 /// private master key derives from the public passphrase and opens account
 /// 0's private field to the account key's own string (QK-0037, reproduced),
 /// and a public passphrase change leaves it so: the creation's passphrase
-/// still opens that field, the new one does not.
+/// still opens that field, the new one does not. The account's extended
+/// private key is refused, and the refusal writes nothing and draws
+/// nothing from the random source, where the creation from the public key
+/// draws in Go's sizes (QK-0762).
 #[test]
 fn watching_only_wallet_answers_as_the_seed_wallet() {
     use purse_store::{AccountKey, Accounts};
@@ -1415,17 +1535,72 @@ fn watching_only_wallet_answers_as_the_seed_wallet() {
         let dir = scratch("prop-wo");
         let wstore = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
         let mut src = rng_source(&mut rng);
+        // QK-0762 (ADR-0012 Rules 6 and 11, decided 2026-11-22): the account's
+        // extended private key is refused, and the refusal writes nothing,
+        // even in a transaction that then commits.
+        // It also comes before any draw from the random source.
+        let mut drawn = 0usize;
+        let mut counting = |buf: &mut [u8]| -> Result<(), RandomSourceError> {
+            drawn += buf.len();
+            src.fill(buf)
+        };
+        let refused = wstore
+            .update(|tx| -> Result<_, purse_store::Error> {
+                Ok(Manager::create_watch_only(
+                    tx,
+                    &chain,
+                    acct.string().as_bytes(),
+                    &pub_pass,
+                    &mut counting,
+                    &Limits::DEFAULT,
+                ))
+            })
+            .expect("commit")
+            .expect_err("an extended private key");
+        assert_eq!(drawn, 0, "{what}: the refusal drew");
+        assert!(refused.is_kind(Kind::Invalid), "{what}: {refused}");
+        assert_eq!(
+            refused.to_string(),
+            "invalid operation: extended key must be an xpub"
+        );
+        assert_eq!(
+            wstore
+                .read()
+                .expect("read")
+                .iter::<Accounts>()
+                .expect("accounts")
+                .count(),
+            0,
+            "{what}: the refusal wrote an account"
+        );
+        assert_eq!(
+            change_rows(&wstore),
+            ChangeRows {
+                private: (None, None),
+                public: (None, None),
+                rest: vec!["None".to_owned(); 6],
+            },
+            "{what}: the refusal wrote a row"
+        );
+        // The creation from the public key draws in Go's sizes: two salts
+        // and two crypto keys of 32 bytes, four nonces of 24.
+        let mut drawn = 0usize;
+        let mut counting = |buf: &mut [u8]| -> Result<(), RandomSourceError> {
+            drawn += buf.len();
+            src.fill(buf)
+        };
         update(&wstore, |tx| {
             Manager::create_watch_only(
                 tx,
                 &chain,
                 xpub.as_bytes(),
                 &pub_pass,
-                &mut *src,
+                &mut counting,
                 &Limits::DEFAULT,
             )
         })
         .expect("create_watch_only");
+        assert_eq!(drawn, 4 * 32 + 4 * 24, "{what}: the creation's draws");
         // A second creation of either kind is refused and changes nothing.
         let err = update(&wstore, |tx| {
             Manager::create_watch_only(
@@ -1633,13 +1808,17 @@ fn public_answers(m: &Manager, store: &Store) -> Vec<String> {
 }
 
 /// `ConvertToWatchingOnly` over random wallets (both coin types, accounts,
-/// imported keys, scripts and xpub accounts, addresses, the wallet locked
-/// or unlocked): afterwards the store holds no private master key
-/// parameters, no sealed private crypto key, no coin type private key and
-/// no imported key's private half, every account keeps its sealed private
-/// key as Go keeps it (QK-0761), and every public answer is the one before
-/// the conversion, live and after a reopen; the manager refuses to unlock
-/// and every private key request fails. A second conversion changes
+/// some with their own passphrase, imported keys, scripts, xpub and voting
+/// accounts, addresses, the wallet locked or unlocked): afterwards the
+/// store holds no private master key parameters, no sealed private crypto
+/// key, no coin type private key and no imported key's private half; an
+/// account whose key the private crypto key seals keeps it as Go keeps it
+/// (QK-0761, reproduced), a BIP0044 account with its own passphrase has its
+/// sealed key emptied and its Argon2id parameters kept, and a voting
+/// account keeps its key (QK-0761, QK-0766, decided 2026-11-22); every
+/// public answer, `AccountHasPassphrase` included, is the one before the
+/// conversion (locked), live and after a reopen; the manager refuses to
+/// unlock and every private key request fails. A second conversion changes
 /// nothing.
 #[test]
 fn conversion_keeps_public_answers_and_removes_private_keys() {
@@ -1651,6 +1830,7 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
     use support::generator::{import_key, import_pub_key};
     let mut rng = SplitMix64::from_env("purse-udb-conversion");
     let mut seen = BTreeSet::new();
+    let mut own_seen = 0usize;
     for case in 0..cases() {
         let (store, mgr, chain) = wallet(&mut rng, "prop-convert");
         let slip = rng.below(2) == 0;
@@ -1704,14 +1884,59 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
                 mgr.account_extended_priv_key(&mut &tx, n).expect("xpriv");
             }
         }
+        // Accounts with their own passphrase (left unlocked by it, cached
+        // or not) and, in some wallets, a voting account.
+        let mut own = BTreeSet::new();
+        for n in 0..=accounts {
+            if rng.below(3) == 0 {
+                update(&store, |tx| mgr.set_account_passphrase(tx, n, b"own")).expect("set");
+                own.insert(n);
+                if rng.below(2) == 0 {
+                    let tx = store.read().expect("read");
+                    mgr.account_extended_priv_key(&mut &tx, n)
+                        .expect("unlocked");
+                }
+            }
+        }
+        if rng.below(3) == 0 {
+            let x = ExtendedKey::new_master(&rng.bytes(32), &chain.hd)
+                .expect("master")
+                .child(0x8000_0000)
+                .expect("child");
+            update(&store, |tx| {
+                mgr.import_voting_account(tx, &x, b"v", b"vote")
+            })
+            .expect("voting");
+        }
         let locked = rng.below(2) == 0;
         if locked {
             mgr.lock().expect("lock");
         }
         seen.insert((slip, locked));
-        let what = format!("case {case} (SLIP0044 {slip}, locked {locked})");
+        if !own.is_empty() {
+            own_seen += 1;
+        }
+        // The conversion locks every account; so the public answers are
+        // compared with the accounts locked by their own passphrase.
+        {
+            let tx = store.read().expect("read");
+            for n in &own {
+                let _ = mgr.lock_account(&mut &tx, *n);
+            }
+        }
+        let what = format!("case {case} (SLIP0044 {slip}, locked {locked}, own {own:?})");
         let before = public_answers(&mgr, &store);
-        let acct_keys = |s: &Store| -> Vec<(u32, Vec<u8>)> {
+        // What AccountHasPassphrase answers after the conversion: the same
+        // passphrases, all locked.
+        let has_before: Vec<(bool, bool)> = {
+            let tx = store.read().expect("read");
+            let mut nums = StoreRead::account_numbers(&mut &tx).expect("numbers");
+            nums.sort_unstable();
+            nums.into_iter()
+                .map(|n| (mgr.account_has_passphrase(&mut &tx, n).0, false))
+                .collect()
+        };
+        let acct_keys = |s: &Store| -> Vec<(u32, u8, AccountKeys)> {
             let tx = s.read().expect("read");
             let mut nums = StoreRead::account_numbers(&mut &tx).expect("numbers");
             nums.sort_unstable();
@@ -1721,11 +1946,23 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
                         .get::<Accounts>(&AccountKey(n))
                         .expect("read")
                         .expect("row");
-                    (n, row.keys)
+                    (
+                        n,
+                        row.account_type,
+                        AccountKeys::decode(&row.keys).expect("keys"),
+                    )
                 })
                 .collect()
         };
         let keys_before = acct_keys(&store);
+        let has_after = |m: &Manager| -> Vec<(bool, bool)> {
+            let tx = store.read().expect("read");
+            let mut nums = StoreRead::account_numbers(&mut &tx).expect("numbers");
+            nums.sort_unstable();
+            nums.into_iter()
+                .map(|n| m.account_has_passphrase(&mut &tx, n))
+                .collect()
+        };
 
         mgr.convert_to_watching_only(&store).expect("convert");
         mgr.convert_to_watching_only(&store)
@@ -1745,6 +1982,7 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
                     .is_kind(Kind::Locked)
             );
             assert_eq!(public_answers(m, &store), before, "{what}: {when}");
+            assert_eq!(has_after(m), has_before, "{what}: {when}: passphrases");
             let tx = store.read().expect("read");
             assert!(
                 m.coin_type_priv_key(&mut &tx)
@@ -1785,7 +2023,24 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
                 }
             }
         }
-        assert_eq!(acct_keys(&store), keys_before, "{what}: QK-0761");
+        // QK-0761: what the private crypto key seals stays; QK-0761 and
+        // QK-0766 (decided 2026-11-22): what a BIP0044 account's own
+        // passphrase seals goes, its parameters kept; voting accounts keep
+        // theirs.
+        let keys_after = acct_keys(&store);
+        assert_eq!(keys_after.len(), keys_before.len(), "{what}");
+        for ((n, ty, was), (n2, ty2, now)) in keys_before.iter().zip(&keys_after) {
+            assert_eq!((n, ty), (n2, ty2), "{what}");
+            assert_eq!(now.enc_pub, was.enc_pub, "{what}: account {n}");
+            assert_eq!(now.kdf, was.kdf, "{what}: account {n}");
+            let emptied = *ty == purse_udb::addrmgr::ACCOUNT_TYPE_BIP0044 && was.kdf.is_some();
+            assert_eq!(emptied, own.contains(n), "{what}: account {n}");
+            if emptied {
+                assert!(now.enc_priv.is_empty(), "{what}: account {n}: QK-0766");
+            } else {
+                assert_eq!(now.enc_priv, was.enc_priv, "{what}: account {n}: QK-0761");
+            }
+        }
         drop(mgr);
         let tx = store.read().expect("read");
         let reopened = Manager::open(
@@ -1801,6 +2056,7 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
     }
     if cases() >= 16 {
         assert_eq!(seen.len(), 4, "coin types and lock states: {seen:?}");
+        assert!(own_seen > 0, "no wallet had an account passphrase");
     }
 }
 
@@ -1810,51 +2066,329 @@ fn conversion_keeps_public_answers_and_removes_private_keys() {
 /// here, an imported row that does not decode, comes before the manager is
 /// locked, so it stays unlocked; a failure of the commit itself would
 /// leave it locked, and it unlocks again either way.
+///
+/// The imported rows are walked after the rows of BIP0044 accounts with
+/// their own passphrase are rewritten (QK-0766, decided 2026-11-22), so in
+/// the cases where account 1 has one, left unlocked by setting it or
+/// locked again, the failure comes after that rewrite ran inside the
+/// transaction: account 1's row bytes, what `AccountHasPassphrase` says of
+/// it and its private key behind its own passphrase all survive. With the
+/// bad row removed the same conversion then empties that key, which shows
+/// the rewrite was reached.
 #[test]
 fn a_failed_conversion_changes_nothing() {
     use purse_store::wallet::{CryptoKeyPriv, MasterKeyPriv, WatchOnly};
-    use purse_store::{AddrByHash, AddrRow, Hash160};
+    use purse_store::{AccountKey, Accounts, AddrByHash, AddrRow, Hash160};
     let mut rng = SplitMix64::from_env("purse-udb-conversion-fails");
-    let (store, mgr, chain) = wallet(&mut rng, "prop-convert-fails");
-    mgr.unlock(b"private").expect("unlock");
-    let wif = purse_udb::addrmgr::Wif::new(
-        &[7u8; 32],
-        chain.ids.private_key,
-        purse_dcrutil::SignatureType::ECDSA_SECP256K1,
-    )
-    .expect("wif");
-    let good = update(&store, |tx| mgr.import_private_key(tx, &wif)).expect("import");
-    store
-        .update(|tx| {
-            tx.put::<AddrByHash>(
-                &Hash160([0x55; 20]),
-                &AddrRow::Imported {
-                    account: purse_udb::addrmgr::IMPORTED_ADDR_ACCOUNT,
-                    data: vec![9, 9, 9],
-                },
+    // 0: no account passphrase; 1: account 1 has its own, unlocked;
+    // 2: account 1 has its own, locked.
+    for case in 0..3 {
+        let (store, mgr, chain) = wallet(&mut rng, "prop-convert-fails");
+        mgr.unlock(b"private").expect("unlock");
+        let wif = purse_udb::addrmgr::Wif::new(
+            &[7u8; 32],
+            chain.ids.private_key,
+            purse_dcrutil::SignatureType::ECDSA_SECP256K1,
+        )
+        .expect("wif");
+        let good = update(&store, |tx| mgr.import_private_key(tx, &wif)).expect("import");
+        update(&store, |tx| mgr.new_account(tx, b"one")).expect("new account");
+        if case >= 1 {
+            update(&store, |tx| mgr.set_account_passphrase(tx, 1, b"own")).expect("set");
+            let tx = store.read().expect("read");
+            if case == 1 {
+                assert!(
+                    mgr.account_extended_priv_key(&mut &tx, 1)
+                        .expect("unlocked by setting it")
+                        .is_private()
+                );
+            } else {
+                mgr.lock_account(&mut &tx, 1).expect("lock account 1");
+            }
+        }
+        let read_row = |store: &Store| {
+            let tx = store.read().expect("read");
+            tx.get::<Accounts>(&AccountKey(1))
+                .expect("read")
+                .expect("account 1")
+        };
+        let row_before = read_row(&store);
+        let has_before = {
+            let tx = store.read().expect("read");
+            mgr.account_has_passphrase(&mut &tx, 1)
+        };
+        assert_eq!(has_before, (case >= 1, case == 1), "case {case}");
+        let bad = Hash160([0x55; 20]);
+        store
+            .update(|tx| {
+                tx.put::<AddrByHash>(
+                    &bad,
+                    &AddrRow::Imported {
+                        account: purse_udb::addrmgr::IMPORTED_ADDR_ACCOUNT,
+                        data: vec![9, 9, 9],
+                    },
+                )
+            })
+            .expect("malformed row");
+        let err = mgr
+            .convert_to_watching_only(&store)
+            .expect_err("a malformed row fails the conversion");
+        assert!(err.is_kind(Kind::Io), "case {case}: {err}");
+        assert!(!mgr.watching_only());
+        assert!(!mgr.is_locked());
+        assert_eq!(read_row(&store), row_before, "case {case}: account 1's row");
+        {
+            let tx = store.read().expect("read");
+            assert_eq!(
+                mgr.account_has_passphrase(&mut &tx, 1),
+                has_before,
+                "case {case}"
+            );
+        }
+        mgr.lock().expect("lock");
+        let tx = store.read().expect("read");
+        assert_eq!(tx.wallet_row::<WatchOnly>().expect("read"), Some(false));
+        assert!(tx.wallet_row::<MasterKeyPriv>().expect("read").is_some());
+        assert!(tx.wallet_row::<CryptoKeyPriv>().expect("read").is_some());
+        assert!(
+            mgr.have_private_key(&mut &tx, good.address())
+                .expect("have")
+        );
+        drop(tx);
+        mgr.unlock(b"private").expect("unlocks again");
+        {
+            let tx = store.read().expect("read");
+            mgr.private_key(&mut &tx, good.address())
+                .expect("the key is still there");
+            if case >= 1 {
+                mgr.unlock_account(&mut &tx, 1, b"own")
+                    .expect("account 1 unlocks with its own passphrase");
+            }
+            assert!(
+                mgr.account_extended_priv_key(&mut &tx, 1)
+                    .expect("account 1's private key")
+                    .is_private(),
+                "case {case}"
+            );
+        }
+
+        // Without the bad row the conversion goes through, and what it
+        // rewrites is what the failed one had rewritten and rolled back.
+        store
+            .update(|tx| tx.delete::<AddrByHash>(&bad).map(|_| ()))
+            .expect("remove the malformed row");
+        mgr.convert_to_watching_only(&store).expect("convert");
+        let was = AccountKeys::decode(&row_before.keys).expect("decode");
+        let now = AccountKeys::decode(&read_row(&store).keys).expect("decode");
+        assert_eq!(now.enc_pub, was.enc_pub, "case {case}");
+        assert_eq!(now.kdf, was.kdf, "case {case}");
+        assert!(!was.enc_priv.is_empty(), "case {case}");
+        if case >= 1 {
+            assert!(now.enc_priv.is_empty(), "case {case}: QK-0766");
+        } else {
+            assert_eq!(now.enc_priv, was.enc_priv, "case {case}: QK-0761");
+        }
+        let tx = store.read().expect("read");
+        assert_eq!(
+            mgr.account_has_passphrase(&mut &tx, 1),
+            (case >= 1, false),
+            "case {case}"
+        );
+    }
+}
+
+/// An account row whose key material does not decode is left as it is by
+/// the conversion, as Go leaves it (Go's `deletePrivateKeys` reads no key
+/// field of a current account row): the conversion succeeds, that row's
+/// bytes are unchanged, and the rest of the store is converted.
+#[test]
+fn a_conversion_leaves_an_account_row_that_does_not_decode() {
+    use purse_store::wallet::{CryptoKeyPriv, MasterKeyPriv, WatchOnly};
+    use purse_store::{AccountKey, Accounts};
+    let mut rng = SplitMix64::from_env("purse-udb-conversion-undecodable");
+    for case in 0..4 {
+        let (store, mgr, _chain) = wallet(&mut rng, "prop-convert-undecodable");
+        mgr.unlock(b"private").expect("unlock");
+        update(&store, |tx| mgr.new_account(tx, b"one")).expect("new account");
+        if case % 2 == 1 {
+            update(&store, |tx| mgr.set_account_passphrase(tx, 1, b"own")).expect("set");
+        }
+        let bad = [vec![0xff], vec![], rng.bytes(7), vec![0u8; 3]];
+        let keys = bad[case].clone();
+        let row = {
+            let tx = store.read().expect("read");
+            let mut row = tx
+                .get::<Accounts>(&AccountKey(1))
+                .expect("read")
+                .expect("account 1");
+            row.keys = keys;
+            row
+        };
+        assert!(AccountKeys::decode(&row.keys).is_err(), "case {case}");
+        store
+            .update(|tx| tx.put::<Accounts>(&AccountKey(1), &row))
+            .expect("a row that does not decode");
+        mgr.convert_to_watching_only(&store)
+            .unwrap_or_else(|e| panic!("case {case}: {e}"));
+        assert!(mgr.watching_only(), "case {case}");
+        let tx = store.read().expect("read");
+        assert_eq!(
+            tx.get::<Accounts>(&AccountKey(1)).expect("read"),
+            Some(row),
+            "case {case}: the row is left as it was"
+        );
+        assert_eq!(tx.wallet_row::<WatchOnly>().expect("read"), Some(true));
+        assert!(tx.wallet_row::<MasterKeyPriv>().expect("read").is_none());
+        assert!(tx.wallet_row::<CryptoKeyPriv>().expect("read").is_none());
+    }
+}
+
+/// What a conversion removes (QK-0761, QK-0766; ADR-0012 Rule 6) is gone
+/// from every row of every table and from every byte of a backup of the
+/// converted store (ADR-0018: rows copied into a new file), over random
+/// wallets (both coin types, accounts with their own passphrase, imported
+/// keys): the private master key's salt and digest, the sealed private
+/// crypto key, the coin types' sealed private keys, the imported keys'
+/// sealed private halves and the keys accounts' own passphrases seal. The
+/// live store file is scanned too and is not held to it: redb frees the
+/// pages of a changed row without clearing them, as bbolt does for Go, so
+/// earlier copies can stay in it until the pages are reused; the count
+/// found is printed, not asserted.
+#[test]
+fn a_conversion_leaves_no_removed_value_in_rows_or_a_backup() {
+    use purse_store::wallet::{CoinTypeLegacy, CoinTypeSlip0044, CryptoKeyPriv, MasterKeyPriv};
+    use purse_store::{
+        AccountKey, Accounts, AddrByHash, AddrRow, BackupInfo, CoinTypeKeys, TableId,
+    };
+    use std::ops::Bound;
+    use support::generator::import_key;
+    fn holds(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+    let mut rng = SplitMix64::from_env("purse-udb-conversion-pages");
+    let mut values = 0usize;
+    let mut live = 0usize;
+    for case in 0..cases().div_ceil(4).max(4) {
+        let (path, store, mgr, chain) = wallet_file(&mut rng, "prop-convert-pages");
+        mgr.unlock(b"private").expect("unlock");
+        if rng.below(2) == 0 {
+            update(&store, |tx| mgr.upgrade_to_slip0044_coin_type(tx)).expect("upgrade");
+        }
+        update(&store, |tx| mgr.new_account(tx, b"one")).expect("new account");
+        update(&store, |tx| mgr.new_account(tx, b"two")).expect("new account");
+        update(&store, |tx| mgr.set_account_passphrase(tx, 1, b"one-pass")).expect("set");
+        if rng.below(2) == 0 {
+            update(&store, |tx| mgr.set_account_passphrase(tx, 2, b"two-pass")).expect("set");
+        }
+        for _ in 0..=rng.below(2) {
+            let wif = purse_udb::addrmgr::Wif::new(
+                &import_key(&mut rng),
+                chain.ids.private_key,
+                purse_dcrutil::SignatureType::ECDSA_SECP256K1,
             )
-        })
-        .expect("malformed row");
-    let err = mgr
-        .convert_to_watching_only(&store)
-        .expect_err("a malformed row fails the conversion");
-    assert!(err.is_kind(Kind::Io), "{err}");
-    assert!(!mgr.watching_only());
-    assert!(!mgr.is_locked());
-    mgr.lock().expect("lock");
-    let tx = store.read().expect("read");
-    assert_eq!(tx.wallet_row::<WatchOnly>().expect("read"), Some(false));
-    assert!(tx.wallet_row::<MasterKeyPriv>().expect("read").is_some());
-    assert!(tx.wallet_row::<CryptoKeyPriv>().expect("read").is_some());
-    assert!(
-        mgr.have_private_key(&mut &tx, good.address())
-            .expect("have")
+            .expect("wif");
+            let _ = update(&store, |tx| mgr.import_private_key(tx, &wif));
+        }
+        if rng.below(2) == 0 {
+            mgr.lock().expect("lock");
+        }
+        // The values the conversion removes, each long enough to be found
+        // only where it was written.
+        let mut removed: Vec<(String, Vec<u8>)> = Vec::new();
+        {
+            let tx = store.read().expect("read");
+            let m = tx
+                .wallet_row::<MasterKeyPriv>()
+                .expect("read")
+                .expect("private master key");
+            removed.push(("private master key salt".into(), m.salt.to_vec()));
+            removed.push(("private master key digest".into(), m.digest.to_vec()));
+            let c = tx
+                .wallet_row::<CryptoKeyPriv>()
+                .expect("read")
+                .expect("sealed private crypto key");
+            removed.push(("sealed private crypto key".into(), c.0));
+            for (what, ct) in [
+                ("legacy", tx.wallet_row::<CoinTypeLegacy>().expect("read")),
+                (
+                    "SLIP0044",
+                    tx.wallet_row::<CoinTypeSlip0044>().expect("read"),
+                ),
+            ] {
+                if let Some(CoinTypeKeys {
+                    enc_priv: Some(p), ..
+                }) = ct
+                {
+                    removed.push((format!("{what} coin type private key"), p));
+                }
+            }
+            for r in tx.iter::<Accounts>().expect("accounts") {
+                let (AccountKey(n), row) = r.expect("account row");
+                let k = AccountKeys::decode(&row.keys).expect("keys");
+                if row.account_type == purse_udb::addrmgr::ACCOUNT_TYPE_BIP0044 && k.kdf.is_some() {
+                    removed.push((format!("account {n}'s own key"), k.enc_priv));
+                }
+            }
+            for r in tx.iter::<AddrByHash>().expect("addresses") {
+                let (_, row) = r.expect("address row");
+                if let AddrRow::Imported { data, .. } = row
+                    && let Ok(ImportedData::Key { enc_priv, .. }) = ImportedData::decode(&data)
+                    && !enc_priv.is_empty()
+                {
+                    removed.push(("an imported key's private half".into(), enc_priv));
+                }
+            }
+        }
+        assert!(
+            removed.iter().any(|(w, _)| w == "account 1's own key"),
+            "case {case}: {removed:?}"
+        );
+        assert!(removed.iter().all(|(_, v)| v.len() >= 32), "case {case}");
+        values += removed.len();
+
+        mgr.convert_to_watching_only(&store).expect("convert");
+
+        let tx = store.read().expect("read");
+        for &id in TableId::ALL {
+            for e in tx
+                .range_raw(id, Bound::Unbounded, Bound::Unbounded)
+                .expect("table")
+            {
+                let (k, v) = e.expect("row");
+                for (what, needle) in &removed {
+                    assert!(
+                        !holds(&k, needle) && !holds(&v, needle),
+                        "case {case}: {what} is still in a row of {}",
+                        id.name()
+                    );
+                }
+            }
+        }
+        drop(tx);
+        let dir = scratch("prop-convert-pages-backup");
+        let info = BackupInfo {
+            network: "simnet",
+            version: "2.2.0-pre+dcr-purse.0.1.0",
+            time: 1_794_990_000_123_456_789,
+        };
+        let backup = store.backup(&dir, "converted", &info).expect("backup");
+        let file = std::fs::read(&backup.path).expect("read the backup");
+        for (what, needle) in &removed {
+            assert!(
+                !holds(&file, needle),
+                "case {case}: {what} is in the backup's file"
+            );
+        }
+        let file = std::fs::read(&path).expect("read the store file");
+        live += removed.iter().filter(|(_, n)| holds(&file, n)).count();
+        drop(mgr);
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(path.parent().expect("dir"));
+    }
+    eprintln!(
+        "removed values: {values}; still in the live store files' freed pages (not asserted): {live}"
     );
-    drop(tx);
-    mgr.unlock(b"private").expect("unlocks again");
-    let tx = store.read().expect("read");
-    mgr.private_key(&mut &tx, good.address())
-        .expect("the key is still there");
 }
 
 /// [`reopen_equals_in_memory_state`] for generated watching-only scripts:
@@ -2338,10 +2872,14 @@ fn change_rows(store: &Store) -> ChangeRows {
 /// or an earlier passphrase, account unlocks, and reopens with the current
 /// public passphrase. After every step:
 ///
-/// - a change succeeds exactly when its old passphrase is the current one,
-///   leaves the lock state as it was, and rewrites exactly its half's
-///   master key parameters and sealed crypto key (both, with the network's
-///   scrypt cost), nothing else; a failed one rewrites nothing;
+/// - a change succeeds exactly when its old passphrase is the current one
+///   and it is not a change of the private passphrase to the empty one
+///   (refused with creation's error, QK-0768, where Go accepts it), leaves
+///   the lock state as it was, and rewrites exactly its half's master key
+///   parameters and sealed crypto key (both, with the network's scrypt
+///   cost), nothing else, drawing from the manager's random source in
+///   Go's sizes; a failed or refused one rewrites nothing and draws
+///   nothing;
 /// - `Unlock` and `UnlockedWithPassphrase` accept exactly the current
 ///   private passphrase, `Manager::open` exactly the current public one;
 /// - the crypto keys never change: a value sealed before the first change
@@ -2357,9 +2895,23 @@ fn passphrase_changes_follow_gos_rules() {
     let mut rng = SplitMix64::from_env("purse-udb-change-passphrase");
     let passes: [&[u8]; 5] = [b"private", b"public", b"", b"p\xc3\xa4ss", b"x"];
     let mut changes = [0usize; 2];
+    let mut refused = 0usize;
     for case in 0..cases() {
         let (store, mgr, chain) = wallet(&mut rng, "prop-change");
-        let mut mgr = mgr;
+        // The manager again, on a source that counts its draws.
+        drop(mgr);
+        let drawn = Arc::new(AtomicU64::new(0));
+        let mut mgr = {
+            let tx = store.read().expect("read");
+            Manager::open(
+                &mut &tx,
+                &chain,
+                b"public",
+                counted_source(&mut rng, &drawn),
+                Limits::DEFAULT,
+            )
+            .expect("open")
+        };
         mgr.unlock(b"private").expect("unlock");
         if rng.below(2) == 0 {
             update(&store, |tx| mgr.upgrade_to_slip0044_coin_type(tx)).expect("upgrade");
@@ -2437,13 +2989,32 @@ fn passphrase_changes_follow_gos_rules() {
                         passes[usize::try_from(rng.below(5)).expect("small")].to_vec()
                     };
                     let before = change_rows(&store);
+                    let drawn_before = drawn.load(Ordering::Relaxed);
                     let r = mgr.change_passphrase(&store, &old, &new, private);
+                    let drew = drawn.load(Ordering::Relaxed) - drawn_before;
                     let after = change_rows(&store);
                     assert_eq!(mgr.is_locked(), locked, "{what}: lock state");
                     assert_eq!(before.rest, after.rest, "{what}: other rows");
-                    if old == *current {
+                    if old == *current && private && new.is_empty() {
+                        // QK-0768 (decided 2026-11-22): Go accepts this;
+                        // dcr-purse refuses it with creation's error and
+                        // writes nothing.
+                        let err = r.expect_err("an empty new private passphrase");
+                        assert!(err.is_kind(Kind::Invalid), "{what}: {err}");
+                        assert_eq!(
+                            err.to_string(),
+                            "invalid operation: private passphrase may not be empty"
+                        );
+                        assert_eq!(before, after, "{what}: a refused change wrote");
+                        assert_eq!(drew, 0, "{what}: a refused change drew");
+                        refused += 1;
+                    } else if old == *current {
                         r.unwrap_or_else(|e| panic!("{what}: {e}"));
                         changes[usize::from(private)] += 1;
+                        // Go's sizes: the salt (32), for the private
+                        // passphrase the hasher key (32), the nonce (24).
+                        let want = if private { 32 + 32 + 24 } else { 32 + 24 };
+                        assert_eq!(drew, want, "{what}: a change's draws");
                         let (kept, changed, was) = if private {
                             (&before.public, &after.private, &before.private)
                         } else {
@@ -2469,6 +3040,7 @@ fn passphrase_changes_follow_gos_rules() {
                         assert!(err.is_kind(Kind::Passphrase), "{what}: {err}");
                         assert_eq!(err.to_string(), "secretkey.DeriveKey: invalid passphrase");
                         assert_eq!(before, after, "{what}: a failed change wrote");
+                        assert_eq!(drew, 0, "{what}: a failed change drew");
                     }
                     if !locked {
                         mgr.unlocked_with_passphrase(&privpass)
@@ -2539,7 +3111,7 @@ fn passphrase_changes_follow_gos_rules() {
                         &mut &tx,
                         &chain,
                         &pubpass,
-                        rng_source(&mut rng),
+                        counted_source(&mut rng, &drawn),
                         Limits::DEFAULT,
                     )
                     .unwrap_or_else(|e| panic!("{what}: reopen: {e}"));
@@ -2565,5 +3137,8 @@ fn passphrase_changes_follow_gos_rules() {
     }
     // Both halves were changed.
     assert!(changes.iter().all(|n| *n > 0), "{changes:?}");
-    eprintln!("successful changes (public, private): {changes:?}");
+    eprintln!(
+        "successful changes (public, private): {changes:?}; empty new private passphrases \
+         refused: {refused}"
+    );
 }

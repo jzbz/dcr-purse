@@ -265,7 +265,20 @@ var mgrOps = map[string]opDef{
 		return r.mgr.CoinType(c.rtx)
 	}},
 	"mgr.upgrade_to_slip0044_coin_type": {writeTx, "Manager.UpgradeToSLIP0044CoinType", func(r *runner, c *opCtx, a *opArgs) (any, error) {
-		return nil, r.mgr.UpgradeToSLIP0044CoinType(c.wtx)
+		// dcr-purse's upgrade drops account 0's own passphrase, where Go
+		// keeps its Argon2id parameters over a key they no longer seal
+		// (QK-0767), and reports the drop; Go's call returns only an
+		// error. The runner states the same report from Go's state: whether
+		// account 0 had parameters before the call, read from the bucket
+		// without the Manager, so its cache is not touched.
+		had := account0HasKDF(c)
+		if err := r.mgr.UpgradeToSLIP0044CoinType(c.wtx); err != nil {
+			return nil, err
+		}
+		if had {
+			return map[string]any{"passphrase_dropped": true}, nil
+		}
+		return nil, nil
 	}},
 	"mgr.address": {readTx, "Manager.Address", func(r *runner, c *opCtx, a *opArgs) (any, error) {
 		addr, err := r.argAddress(c, a, "addr")
@@ -592,6 +605,19 @@ var mgrOps = map[string]opDef{
 		}
 		return udb.IsImportedVoting(uint8(t)), nil
 	}},
+}
+
+// account0HasKDF reports whether account 0's variables hold Argon2id
+// parameters (udb's acctVarsBucketName/<account>/acctVarKDF,
+// wallet/udb/addressdb.go:179, :1037), the mark of an account with its own
+// passphrase.
+func account0HasKDF(c *opCtx) bool {
+	vars := c.addrmgr().NestedReadBucket([]byte("acctvars"))
+	if vars == nil {
+		return false
+	}
+	acct := vars.NestedReadBucket([]byte{0, 0, 0, 0})
+	return acct != nil && acct.Get([]byte("kdf-params")) != nil
 }
 
 func acctBranchChild(a *opArgs) (acct, branch, child uint32, err error) {

@@ -101,8 +101,9 @@ impl Manager {
     /// the wallet, and the SLIP0044 child at a recorded path is. A payment
     /// to a legacy address that an earlier instance of the seed handed out
     /// is then neither recognised nor spendable until the seed is restored
-    /// again, as in Go, whose filter misses it too; keeping the legacy keys
-    /// and rows instead is open for the owner (QK-0760, residual case).
+    /// again, as in Go, whose filter misses it too; whether to keep the
+    /// legacy keys and rows instead is decided in Phase 5 (QK-0760,
+    /// residual case, deferred by the project owner on 2026-11-22).
     /// On regnet, where both coin types are 1 and the two account keys are
     /// the same (QK-0046), the rows already derive from the new key and are
     /// left as in Go.
@@ -111,7 +112,12 @@ impl Manager {
     /// its own passphrase is protected by the wallet passphrase afterwards,
     /// as the parked key is sealed. Go leaves the parameters, after which no
     /// passphrase opens account 0 and its funds cannot be spent after a
-    /// restart (QK-0767, ADR-0012 Rule 7; PARITY.md, `purse-udb`).
+    /// restart (QK-0767, ADR-0012 Rule 7; PARITY.md, `purse-udb`). The fix
+    /// stands and the upgrade still succeeds (decided by the project owner
+    /// on 2026-11-22); the return value says when it dropped such a
+    /// passphrase, so that the caller (the wallet's discovery, Phase 5) can
+    /// tell the user, since the upgrade removes a protection the user asked
+    /// for. Go's call returns only an error.
     ///
     /// Go replaces account 0's cached keys in the manager's memory at the
     /// end of the call, before the caller's transaction commits. Here the
@@ -136,7 +142,14 @@ impl Manager {
     /// SLIP0044 account 0 xpub: ...` or `xpriv: ...`, or `IO` with
     /// hdkeychain's error; the store's. The caller's transaction must roll
     /// back on an error, as Go's `walletdb.Update` does.
-    pub fn upgrade_to_slip0044_coin_type(&self, tx: &mut WriteTx<'_>) -> Result<()> {
+    ///
+    /// # Returns
+    ///
+    /// `true` when account 0 had a passphrase of its own, which the upgrade
+    /// removed (it then has none, and the wallet passphrase protects it);
+    /// `false` otherwise. Like the upgrade's writes, the report holds only
+    /// once the caller's transaction has committed.
+    pub fn upgrade_to_slip0044_coin_type(&self, tx: &mut WriteTx<'_>) -> Result<bool> {
         let coin_type = self.coin_type(tx)?;
         let (legacy, slip0044) = coin_types(&self.chain);
         if coin_type != legacy {
@@ -163,6 +176,8 @@ impl Manager {
             .into());
         }
 
+        // QK-0767: the passphrase the row below drops, reported.
+        let passphrase_dropped = props.account_encrypted;
         tx.delete_wallet_row::<CoinTypeLegacy>()
             .map_err(store_err)?;
         let parked = tx
@@ -235,6 +250,6 @@ impl Manager {
         // row replaces whichever it was (without its Argon2id parameters,
         // QK-0767).
         inner.rekeyed.remove(&DEFAULT_ACCOUNT_NUM);
-        Ok(())
+        Ok(passphrase_dropped)
     }
 }

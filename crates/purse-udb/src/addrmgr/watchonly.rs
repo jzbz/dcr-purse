@@ -24,8 +24,8 @@ use purse_store::wallet::{
     MasterKeyPub, WatchOnly,
 };
 use purse_store::{
-    AccountNumber, AccountRow, AddrByHash, AddrRow, CoinTypeKeys, SealedKey, Store, WalletRecord,
-    WriteTx,
+    AccountKey, AccountNumber, AccountRow, Accounts, AddrByHash, AddrRow, CoinTypeKeys, SealedKey,
+    Store, WalletRecord, WriteTx,
 };
 use zeroize::Zeroize;
 
@@ -80,16 +80,36 @@ where
 }
 
 /// Go's `deletePrivateKeys` at the current database version
-/// (`wallet/udb/addressdb.go:1483-1589`), then `putWatchingOnly(ns, true)`.
+/// (`wallet/udb/addressdb.go:1483-1589`), then `putWatchingOnly(ns, true)`,
+/// with one divergence. Returns the accounts whose rows it rewrote.
 ///
 /// Deletes the private master key's parameters, the sealed private crypto
 /// key and both coin types' sealed private keys, and empties the private
-/// half of every imported key. Accounts are left as they are: Go collects
-/// only rows of the version-1 account type, of which a current database
-/// has none, so every account keeps its sealed private key, and the parked
-/// SLIP0044 account 0 row keeps its own (QK-0761). Those keys are sealed by
-/// the private crypto key this deletes, which no row holds afterwards.
-fn delete_private_keys(tx: &mut WriteTx<'_>) -> Result<()> {
+/// half of every imported key. Go collects only account rows of the
+/// version-1 account type, of which a current database has none, so every
+/// account keeps its sealed private key, and the parked SLIP0044 account 0
+/// row keeps its own (QK-0761). Where that key is sealed by the private
+/// crypto key this deletes, which no row holds afterwards, it is left as
+/// Go leaves it (reproduced). Where it is sealed by the account's own
+/// passphrase (Argon2id), which opens it from Go's converted rows without
+/// the deleted keys, it is emptied for a BIP0044 account (QK-0761,
+/// QK-0766; ADR-0012 Rules 6 and 11, decided by the project owner on
+/// 2026-11-22): no call of a
+/// watching-only wallet opens such an account, so nothing is lost. The
+/// account's Argon2id parameters are kept, so it still reports a passphrase
+/// of its own, locked, as Go's does, and every reply stays Go's. An
+/// imported voting account keeps its key: a watching-only wallet unlocks
+/// one to vote, by design (`ImportVotingAccount` accepts watching-only
+/// wallets). An account row whose key material does not decode is left as
+/// it is, as Go, which never reads those fields here, leaves it: it holds
+/// no key this could find, and the conversion gains no failure Go's does
+/// not have.
+///
+/// What this removes is removed from the store's rows. redb, like bbolt,
+/// writes a changed row to new pages and does not clear the old ones, so
+/// until they are reused the store file may still hold earlier copies of
+/// every value removed here (see [`Manager::convert_to_watching_only`]).
+fn delete_private_keys(tx: &mut WriteTx<'_>) -> Result<Vec<u32>> {
     let put = |tx: &mut WriteTx<'_>| -> purse_store::Result<()> {
         tx.delete_wallet_row::<MasterKeyPriv>()?;
         tx.delete_wallet_row::<CryptoKeyPriv>()?;
@@ -97,6 +117,30 @@ fn delete_private_keys(tx: &mut WriteTx<'_>) -> Result<()> {
         drop_coin_type_priv::<CoinTypeSlip0044>(tx)
     };
     put(tx).map_err(store_err)?;
+
+    // The keys BIP0044 accounts' own passphrases seal.
+    let mut rewritten = Vec::new();
+    let accounts = tx.rows_with_prefix::<Accounts>(&[]).map_err(store_err)?;
+    for (AccountKey(account), mut row) in accounts {
+        if row.account_type != ACCOUNT_TYPE_BIP0044 {
+            continue;
+        }
+        // Go reads no key field of a current account row here; one that
+        // does not decode is left as Go leaves it.
+        let Ok(mut keys) = AccountKeys::decode(&row.keys) else {
+            continue;
+        };
+        if keys.kdf.is_none() || keys.enc_priv.is_empty() {
+            continue;
+        }
+        keys.enc_priv.zeroize();
+        keys.enc_priv = Vec::new();
+        row.keys.zeroize();
+        row.keys = keys.encode();
+        tx.put::<Accounts>(&AccountKey(account), &row)
+            .map_err(store_err)?;
+        rewritten.push(account);
+    }
 
     // Every imported key, whatever the account its row names, as Go walks
     // the whole `addr` bucket for rows of the imported type.
@@ -129,7 +173,8 @@ fn delete_private_keys(tx: &mut WriteTx<'_>) -> Result<()> {
         )
         .map_err(store_err)?;
     }
-    tx.put_wallet_row::<WatchOnly>(&true).map_err(store_err)
+    tx.put_wallet_row::<WatchOnly>(&true).map_err(store_err)?;
+    Ok(rewritten)
 }
 
 impl Manager {
@@ -147,12 +192,19 @@ impl Manager {
     /// and no parked SLIP0044 account 0 row are written; account 0's
     /// counters are the "no index" value the version 2 upgrade gives an
     /// account without addresses, the reserved imported account's 0. The
-    /// key's network is checked by the parser; neither its depth nor that it
-    /// is public is checked (QK-0762): a private key is stored as Go stores
-    /// it, sealed by the public crypto key and, in account 0's private
-    /// field, by the private crypto key, whose master key a later public
-    /// [`Manager::change_passphrase`] leaves derived from the creation's
-    /// public passphrase.
+    /// key's network is checked by the parser, and its depth is not.
+    ///
+    /// An extended private key is refused (QK-0762; ADR-0012 Rules 6 and
+    /// 11, decided by the project owner on 2026-11-22; PARITY.md,
+    /// `purse-udb`).
+    /// Go accepts one and stores its string twice: sealed by the public
+    /// crypto key, which the public passphrase opens (by default the
+    /// well-known `public`), and in account 0's private field, sealed by
+    /// the private crypto key, whose master key `createWatchOnly` also
+    /// derives from the public passphrase and which no later call can
+    /// re-protect or remove. The refusal comes after the parse, so a key
+    /// that does not parse fails with hdkeychain's error as in Go, and
+    /// before anything is drawn or written.
     ///
     /// Randomness is drawn in Go's order and sizes: the two master key
     /// salts and the two crypto keys (32 bytes each), then one 24-byte
@@ -166,7 +218,10 @@ impl Manager {
     /// exists`; a key that does not parse, hdkeychain's error, unwrapped
     /// (`the provided serialized extended key length is invalid`, `the
     /// provided extended key is for the wrong network`, a bad checksum,
-    /// ...); a branch child that is invalid, `invalid seed: unusable seed`;
+    /// ...); then dcr-purse's refusal of an extended private key, `Invalid`
+    /// `extended key must be an xpub` (the words of dcrwallet's
+    /// `Wallet.ImportXpubAccount`, which Go's `createWatchOnly` does not
+    /// have); a branch child that is invalid, `invalid seed: unusable seed`;
     /// snacl's errors for a failing random source or scrypt cost over
     /// `limits`; the store's.
     pub fn create_watch_only<R: RandomSource + ?Sized>(
@@ -185,8 +240,12 @@ impl Manager {
             return Err(e!(Kind::Exist, "address manager already exists").into());
         }
         let acct_key = parse_key(hd_pub_key, chain).map_err(key_err)?;
+        // QK-0762 (ADR-0012 Rules 6 and 11): Go stores a private key here.
+        if acct_key.is_private() {
+            return Err(e!(Kind::Invalid, "extended key must be an xpub").into());
+        }
         check_branch_keys(&acct_key).map_err(key_err)?;
-        // Go's `acctKeyPub.String()`: the key as given, private or public.
+        // Go's `acctKeyPub.String()`: the key as given, public.
         let acct_string = acct_key.string();
         drop(acct_key);
 
@@ -268,15 +327,36 @@ impl Manager {
     /// changed. Go's only caller is a test (spec 02 section 5.9), and its
     /// documentation tells the caller to convert a copy of the database.
     ///
-    /// What the store keeps is Go's (QK-0761): every account's sealed
-    /// private key and the parked SLIP0044 account 0 row stay, sealed by
-    /// the deleted private crypto key; the private master key's parameters,
-    /// the sealed private crypto key, the coin types' private keys and the
-    /// imported keys' private halves are gone. Memory follows the store:
+    /// What the store keeps is Go's (QK-0761) but for one class of key:
+    /// every account's sealed private key and the parked SLIP0044 account 0
+    /// row stay, sealed by the deleted private crypto key; the private
+    /// master key's parameters, the sealed private crypto key, the coin
+    /// types' private keys and the imported keys' private halves are gone.
+    /// Unlike Go, the private key of a BIP0044 account with its own
+    /// passphrase, which that passphrase alone opens from Go's converted
+    /// store, is removed from its row too, its Argon2id parameters kept; an
+    /// imported voting account keeps its key, as in Go (QK-0761, QK-0766;
+    /// decided by the project owner on 2026-11-22; PARITY.md,
+    /// `purse-udb`). An account row whose key material does not decode is
+    /// left as it is, as in Go. Memory follows the store:
     /// where Go empties the cached accounts' sealed private keys, so that
     /// its answer to a private derivation depends on what was cached, the
     /// cache keeps them, and every account answers as Go's do after a
     /// reopen (QK-0764).
+    ///
+    /// **The removal is from the store's rows, not from the file's pages.**
+    /// No row, reply, logical export or backup of the converted store holds
+    /// a removed value. redb writes a changed row to new pages and frees
+    /// the old ones without clearing them, as bbolt does for Go, so until
+    /// later commits reuse those pages the store file itself may still hold
+    /// earlier copies of every value removed here: the private master
+    /// key's parameters and sealed private crypto key (which the wallet's
+    /// private passphrase opens, and with them every key the crypto key
+    /// seals), the coin types' and imported keys' private halves, and the
+    /// key an account's own passphrase seals. A file that holds none of
+    /// them is a backup of the converted store (`purse_store::Store::backup`,
+    /// ADR-0018), which is written from the rows into a new file. Recorded
+    /// under ADR-0012 Rule 6 with QK-0761 and QK-0766.
     ///
     /// # Errors
     ///
@@ -296,8 +376,14 @@ impl Manager {
             if self.is_watching_only() {
                 return Ok(None);
             }
-            delete_private_keys(tx).map_err(ConvertErr::Udb)?;
+            let rewritten = delete_private_keys(tx).map_err(ConvertErr::Udb)?;
             guard.lock();
+            // The rewritten accounts are cached again only from a snapshot
+            // that holds their emptied key, as after `SetAccountPassphrase`.
+            for account in rewritten {
+                guard.accounts.remove(&account);
+                guard.rekeyed.insert(account, Vec::new());
+            }
             Ok(Some(guard))
         });
         match converted {

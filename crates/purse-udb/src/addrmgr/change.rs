@@ -79,9 +79,18 @@ impl Manager {
     /// locked one keeps no derived key. Draws come from the manager's
     /// source in Go's order and sizes: the salt, then for the private
     /// passphrase the 32-byte key of a new passphrase hasher, then the
-    /// seal's 24-byte nonce. Nothing checks `new`: an empty private
-    /// passphrase is accepted, as in Go, though creation refuses one
-    /// (QK-0768), and so is `old` again.
+    /// seal's 24-byte nonce. An empty new public passphrase is accepted, as
+    /// in Go, and so is `old` again.
+    ///
+    /// An empty new private passphrase is refused with the error creation
+    /// gives for one (QK-0768; ADR-0012 Rules 6 and 11, decided by the
+    /// project owner on 2026-11-22; PARITY.md, `purse-udb`). Go accepts it
+    /// and seals the private crypto key under a key derived from the empty
+    /// string, a wallet creation could not have made, whose private keys
+    /// anyone holding the file then opens. The refusal comes after Go's own
+    /// checks (the watching-only refusal and the check of `old`), so every
+    /// change Go refuses is refused here with Go's error, and before
+    /// anything is drawn or written.
     ///
     /// Like [`Manager::convert_to_watching_only`], and unlike every other
     /// method, this one runs its own write transaction on `store`, where Go
@@ -103,17 +112,19 @@ impl Manager {
     /// were, as in Go (spec 02 quirk 34, QK-0037): the manager never
     /// derives that master key, but it still derives from the public
     /// passphrase given at creation, so that passphrase keeps opening
-    /// account 0's private field, which holds account 0's key string (the
-    /// extended private key itself when the wallet was created from one,
-    /// QK-0762, pending the owner). A public change does not re-protect
-    /// that copy, and no call can.
+    /// account 0's private field, which holds account 0's key string. A
+    /// public change does not re-protect that copy, and no call can; it is
+    /// the extended public key, since [`Manager::create_watch_only`]
+    /// refuses an extended private key, which Go stores there (QK-0762).
     ///
     /// # Errors
     ///
     /// In Go's order: a private change on a watching-only wallet, the bare
     /// `watching only wallet`; a wrong `old`, `secretkey.DeriveKey: invalid
     /// passphrase` (kind `Passphrase`), and the same op with kind `Other`
-    /// for stored scrypt parameters over the manager's limits; snacl's
+    /// for stored scrypt parameters over the manager's limits; then
+    /// dcr-purse's refusal of an empty new private passphrase, `Invalid`
+    /// `private passphrase may not be empty` (creation's error); snacl's
     /// errors for a failing random source; a sealed private crypto key that
     /// does not open, `Crypto` `decrypt crypto privkey: ...`; a failing seal,
     /// `Crypto` `encrypt crypto privkey: ...` or `encrypt crypto pubkey:
@@ -229,6 +240,11 @@ impl Manager {
         // Go's temporary `secretKey`: dropped (wiped) on return.
         let mut check = SecretKey::from_parameters(current);
         check.derive_key_with(old, &self.limits)?;
+        // QK-0768 (ADR-0012 Rules 6 and 11): Go accepts an empty new private
+        // passphrase, which `create` refuses with this error.
+        if private && new.is_empty() {
+            return Err(e!(Kind::Invalid, "private passphrase may not be empty").into());
+        }
 
         let (n, r, p) = self.chain.scrypt_cost();
         let mut master = SecretKey::new_with(new, n, r, p, &mut *inner.rng, &self.limits)?;

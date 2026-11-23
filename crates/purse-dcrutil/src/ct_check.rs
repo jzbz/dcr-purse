@@ -9,10 +9,13 @@
 //! on `purse-testutil`'s harness (`crates/purse-testutil/src/ct.rs`, after
 //! dcroxide's), with a positive control that must be found. Every test is
 //! ignored and refuses a debug build; run them one at a time in release
-//! mode, the timing targets pinned to one processor, as
-//! `.github/workflows/ci.yml`'s constant-time job does, which also runs
-//! them all at opt-level "s" and `disassembly` at opt-levels 1, 2 and
-//! "z":
+//! mode, the timing targets pinned to one processor, as CI does:
+//! `.github/workflows/constant-time.yml` runs the timing targets at
+//! opt-levels 3 and "s" (on a change to the paths that can move their
+//! result, and nightly), and `.github/workflows/ci.yml`'s constant-time
+//! job runs `disassembly` at opt-levels 3, "s", 1, 2 and "z" on every
+//! push (the two moved apart on 2026-11-22, ADR-0012, the pointer of that
+//! date in the same note):
 //!
 //! ```text
 //! cargo test --release -p purse-dcrutil --lib --locked --no-run

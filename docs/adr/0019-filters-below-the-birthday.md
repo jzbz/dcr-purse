@@ -74,6 +74,10 @@
   `birth` row pending from both a height and a time, which this record
   does not name, is read there as below the birthday only for a block
   below both; that reading is put to the owner under the cut-off rule.
+  *(Accepted by the project owner on 2026-11-22, by signing that change
+  after being told what signing it accepts: a block without its filter is
+  taken only below both, and `MissingCFiltersHeight` walks from the
+  height.)*
   Not implemented: the rest, among it FB12 (a) item 2's genesis filter,
   which that slice writes at creation, as dcrwallet does, and keeps
   whatever birthday is set later, and the projection of rule 6.)*
@@ -1897,7 +1901,9 @@ against Phase 0's exit."
   rule 3 leaves to the code are built in Phases 7 and 12. The rule's
   words name "the phase that implements it"; this record reads that as
   the phase that implements the part of the record the question bears
-  on. The owner has not ruled on that reading.
+  on. The owner has not ruled on that reading. *(Later on 2026-11-22 the
+  project owner ruled that the Phase 0 exit record's readings stand, this
+  one, which that record repeats, among them.)*
 - **Already left to the code.** What `getcfilterv2`, `GetCFilters` and
   `validatepredcp0005cf` reply when a connected backend fails to serve a
   filter is, under rule 3, the code's to settle and its PARITY.md row's

@@ -1,0 +1,143 @@
+name: Constant time
+
+# The timing half of the checks of the wiped base58 codecs (ADR-0012, the
+# note of 2026-11-22 under the addendum of 2026-11-21, and the pointer of
+# the same date that moved these steps here): dudect's fixed-against-random
+# t-test (crates/purse-testutil/src/ct.rs, a reduced port of the harness
+# dcroxide's "Constant time" workflow runs) on the extended-key and WIF
+# codecs' lookups, decoders and encoders (src/ct_check.rs in
+# purse-hdkeychain and purse-dcrutil), with the linear search the lookups
+# replaced as a positive control that must be found: ten targets. A target
+# fails when a fixed class's |t| is above 10 on a difference of 1 ns an
+# operation or more; the control fails unless its leak is found by that
+# rule. The disassembly check of the same codecs, which is deterministic
+# and takes seconds, stays in ci.yml's constant-time job, on every push.
+#
+# A workflow of its own, as dcroxide's is: it times code, so its job runs
+# nothing else, and it runs only when something that can change the result
+# changes. The paths are what changes the timed binaries or the harness:
+# the two codec crates (neither depends on another crate of this workspace
+# but purse-testutil, a dev-dependency of both); purse-testutil (the
+# harness, and the generator that draws the classes); the lock (a
+# dependency's version, dcroxide's revision among them); the pinned
+# compiler; the root manifest, for its release profile (codegen can turn a
+# constant-time select into a branch; a path filter cannot narrow a file to
+# a table, so any change to the manifest runs it); and this file.
+#
+# Each target runs for 10 s on pushes and pull requests, as before the
+# move, and for 60 s on the nightly schedule, six times the samples, as
+# dcroxide's nightly does; a dispatch can set the seconds, up to 90, the cap
+# dcroxide's workflow puts on a dispatch that runs every target. A schedule
+# runs on the default branch only.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "crates/purse-hdkeychain/**"
+      - "crates/purse-dcrutil/**"
+      - "crates/purse-testutil/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/constant-time.yml"
+  pull_request:
+    paths:
+      - "crates/purse-hdkeychain/**"
+      - "crates/purse-dcrutil/**"
+      - "crates/purse-testutil/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/constant-time.yml"
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Each target's budget in whole seconds, from 1 to 90 (60 when empty)"
+        type: string
+        default: "60"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  timing:
+    name: constant time, timing (wiped base58 codecs, ADR-0012)
+    # Ten targets at each of two opt-levels, each running for its budget:
+    # at 10 s, about 4 minutes after the builds; at 60 s, about 21; at a
+    # dispatch's cap of 90 s, about 31. The cap is dcroxide's for a dispatch
+    # of every target, and keeps the run inside the hour.
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      PURSE_CT_SECONDS: ${{ github.event_name == 'workflow_dispatch' && (inputs.seconds || '60') || github.event_name == 'schedule' && '60' || '10' }}
+    steps:
+      # A dispatch's seconds, checked before anything is built; the value
+      # reaches the shell through the environment alone.
+      - name: Check the dispatch's inputs
+        id: inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          export LC_ALL=C
+          if ! [[ $PURSE_CT_SECONDS =~ ^[1-9][0-9]?$ ]] || [ "$PURSE_CT_SECONDS" -gt 90 ]; then
+            echo "::error::seconds is not a whole number from 1 to 90"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      # No toolchain action: rust-toolchain.toml names the version.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The machine the job landed on, so that one run's timings can be
+      # read against another's. It only describes, so it never fails.
+      - name: Describe the processor
+        continue-on-error: true
+        run: |
+          lscpu
+          uname -r
+          nproc
+      # Both opt-levels, release (3) and "s": the optimisation level
+      # decides whether a select becomes a branch, and the lookups' first
+      # form branched on the secret at "s" alone. Each timed step's binary
+      # is built first, so that the timed step compiles nothing, and the
+      # timed steps are pinned to the runner's last processor, so that the
+      # scheduler never moves a sample from one processor to another. The
+      # disassembly target is skipped here; ci.yml runs it. Each target
+      # prints its row ("ct_check row |") and one line per class
+      # ("ct_check class |").
+      - run: cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-run
+      - name: timing at opt-level 3 (the release profile)
+        run: |
+          set -o pipefail
+          taskset -c "$(( $(nproc) - 1 ))" \
+            cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-fail-fast ct_check -- \
+            --ignored --skip ct_check::disassembly --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/ct-check-3.log"
+      - run: cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-run
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: s
+      - name: timing at opt-level s
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: s
+        run: |
+          set -o pipefail
+          taskset -c "$(( $(nproc) - 1 ))" \
+            cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-fail-fast ct_check -- \
+            --ignored --skip ct_check::disassembly --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/ct-check-s.log"
+      # Each target's row, per opt-level, whatever became of the steps
+      # above, but not after the dispatch's check failed.
+      - name: Summarize the run
+        if: always() && steps.inputs.outcome != 'failure'
+        run: |
+          {
+            echo "### ${PURSE_CT_SECONDS} s a target"
+            for level in 3 s; do
+              echo
+              echo "opt-level ${level}:"
+              echo
+              echo '```'
+              if [ -f "$RUNNER_TEMP/ct-check-${level}.log" ]; then
+                sed -n 's/.*\(ct_check row .*\)/\1/p' "$RUNNER_TEMP/ct-check-${level}.log"
+              fi
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -912,7 +912,13 @@ fn change_budget(shape: Shape) -> usize {
 /// or after account 0 was given its own passphrase (QK-0767); no
 /// `mgr.private_key` between a conversion and the next reopen (QK-0763,
 /// QK-0764); no per-account passphrase on a wallet that is converted
-/// (QK-0765, QK-0766).
+/// (QK-0765, QK-0766, QK-0761). And no empty new private passphrase where
+/// Go's change would succeed (the old passphrase is the current one, on a
+/// wallet that is not watching-only): Go accepts it and dcr-purse refuses
+/// it (QK-0768; `an_empty_new_private_passphrase_is_refused` in
+/// `tests/oracle.rs`), so such a draw becomes the old passphrase again.
+/// Empty new private passphrases Go refuses (a wrong old one, a
+/// watching-only wallet) are still drawn.
 pub fn generate_change(rng: &mut SplitMix64, id: usize, shape: Shape) -> Value {
     let network = shape.network.unwrap_or_else(|| network(rng));
     let kind = match rng.below(4) {
@@ -1010,11 +1016,19 @@ pub fn generate_change_as(
             } else {
                 current.clone()
             };
-            let new = if rng.below(10) == 0 {
+            let mut new = if rng.below(10) == 0 {
                 old.clone()
             } else {
                 passphrase(rng)
             };
+            // QK-0768: an empty new private passphrase that Go would
+            // accept (the current old one, a wallet that is not
+            // watching-only) is refused by dcr-purse; it is drawn as the
+            // old passphrase again. Go refuses every other empty one first,
+            // as dcr-purse does.
+            if private && !watching && new.is_empty() && old == *current {
+                new.clone_from(&old);
+            }
             (private, old, new)
         });
         let cost = match (op, &change) {

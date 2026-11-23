@@ -44,7 +44,7 @@
 //! | Go (`wallet/udb`) | Rust | Status |
 //! |---|---|---|
 //! | `Initialize` (address manager part: `createAddressManager`) | [`Manager::create`] | ported |
-//! | `InitializeWatchOnly` (`createWatchOnly`) | [`Manager::create_watch_only`] | ported (a private extended key is accepted and stored as Go stores it, QK-0762, pending the owner) |
+//! | `InitializeWatchOnly` (`createWatchOnly`) | [`Manager::create_watch_only`] | ported (an extended private key is refused where Go stores it, QK-0762, decided by the project owner on 2026-11-22) |
 //! | `Open` (address manager part: `loadManager`) | [`Manager::open`] | ported |
 //! | `HDKeysFromSeed`, `CoinTypes` | [`addrmgr::hd_keys_from_seed`], [`addrmgr::coin_types`] | ported |
 //! | `ValidateAccountName`, `IsImportedVoting` | [`addrmgr::validate_account_name`], [`addrmgr::is_imported_voting`] | ported |
@@ -56,10 +56,10 @@
 //! | `Manager.AccountExtendedPubKey`, `AccountExtendedPrivKey`, `AccountBranchExtendedPubKey` | [`Manager::account_extended_pub_key`], [`Manager::account_extended_priv_key`], [`Manager::account_branch_extended_pub_key`] | ported |
 //! | `Manager.Encrypt`, `Decrypt` (`CKTPublic`, `CKTPrivate`) | [`Manager::encrypt_public`], [`Manager::encrypt_private`], [`Manager::decrypt_public`], [`Manager::decrypt_private`] | ported (one method per key: Go's invalid key type cannot be passed) |
 //! | `Manager.Close` | dropping the [`Manager`] (keys are wiped on drop) | ported (as drop; `rt.reopen` drops and opens) |
-//! | `Manager.CoinTypePrivKey`, `UpgradeToSLIP0044CoinType` | [`Manager::coin_type_priv_key`], [`Manager::upgrade_to_slip0044_coin_type`] | ported (the upgrade writes Go's zero counters, QK-0027, drops account 0's cached entry instead of replacing its keys before the commit, QK-0043, derives account 0's recorded address rows again from the SLIP0044 key where Go keeps the legacy rows, QK-0760, and writes account 0 without the Argon2id parameters of a passphrase of its own, which Go leaves over a key that passphrase no longer opens, QK-0767) |
+//! | `Manager.CoinTypePrivKey`, `UpgradeToSLIP0044CoinType` | [`Manager::coin_type_priv_key`], [`Manager::upgrade_to_slip0044_coin_type`] | ported (the upgrade writes Go's zero counters, QK-0027, drops account 0's cached entry instead of replacing its keys before the commit, QK-0043, derives account 0's recorded address rows again from the SLIP0044 key where Go keeps the legacy rows, QK-0760, and writes account 0 without the Argon2id parameters of a passphrase of its own, which Go leaves over a key that passphrase no longer opens, and reports that it did, QK-0767) |
 //! | `Manager.NewAccount`, `RenameAccount`, `LookupAccount` | [`Manager::new_account`], [`Manager::rename_account`], [`Manager::lookup_account`] | ported |
-//! | `Manager.ConvertToWatchingOnly` | [`Manager::convert_to_watching_only`] | ported (runs its own write transaction and changes memory only after the commit, QK-0733; the store keeps every account's sealed private key as Go does, QK-0761; `PrivateKey` afterwards answers from the store: for an imported key an error where Go panics until a reopen, QK-0763; for an account Go had cached, the locked account's text where Go's is `no private key for ...` until a reopen, QK-0764) |
-//! | `Manager.ChangePassphrase` | [`Manager::change_passphrase`] | ported (runs its own write transaction and installs the new master key only after the commit, QK-0733; an empty new private passphrase is accepted, as in Go, QK-0768) |
+//! | `Manager.ConvertToWatchingOnly` | [`Manager::convert_to_watching_only`] | ported (runs its own write transaction and changes memory only after the commit, QK-0733; the store keeps every account's sealed private key as Go does, QK-0761, except the key a BIP0044 account's own passphrase seals, which is removed from its row, QK-0761 and QK-0766, decided by the project owner on 2026-11-22 (the file's freed pages may keep earlier copies of what a conversion removes until they are reused, QK-0761); `PrivateKey` afterwards answers from the store: for an imported key an error where Go panics until a reopen, QK-0763; for an account Go had cached, the locked account's text where Go's is `no private key for ...` until a reopen, QK-0764) |
+//! | `Manager.ChangePassphrase` | [`Manager::change_passphrase`] | ported (runs its own write transaction and installs the new master key only after the commit, QK-0733; an empty new private passphrase is refused with creation's error where Go accepts it, QK-0768, decided by the project owner on 2026-11-22) |
 //! | `Manager.ImportXpubAccount` | [`Manager::import_xpub_account`] | ported |
 //! | `Manager.ImportVotingAccount` (`importAccount`) | [`Manager::import_voting_account`] | ported (the key's network is not checked, as in Go; the account number cannot wrap onto account 0, QK-0041; on a manager converted in this process it succeeds where Go panics, QK-0765) |
 //! | `Manager.SetAccountPassphrase` (`removeAccountPassphrase`), `UnlockAccount`, `LockAccount` | [`Manager::set_account_passphrase`], [`Manager::unlock_account`], [`Manager::lock_account`] | ported (memory follows the store when a transaction that set a passphrase rolls back, QK-0733; a conversion locks every account, QK-0766; Argon2id's refusal of a zero thread count is an error where Go panics, QK-0630) |
@@ -184,8 +184,8 @@
 //! | the account passphrase's keyed hash | with the unlocked account's key | with it |
 //! | passphrase hash and hasher key | hash while unlocked, key from open (a private passphrase change replaces both, as Go replaces its hasher; the account passphrases' hasher key, a copy of the key drawn at open, is kept until drop) | hash dropped by lock; both wiped on drop and when replaced |
 //! | seed, coin type and account keys during [`Manager::create`] | for the call only | on return, success or error |
-//! | the account key and its string during [`Manager::create_watch_only`] (a private key if the caller passes one, QK-0762) | for the call only | on return, success or error |
-//! | what a conversion makes unusable: the private master key, the private crypto key and its sealed copy, every cached account's private key, every key an account passphrase opened (QK-0766) | until [`Manager::convert_to_watching_only`] commits (the manager is locked inside its transaction) | wiped by the lock and on drop; the store, and the cache with it, keep the accounts' sealed private keys, sealed by the deleted crypto key (QK-0761, QK-0764) |
+//! | the account key and its string during [`Manager::create_watch_only`] (a private key the caller passes is parsed, then refused, QK-0762) | for the call only | on return, success or error |
+//! | what a conversion makes unusable: the private master key, the private crypto key and its sealed copy, every cached account's private key, every key an account passphrase opened (QK-0766) | until [`Manager::convert_to_watching_only`] commits (the manager is locked inside its transaction) | wiped by the lock and on drop; the store, and the cache with it, keep the accounts' sealed private keys, sealed by the deleted crypto key (QK-0761, QK-0764), but not those BIP0044 accounts' own passphrases sealed, which the conversion removes from their rows (QK-0761, QK-0766); the store file's freed pages may keep earlier copies of every removed value until later commits reuse them, and a backup of the converted store holds none (QK-0761) |
 //! | the coin type private key and the new account's private key during [`Manager::new_account`] | for the call only | on return, success or error |
 //! | the coin type private key from [`Manager::coin_type_priv_key`] | by the caller | when the caller drops it ([`purse_hdkeychain::ExtendedKey`] wipes itself); the decrypted string on return |
 //! | account 0's new private key during [`Manager::upgrade_to_slip0044_coin_type`] (opened to check it, as Go opens it to cache it) | for the call only | on return; the dropped cache entry's keys on drop |
@@ -282,7 +282,10 @@
 //! the processor count new Argon2id parameters record
 //! ([`Manager::with_num_cpu`]) and Go's bookkeeping of the private and
 //! public passphrases (a successful `mgr.change_passphrase` replaces the
-//! one later reopens and the export use), `update` and `view` groups
+//! one later reopens and the export use), the upgrade's report of a
+//! dropped account 0 passphrase as `mgr.upgrade_to_slip0044_coin_type`'s
+//! `{"passphrase_dropped": true}` (QK-0767; Go's runner states it from Go's
+//! state before the call), `update` and `view` groups
 //! whose members are transaction store operations
 //! (`tests/support/runner/groups.rs`: each member in its own transaction,
 //! committed even when the member fails, and the store file put back when
@@ -331,11 +334,12 @@
 //!   (an empty private passphrase, a short seed, an extended key that does
 //!   not parse or is another network's) fails both runs with the same
 //!   text; the recorded divergences (QK-0039, QK-0630, QK-0759, QK-0760,
-//!   QK-0763 to QK-0767) are pinned on both sides, and the generated
+//!   QK-0761 to QK-0768) are pinned on both sides, and the generated
 //!   scripts avoid exactly their inputs; account 0's private field of a
 //!   watching-only wallet is opened from both sides' exports after public
-//!   passphrase changes, with the creation's public passphrase (QK-0037,
-//!   QK-0762).
+//!   passphrase changes, with the creation's public passphrase (QK-0037;
+//!   for a wallet made from an extended private key, which only Go
+//!   creates, from Go's export, QK-0762).
 //! - `tests/frozen.rs`: Go's results and exports for the hand-written
 //!   scripts, for a fixed set of 48 generated scripts (every network, both
 //!   coin types), for a fixed set of 32 generated watching-only scripts
@@ -370,9 +374,17 @@
 //!   created from an account extended public key answering as the seed's
 //!   wallet on every network and coin type (QK-0037, and after a public
 //!   passphrase change the creation's passphrase still opening account 0's
-//!   private field), and a conversion
+//!   private field, and the account's extended private key refused,
+//!   writing nothing and drawing nothing, QK-0762), and a conversion
 //!   keeping every public answer while the store loses every private key
-//!   but the accounts' (QK-0761), or, when it fails, changing nothing;
+//!   but the accounts' that the private crypto key or a voting account's
+//!   passphrase seals (QK-0761, QK-0766), leaving no removed value in any
+//!   row or in a backup of the converted store and an account row that
+//!   does not decode as it was, or, when it fails, changing nothing, not
+//!   even the rows of accounts with their own passphrase it had already
+//!   rewritten; the coin type upgrade reporting exactly the account 0
+//!   passphrase it drops
+//!   (QK-0767);
 //!   per-account passphrases following a model of Go's rules through random
 //!   sets, changes, removals, unlocks, locks, wallet locks and reopens,
 //!   with rolled-back changes leaving store and memory as they were
@@ -381,15 +393,18 @@
 //!   (QK-0041); passphrase changes following a model of Go's rules through
 //!   random changes of either passphrase, locks, unlocks and reopens, with
 //!   the lock state kept, every key the crypto keys seal unchanged, a failed
-//!   change writing nothing and a successful one only its half's two rows,
-//!   and an account its own passphrase unlocked staying unlocked. Unit
+//!   change, or a refused change to an empty private passphrase (QK-0768),
+//!   writing and drawing nothing and a successful one writing only its
+//!   half's two rows and drawing Go's sizes, and an
+//!   account its own passphrase unlocked staying unlocked. Unit
 //!   tests in `src/addrmgr/mod.rs` check that a locked
 //!   manager holds no private key, crypto key, passphrase hash or master
 //!   key through random sequences (account passphrases and private
 //!   passphrase changes included: a wallet lock drops every key the account
 //!   passphrases opened, and the cache never holds one), and
 //!   that a converted one holds none of them, nor any sealed private key,
-//!   nor any key an account passphrase opened.
+//!   nor any key an account passphrase opened, nor the sealed key of a
+//!   BIP0044 account with its own passphrase.
 //! - The transaction store's first slice: `tests/oracle.rs` runs the
 //!   hand-written scripts `28-txstore-chain`, `29-txstore-records`,
 //!   `30-txstore-stake` and `31-txstore-groups` (`update` and `view`

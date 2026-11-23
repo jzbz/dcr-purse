@@ -32,7 +32,9 @@ import (
 // secp256k1 compute them (TestAddrmgrAddressesAreDcrds). The other
 // operations the differential compares (the coin type upgrade, imported
 // xpub accounts and scripts, renames, lookups, Encrypt and Decrypt) are
-// pinned only by udb itself and the frozen vectors.
+// pinned only by udb itself and the frozen vectors, except the report the
+// runner adds to the coin type upgrade for dcr-purse's
+// (TestUpgradeReportsADroppedAccountPassphrase).
 
 const addrmgrSliceScript = `{
   "format": "purse-opscript 1",
@@ -241,6 +243,73 @@ func TestAddrmgrAddressesAreDcrds(t *testing.T) {
 		}
 		if !bytes.Equal(gb, wb) {
 			t.Errorf("op %d (%s): got %s, want %s", i, rec.Op, gb, wb)
+		}
+	}
+}
+
+// TestUpgradeReportsADroppedAccountPassphrase pins the report the runner
+// adds to mgr.upgrade_to_slip0044_coin_type for dcr-purse's (QK-0767):
+// {"passphrase_dropped": true} exactly when account 0 has Argon2id
+// parameters before the call, read from the bucket, and null otherwise,
+// as for Go's call. Go's upgrade itself keeps the parameters, which the
+// record of mgr.account_has_passphrase after it shows.
+func TestUpgradeReportsADroppedAccountPassphrase(t *testing.T) {
+	const script = `{
+  "format": "purse-opscript 1",
+  "name": "the upgrade's report",
+  "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+            "pubpass": "public", "privpass": "private",
+            "rand": "6666666666666666666666666666666666666666666666666666666666666666", "clock": 1794990000},
+  "ops": [
+    {"op": "mgr.unlock", "pass": "private"},
+    {"op": "mgr.set_account_passphrase", "account": 0, "pass": "zero"},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"},
+    {"op": "mgr.account_has_passphrase", "account": 0},
+    {"op": "mgr.upgrade_to_slip0044_coin_type"}
+  ]
+}`
+	for _, removed := range []bool{false, true} {
+		var s Script
+		if err := json.Unmarshal([]byte(script), &s); err != nil {
+			t.Fatal(err)
+		}
+		if removed {
+			// Set and removed again: no parameters at the upgrade.
+			extra := json.RawMessage(`{"op": "mgr.set_account_passphrase", "account": 0, "pass": ""}`)
+			s.Ops = append(s.Ops[:2], append([]json.RawMessage{extra}, s.Ops[2:]...)...)
+		}
+		res, err := run(&s, filepath.Join(t.TempDir(), "run"))
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		at := 2
+		if removed {
+			at = 3
+		}
+		up, err := json.Marshal(res.Results[at].OK)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `{"passphrase_dropped":true}`
+		if removed {
+			want = "null"
+		}
+		if res.Results[at].Err != nil || string(up) != want {
+			t.Errorf("removed %v: upgrade: ok %s, err %v; want ok %s", removed, up, res.Results[at].Err, want)
+		}
+		has, err := json.Marshal(res.Results[at+1].OK)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantHas := `{"has":true,"unlocked":true}`
+		if removed {
+			wantHas = `{"has":false,"unlocked":false}`
+		}
+		if string(has) != wantHas {
+			t.Errorf("removed %v: AccountHasPassphrase after the upgrade: %s, want %s", removed, has, wantHas)
+		}
+		if res.Results[at+2].Err == nil {
+			t.Errorf("removed %v: a second upgrade succeeded", removed)
 		}
 	}
 }

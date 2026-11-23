@@ -289,8 +289,9 @@
 //! not (Rule 2(c)). `InsertMinedTx` of an unmined transaction into a block
 //! already stake-invalidated, where Go panics with "unimplemented:
 //! moveMinedTx called on a stake-invalidated tx", returns `Invalid` with
-//! that text and writes nothing; whether the later slice should record the
-//! move instead is a question for the owner (below). Each such difference
+//! that text and writes nothing; the refusal stays, and whether the credit
+//! slice records the move instead is decided with that slice (choice 2
+//! below, decided by the project owner on 2026-11-22). Each such difference
 //! gets its PARITY.md line, and the comparison accepts any error against
 //! Go's `Panic` record by record (ADR-0002 section 3). Go never tolerates
 //! a panic, so a group member whose operation returns such an error may
@@ -299,14 +300,15 @@
 //! where Go's stops.
 //!
 //! Go's log lines (spec 04 §8.4) are not written: the crate has no logger
-//! yet, and the address manager writes none either.
+//! yet, and the address manager writes none either (choice 5 below).
 //!
 //! **A failed operation writes nothing.** Every refusal and every guard
 //! stop is made before the operation's first write, so the rows after an
 //! error are the rows before it, even in a transaction the caller then
 //! commits. Go writes before two of its refusals, and its callers abandon
 //! the transaction on the error, so the two agree on every store a
-//! dcrwallet caller commits: `InsertMissingCFilters` and
+//! dcrwallet caller commits (that a refusal of these two writes nothing
+//! was decided by the project owner on 2026-11-22): `InsertMissingCFilters` and
 //! `ImportCFiltersV2` put each filter before they check the next block or
 //! filter, where `insert_missing_cfilters` and `import_cfilters_v2` check
 //! every one first, in Go's order and with Go's errors (an operation
@@ -500,19 +502,27 @@
 
 //! # Choices left to the project owner
 //!
-//! Each is taken here as the ADR-0012 default or the narrowest reading,
-//! and recorded:
+//! Each was taken here as the ADR-0012 default or the narrowest reading,
+//! and recorded. On 2026-11-22 the project owner decided 1, 2, 5 and 6 as
+//! taken (accepting every recommendation then open) and
+//! accepted 4 by signing the change that made it, after being told what
+//! signing accepts; each is marked. Choice 3 is not decided.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
 //!    that computes a script offset, waits for `PkScriptLocs`. The other
 //!    reading of the bound, leaving `Rollback` whole for the credit slice,
-//!    would leave reorganisations untested until then.
+//!    would leave reorganisations untested until then. *Decided (project
+//!    owner, 2026-11-22): ported without its credit step until the credit
+//!    slice, which adds it.*
 //! 2. `InsertMinedTx` of an unmined transaction into a stake-invalidated
 //!    block, which Go does not implement (it panics), is refused. With
 //!    credits, the alternative is to move the transaction and its credits
 //!    into the invalidated tables, as a mined insert into such a block
 //!    already records its debits there; decided with the credit slice.
+//!    *Decided (project owner, 2026-11-22): it stays a refusal (`Invalid`),
+//!    and whether to move it into the invalidated tables instead is
+//!    decided with the credit slice.*
 //! 3. `GetMainChainCFilters` from a detached start block (QK-0751) answers
 //!    as Go's does, with the main chain's filters from the detached
 //!    header's height; the panic QK-0751 describes is in discovery
@@ -525,13 +535,25 @@
 //!    and its timestamp not after T, so no filter either reading keeps is
 //!    dropped, and `missing_cfilters_height` walks from H. Neither path is
 //!    reached by an operation script (they always pass a filter, and no
-//!    filter is ever missing in one).
+//!    filter is ever missing in one). *Accepted (project owner,
+//!    2026-11-22), by signing the change that made it.*
 //! 5. Go's log lines (spec 04 §8.4) are a surface under ADR-0012 Rule 1;
-//!    none is written until the crate has a logger.
+//!    none is written until the crate has a logger. *Decided (project
+//!    owner, 2026-11-22): they wait for a logger.*
 //! 6. Spec 04 D-1 (whether `IsUnspentOutpoint` and `PreviousPkScripts` are
 //!    ported at all) is still open; both read credits and are left to the
 //!    credit slice, where the spec's recommendation, not porting them,
-//!    can be taken.
+//!    can be taken. *Decided (project owner, 2026-11-22): D-1 is decided
+//!    with the credit slice.*
+//!
+//! The owner's answer of that date also decided two more points this
+//! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`
+//! writes nothing ("A failed operation writes nothing" above), and
+//! QK-0781 is reproduced (QUIRKS.md). With the same signing as choice 4
+//! the owner accepted this slice's shipping before `PkScriptLocs` is at
+//! the dcroxide pin; ADR-0006's deadline for it is restated as before the
+//! slice that ports `AddCredit` and `Rollback`'s credit step (ADR-0006,
+//! addendum "2026-11-22 (later)").
 //!
 //! # The next slice
 //!

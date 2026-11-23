@@ -137,6 +137,7 @@ Environment variables the tests read:
 |---|---|
 | `PURSE_REQUIRE_ORACLE` | a missing Go toolchain fails differential tests instead of skipping them, and so does an oracle built with any Go release but the reference one |
 | `PURSE_ORACLE_DIR` | use prebuilt `purse-oracle-<name>` binaries from this directory instead of building them |
+| `PURSE_TEST_CPU_QUOTA` | set to 1, `purse-snacl`'s `processor_count_is_gos` also runs its quota leg on Linux, which starts a transient scope with a CPU quota in the user's service manager (`systemd-run --user`); unset, that leg is skipped with a message (CI's test jobs set it) |
 | `PURSE_TEST_SEED` | run seed for generated test inputs (decimal or `0x` hex); unset, every test uses the same fixed inputs on every run; each test mixes it with its own label, so tests with different labels start from different states; every run prints the value to set to reproduce it; a value recorded before the run seed was mixed with each test's label (2026-11-19) no longer reproduces its inputs, which the project owner accepted |
 | `PURSE_HD_SEEDS` | number of random seeds in the `purse-hdkeychain` differential |
 | `PURSE_ERRORS_PROGRAMS` | number of random programs in the `purse-errors` differential |

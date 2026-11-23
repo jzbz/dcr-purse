@@ -156,10 +156,13 @@ pub struct AccountProperties {
 /// Only what the store holds is kept, as of a committed snapshot: the name,
 /// which `RenameAccount` changes, is read from the account's row where Go
 /// reads its cached copy, and an account whose sealed private key this
-/// manager rewrites (`SetAccountPassphrase`) is dropped from the cache and
-/// cached again only from a snapshot that holds the new key
-/// ([`Inner::rekeyed`]), so memory cannot disagree with the store after a
-/// caller's transaction rolls back (QK-0733).
+/// manager rewrites is dropped from the cache and cached again only from a
+/// snapshot that holds the new value ([`Inner::rekeyed`]), so memory
+/// cannot disagree with the store after a caller's transaction rolls back
+/// (QK-0733). Two operations rewrite one: `SetAccountPassphrase` reseals
+/// it, and `ConvertToWatchingOnly` empties it for a BIP0044 account with
+/// its own passphrase (QK-0766), so such an account is cached again only
+/// from a snapshot whose row holds the empty value.
 #[derive(Clone)]
 struct AccountInfo {
     account_type: u8,
@@ -236,7 +239,9 @@ struct Inner {
     /// key, and per account by `LockAccount`.
     account_unlocks: BTreeMap<u32, Vec<AccountUnlock>>,
     /// Accounts whose sealed private key this manager rewrote
-    /// (`SetAccountPassphrase`), with the value written. Such an account is
+    /// (`SetAccountPassphrase`, and `ConvertToWatchingOnly` for a BIP0044
+    /// account with its own passphrase, whose key it empties), with the
+    /// value written (empty after the conversion). Such an account is
     /// cached again only from a snapshot whose row holds that value, so a
     /// snapshot taken before the rewrite committed, or a rewrite that
     /// rolled back, never puts stale key material in the cache; until then
@@ -335,15 +340,19 @@ impl Inner {
     /// An account read from a committed snapshot is cached, as Go caches
     /// it; one read in a write transaction is returned without being
     /// cached, since that transaction may still roll back (QK-0733). What
-    /// is cached is what the store held, and two operations change an
+    /// is cached is what the store held, and three operations change an
     /// existing account's keys. The coin type upgrade replaces account 0's
     /// keys once: it drops the cached entry, and from then on account 0 is
     /// cached only from a snapshot without the legacy coin type key.
     /// `SetAccountPassphrase` reseals an account's private key: it drops
     /// the cached entry, and the account is cached again only from a
     /// snapshot whose row holds the new sealed value ([`Inner::rekeyed`]).
-    /// So a snapshot taken before either committed can never put the old
-    /// keys back in the cache.
+    /// `ConvertToWatchingOnly` empties the sealed private key of every
+    /// BIP0044 account with its own passphrase (QK-0766): it drops those
+    /// accounts' cached entries the same way, and each is cached again
+    /// only from a snapshot whose row holds the empty value. So a snapshot
+    /// taken before any of them committed can never put the old keys back
+    /// in the cache.
     ///
     /// An account with its own passphrase that is unlocked comes back as a
     /// copy carrying its private key ([`Inner::account_unlocks`]); the
@@ -810,15 +819,14 @@ impl Manager {
     /// `runtime.NumCPU()`.
     ///
     /// [`Manager::open`] takes the count from `purse_snacl::num_cpu`, which
-    /// is `std::thread::available_parallelism`: the CPUs of the process's
-    /// affinity mask, further limited by a cgroup CPU quota. Go's
-    /// `runtime.NumCPU` counts the affinity mask only, so in a container
-    /// with a CPU quota below its CPU count the parameters stored here
-    /// record fewer threads than Go's would (PARITY.md, `purse-udb`). The
-    /// count is stored with the parameters (truncated to a byte as Go
-    /// truncates it, QK-0630) and caps the threads a derivation runs on;
-    /// unlocking reads the stored count, and no key changes with it. The
-    /// oracle runner sets it to the script's `setup.ncpu`.
+    /// counts processors as Go's `runtime.NumCPU` does on Linux and
+    /// Android, the CPUs of the process's affinity mask and not a cgroup
+    /// CPU quota (decided by the project owner on 2026-11-22), and differs
+    /// from Go's elsewhere as that function's documentation sets out
+    /// (PARITY.md, `purse-udb`). The count is stored with the parameters
+    /// (truncated to a byte as Go truncates it, QK-0630); unlocking reads
+    /// the stored count, and no key changes with it. The oracle runner sets
+    /// it to the script's `setup.ncpu`.
     #[must_use]
     pub fn with_num_cpu(mut self, n: usize) -> Self {
         self.num_cpu = n;
@@ -1555,8 +1563,12 @@ mod tests {
     /// and accounts unlocked by their own passphrases, leaves no secret in
     /// memory: no private key (those passphrases opened included, which
     /// Go keeps while its wallet is locked, QK-0766), no private crypto key
-    /// or its sealed copy, no private master key, no passphrase hash. The cached accounts keep the sealed private keys the store
-    /// keeps (QK-0761, QK-0764), sealed by the deleted crypto key.
+    /// or its sealed copy, no private master key, no passphrase hash. The
+    /// cached accounts keep the sealed private keys the store keeps
+    /// (QK-0761, QK-0764), sealed by the deleted crypto key; the key a
+    /// BIP0044 account's own passphrase sealed is gone from store and
+    /// cache, and a voting account's stays (QK-0761, QK-0766, decided
+    /// 2026-11-22).
     #[test]
     fn conversion_erases_secrets() {
         let mut rng = SplitMix64::from_env("purse-udb-conversion-erases");
@@ -1637,6 +1649,23 @@ mod tests {
             for (n, info) in &inner.accounts {
                 assert!(info.key_priv.is_none(), "{what}: account {n}");
             }
+            // QK-0761, QK-0766 (decided 2026-11-22): the key account 1's own
+            // passphrase sealed is gone from the store and from what the
+            // manager loads; the voting account keeps its own.
+            let tx = store.read().expect("read");
+            drop(inner);
+            let mut inner = m.inner.write().unwrap_or_else(PoisonError::into_inner);
+            let one = inner
+                .load_account_info(&mut &tx, &chain, 1)
+                .expect("account 1")
+                .into_owned();
+            assert!(one.key_encrypted.is_empty(), "{what}: account 1");
+            assert!(one.unique_key.is_some(), "{what}: account 1's parameters");
+            let vote = inner
+                .load_account_info(&mut &tx, &chain, 0x8000_0000)
+                .expect("voting account")
+                .into_owned();
+            assert!(!vote.key_encrypted.is_empty(), "{what}: voting account");
         }
     }
 

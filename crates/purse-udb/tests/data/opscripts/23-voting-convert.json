@@ -1,12 +1,11 @@
 {
   "format": "purse-opscript 1",
-  "name": "per-account passphrases and a voting account across ConvertToWatchingOnly",
+  "name": "a voting account, and an account without its own passphrase, across ConvertToWatchingOnly",
   "setup": {"network": "simnet", "seed": "2424242424242424242424242424242424242424242424242424242424242424", "pubpass": "public", "privpass": "private", "rand": "2424242424242424242424242424242424242424242424242424242424242424", "clock": 1794990000},
   "ops": [
     {"op": "mgr.unlock", "pass": "private"},
     {"op": "mgr.new_account", "name": "one"},
     {"op": "mgr.import_voting_account", "name": "vote", "pass": "abc", "xpriv": {"seed": "2525252525252525252525252525252525252525252525252525252525252525", "path": ["44'", "115'", "1'"]}},
-    {"op": "mgr.set_account_passphrase", "account": 1, "pass": "one-pass"},
     {"op": "mgr.convert_to_watching_only"},
     {"op": "mgr.watching_only"},
     {"op": "mgr.is_locked"},

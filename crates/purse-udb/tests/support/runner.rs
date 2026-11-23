@@ -24,9 +24,18 @@
 //! reproducible from run to run, but not Go's stream (the draw orders of
 //! the two sides are not aligned yet, ADR-0002 open item 2), so the
 //! differential compares exports under the masked profile.
+//!
+//! A top-level record carries `drawn`, as Go's do, when the operation read
+//! bytes from the stream: the bytes every source the runner gave the
+//! manager handed out while it ran. The general comparison removes it
+//! (`compare::comparable`), as it does Go's; tests read it where a draw, or
+//! its absence, is the point (a refusal that must come before any draw).
+//! Group members carry none.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dcroxide_txscript::stdaddr::{self, hash160};
 use purse_dcrutil::SignatureType;
@@ -213,6 +222,8 @@ struct Runner {
     /// `setup.ncpu`: the processor count new Argon2id parameters record.
     ncpu: usize,
     rng: SplitMix64,
+    /// The bytes the manager's sources have handed out (`drawn`).
+    drawn: Arc<AtomicU64>,
     clock: i64,
     /// The addresses of labelled imports (Go's `runner.addrs`).
     addrs: HashMap<String, Address>,
@@ -280,11 +291,17 @@ fn resolve_err(what: &str, entry: &str, err: AnyError) -> AnyError {
     AnyError::wrap(text, [err])
 }
 
-/// A seeded random source for the manager.
-fn source(rng: &mut SplitMix64) -> BoxedRandom {
+/// A seeded random source for the manager, adding the bytes it hands out
+/// to `drawn`.
+fn source(rng: &mut SplitMix64, drawn: &Arc<AtomicU64>) -> BoxedRandom {
     let mut r = SplitMix64(rng.next_u64());
+    let drawn = Arc::clone(drawn);
     Box::new(move |buf: &mut [u8]| -> Result<(), RandomSourceError> {
         r.fill(buf);
+        drawn.fetch_add(
+            u64::try_from(buf.len()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
         Ok(())
     })
 }
@@ -537,7 +554,7 @@ impl Runner {
             s.close().map_err(|e| fault(format!("close store: {e}")))?;
         }
         self.store = Some(Store::open(&self.path).map_err(|e| fault(format!("open store: {e}")))?);
-        let rng = source(&mut self.rng);
+        let rng = source(&mut self.rng, &self.drawn);
         let opened =
             self.view(|tx| Manager::open(tx, &self.chain, &self.pub_pass, rng, Limits::DEFAULT))?;
         Ok(opened.map(|m| {
@@ -690,7 +707,17 @@ impl Runner {
             }
             "mgr.upgrade_to_slip0044_coin_type" => {
                 a.check(&[])?;
-                ok_null(self.update(|tx| self.mgr().upgrade_to_slip0044_coin_type(tx))?)
+                // `null`, as for Go's call, unless account 0's own
+                // passphrase was dropped (QK-0767): `oprunner` reports that
+                // from Go's state before the call.
+                self.update(|tx| self.mgr().upgrade_to_slip0044_coin_type(tx))?
+                    .map(|dropped| {
+                        if dropped {
+                            json!({"passphrase_dropped": true})
+                        } else {
+                            Value::Null
+                        }
+                    })
             }
             "mgr.encrypt" | "mgr.decrypt" => {
                 a.check(&["key", "data"])?;
@@ -1147,7 +1174,8 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
     std::fs::create_dir_all(dir).map_err(|e| fault(format!("create {}: {e}", dir.display())))?;
     let path = dir.join(purse_store::STORE_FILE_NAME);
     let store = Store::create(&path).map_err(|e| fault(format!("create store: {e}")))?;
-    let mut create_rng = source(&mut rng);
+    let drawn = Arc::new(AtomicU64::new(0));
+    let mut create_rng = source(&mut rng, &drawn);
     let created: Result<(), RunErr> = store.update(|tx: &mut WriteTx<'_>| {
         match &wallet_key {
             WalletKey::Seed(seed) => Manager::create(
@@ -1196,6 +1224,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         acct_pass: BTreeMap::new(),
         ncpu,
         rng,
+        drawn,
         clock,
         addrs: HashMap::new(),
         txstore,
@@ -1224,7 +1253,9 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         .ok_or_else(|| fault("missing ops"))?;
     let mut results = Vec::with_capacity(ops.len());
     for (i, raw) in ops.iter().enumerate() {
+        let before = runner.drawn.load(Ordering::Relaxed);
         let (name, r) = runner.op(raw).map_err(|e| format!("op {i}: {e}"))?;
+        let drawn = runner.drawn.load(Ordering::Relaxed).saturating_sub(before);
         let mut rec = Map::new();
         rec.insert("i".to_owned(), json!(i));
         rec.insert("op".to_owned(), json!(name));
@@ -1232,6 +1263,9 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             Ok(v) => rec.insert("ok".to_owned(), v),
             Err(e) => rec.insert("err".to_owned(), error_value(&e)),
         };
+        if drawn != 0 {
+            rec.insert("drawn".to_owned(), json!(drawn));
+        }
         if let Some(members) = runner.group_ops.take() {
             rec.insert("ops".to_owned(), Value::Array(members));
         }

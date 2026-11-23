@@ -42,6 +42,22 @@ waiting on the owner under ADR-0012's Rule 11, QK-0760's residual case,
 which this record reads as a case under the decided policy and not a
 point of D10 (section 3, "A case open for the owner under ADR-0012").
 
+*Later on 2026-11-22 the project owner accepted every recommendation then
+open. For this record that is: QK-0760's residual case is deferred
+to Phase 5, as proposed, and no longer waits on the owner; and this
+record's readings stand, among them that such a case is one under the
+decided policy and not a point of D10, the reading of ADR-0013's §7 Layer
+6 bullet with ADR-0014's amendment 5, and the reading of the cut-off
+rule's "the phase that implements it". By signing the first slice of
+`purse-udb`'s transaction store (`e5df76b`), after being told what
+signing it accepts, the owner also accepted two points the pointers of
+that change put: the slice's reading of a `birth` row pending from both a
+height and a time, and the slice shipping before `PkScriptLocs`, whose
+deadline ADR-0006 now states as before the slice that ports `AddCredit`
+and `Rollback`'s credit step (ADR-0006, addendum "2026-11-22 (later)").
+ADR-0006's open point 4 is not decided. The text below stays as written,
+with dated pointers to this note; nothing of the verdict changes.*
+
 All counts below are for the default sizes the normal test suite
 (`PURSE_REQUIRE_ORACLE=1 cargo test --workspace`, as CI runs it on Linux,
 macOS and Windows) uses, unless stated otherwise. They were read from one
@@ -65,7 +81,10 @@ mixsolver speed gate (ADR-0010); the benchmark ratio gate against Go
 (ADR-0014); and a fuzz smoke of 60 s per target *(and, since later on
 2026-11-22, a constant-time job for the wiped base58 codecs, timing and
 disassembly: ADR-0012, the note of that date under the addendum of
-2026-11-21)*. The run on `69a6f6d`, the commit the check was made at, is
+2026-11-21)* *(later still on 2026-11-22 its timing steps moved to a
+workflow of their own, `.github/workflows/constant-time.yml`, run on the
+paths that can change their result and nightly, and the job kept the
+disassembly: ADR-0012, addendum "2026-11-22 (later)")*. The run on `69a6f6d`, the commit the check was made at, is
 GitHub Actions run 44892877145: all 14 jobs passed. The run on `6fa3851`
 (ADR-0019 and pointers to it) is run 44989643104: all 14 jobs passed. The
 run on `ff59d84` (the owner's answers to ADR-0019's FB1 to FB10) is run
@@ -175,7 +194,7 @@ the owner as point 11 and decided ("Proposed in ADR-0013" below).
 | D7 Version skew against dcroxide | ADR-0009; the ledger `docs/SKEW.md` | "Accepted as proposed (decision D7; project owner, 2026-11-18), the answers proposed under Open points included"; addenda of 2026-11-19, 2026-11-20 and 2026-11-21 record the pin moves to dcroxide `f4b3d2e`, `2074168` and `48f5b5e` | Deferred by the record: open point 3, reusing `dcroxide-addrmgr` with four recorded divergences "conditional on the Phase 10 differential" | decided, with a point the record defers |
 | D8 Mixing root solver | ADR-0010 | "Accepted as proposed (decision D8; project owner, 2026-11-18), the answers proposed under Open points included: a native solver in process, and `--csppsolver` accepted and never executed" | nothing undecided; `purse-mixsolver` is built, with the FLINT differential and the speed gate in CI | decided |
 | D9 Error-message fidelity | ADR-0011 | "Accepted as proposed (decision D9; project owner, 2026-11-18), the answers proposed under Open points included" | nothing undecided; open point 7 names the Decrediton reading before Phase 8 as a trigger for revisiting, and "This decision does not wait for it" | decided |
-| D10 Standing quirk policy | ADR-0012 | "Accepted (decision D10; project owner, 2026-11-18) as proposed, with one change" (QK-0279 fixed); "Amended, 2026-11-19 (project owner)" (Rule 7's default: funds held until a restart or an unlock are fixed); "Settled, 2026-11-20 (project owner)"; "Decided, 2026-11-21 (project owner)" (the base58 digit search to be replaced, scheduled at low priority, not yet done) *(done later on 2026-11-22: ADR-0012's Status line now says so)*; "Decided, 2026-11-22 (project owner)" (addendum of 2026-11-22) | **Decided on 2026-11-22, as recommended** (points 7 and 8 under "Verdict"): item 3 of the addendum of 2026-11-19, how a Rule 7 case whose difference a client could observe is brought to the owner, "as Rule 11 brings one, the proposed disposition in the QUIRKS entry, marked \"pending owner\", named in the change submitted for signing", confirmed as proposed; and the second point under "Not settled" in the same addendum, "Whether brief §3 W1 itself should cover these funds", which had no proposal: W1's text stays as it is and the class is governed by Rule 7's default alone. Not counted: "what, if anything, must be run before the owner passes a report on is the owner's to decide" (addendum of 2026-11-19 on the route of upstream reports, item 1), which is the owner's standing discretion over delivering reports, not a pending decision. Deferred by the record: QK-0203 (Phase 5) and the fee credits of QK-0282 (Phase 9), each decided after an oracle run; the base58 digit search's replacement, decided and scheduled at low priority with no phase named, not done (addendum of 2026-11-21) *(made later on 2026-11-22: the note of that date under the same addendum)*. Not counted, and named: QK-0760's residual case (`docs/QUIRKS.md`, QK-0760; `docs/PARITY.md`, `purse-udb`), a per-case ruling under Rules 7 and 11 that waits on the owner, with a proposed deferral to Phase 5 the owner has not accepted. It is a case brought under the decided policy, not a point of D10's record, which does not name it ("A case open for the owner under ADR-0012" below) | decided, with points the record defers (to Phases 5 and 9), and a decided change not yet made (the base58 digit search) *(made later on 2026-11-22: ADR-0012, the note of that date under the addendum of 2026-11-21)*; one case under the policy, QK-0760's residual case, waits on the owner outside the record |
+| D10 Standing quirk policy | ADR-0012 | "Accepted (decision D10; project owner, 2026-11-18) as proposed, with one change" (QK-0279 fixed); "Amended, 2026-11-19 (project owner)" (Rule 7's default: funds held until a restart or an unlock are fixed); "Settled, 2026-11-20 (project owner)"; "Decided, 2026-11-21 (project owner)" (the base58 digit search to be replaced, scheduled at low priority, not yet done) *(done later on 2026-11-22: ADR-0012's Status line now says so)*; "Decided, 2026-11-22 (project owner)" (addendum of 2026-11-22) | **Decided on 2026-11-22, as recommended** (points 7 and 8 under "Verdict"): item 3 of the addendum of 2026-11-19, how a Rule 7 case whose difference a client could observe is brought to the owner, "as Rule 11 brings one, the proposed disposition in the QUIRKS entry, marked \"pending owner\", named in the change submitted for signing", confirmed as proposed; and the second point under "Not settled" in the same addendum, "Whether brief §3 W1 itself should cover these funds", which had no proposal: W1's text stays as it is and the class is governed by Rule 7's default alone. Not counted: "what, if anything, must be run before the owner passes a report on is the owner's to decide" (addendum of 2026-11-19 on the route of upstream reports, item 1), which is the owner's standing discretion over delivering reports, not a pending decision. Deferred by the record: QK-0203 (Phase 5) and the fee credits of QK-0282 (Phase 9), each decided after an oracle run; the base58 digit search's replacement, decided and scheduled at low priority with no phase named, not done (addendum of 2026-11-21) *(made later on 2026-11-22: the note of that date under the same addendum)*. Not counted, and named: QK-0760's residual case (`docs/QUIRKS.md`, QK-0760; `docs/PARITY.md`, `purse-udb`), a per-case ruling under Rules 7 and 11 that waits on the owner, with a proposed deferral to Phase 5 the owner has not accepted *(later on 2026-11-22: deferred to Phase 5 as proposed, project owner; see the dated note at the top)*. It is a case brought under the decided policy, not a point of D10's record, which does not name it ("A case open for the owner under ADR-0012" below) | decided, with points the record defers (to Phases 5 and 9), and a decided change not yet made (the base58 digit search) *(made later on 2026-11-22: ADR-0012, the note of that date under the addendum of 2026-11-21)*; one case under the policy, QK-0760's residual case, waits on the owner outside the record *(later on 2026-11-22: deferred to Phase 5 as proposed, project owner; see the dated note at the top)* |
 
 All ten hold: D1, D2, D3, D5, D7 and D10 decided with points their
 records defer to later phases or events, D6, D8 and D9 decided with
@@ -208,9 +227,9 @@ recorded, and why each counts against no clause:
 | ADR-0009 (D7) | Open points' "Proposed:" lines; open point 3 | accepted as proposed with the record ("the answers proposed under Open points included"); open point 3 conditional on the Phase 10 differential |
 | ADR-0010 (D8) | none | — |
 | ADR-0011 (D9) | Open points' "Proposed:" lines; open point 7's revisit | accepted as proposed with the record; the revisit is a trigger, "This decision does not wait for it" |
-| ADR-0012 (D10) | "Not settled" points of 2026-11-19; "pending owner" | each "Not settled" point decided (2026-11-20 and 2026-11-22), marked; "pending owner" is the decided procedure by which Rule 11, and Rule 7 where a client could observe the difference, bring each case to the owner, and one case waits under it now, QK-0760's residual case, which no record of D1 to D10 names and which counts as a case under the policy, not a point of D10 ("A case open for the owner under ADR-0012" below); the owner's discretion over delivering reports is not a pending decision; QK-0203 and QK-0282 deferred to Phases 5 and 9 |
+| ADR-0012 (D10) | "Not settled" points of 2026-11-19; "pending owner" | each "Not settled" point decided (2026-11-20 and 2026-11-22), marked; "pending owner" is the decided procedure by which Rule 11, and Rule 7 where a client could observe the difference, bring each case to the owner, and one case waits under it now, QK-0760's residual case *(later on 2026-11-22: deferred to Phase 5 as proposed, project owner; see the dated note at the top)*, which no record of D1 to D10 names and which counts as a case under the policy, not a point of D10 ("A case open for the owner under ADR-0012" below); the owner's discretion over delivering reports is not a pending decision; QK-0203 and QK-0282 deferred to Phases 5 and 9 |
 | ADR-0013 (D1 part, D4) | Open points 6 and 8 | decided 2026-11-22, marked; no point marked Proposed |
-| ADR-0013 (D1 part, D4) | Open point 6's §7 Layer 6 bullet: the record's reading that ADR-0014's amendment 5 stands over the bullet's words "the requests the backend saw", which the owner has not ruled on | not a point Proposed or left to the owner: the bullet (2026-11-22) and amendment 5 (2026-11-19, accepted for this layer) are both accepted, and the reading reconciles them as the only one under which R1 and R2, both accepted, pass Layer 6; the owner may confirm or correct it |
+| ADR-0013 (D1 part, D4) | Open point 6's §7 Layer 6 bullet: the record's reading that ADR-0014's amendment 5 stands over the bullet's words "the requests the backend saw", which the owner has not ruled on | not a point Proposed or left to the owner: the bullet (2026-11-22) and amendment 5 (2026-11-19, accepted for this layer) are both accepted, and the reading reconciles them as the only one under which R1 and R2, both accepted, pass Layer 6; the owner may confirm or correct it *(later on 2026-11-22: it stands, project owner; see the dated note at the top)* |
 | ADR-0013 (D1 part, D4) | Decision item 9, "Not decided" | part of what the owner accepted on 2026-11-18: two possibilities recorded as not plans, no question put |
 | ADR-0013 (D1 part, D4) | the user documentation of Open point 4 | decided 2026-11-19 and not yet written; Open point 8 adds to it |
 
@@ -260,7 +279,10 @@ alternative needs the transaction filter of Phase 5. No code that exists
 can meet the outcome, since nothing yet discovers addresses, syncs or
 matches a payment. If the owner accepts the proposed deferral, the case is
 deferred to Phase 5 as QK-0203 is; on either reading it is listed under
-"What is left".
+"What is left". *(Later on 2026-11-22 the owner deferred the case to
+Phase 5, as proposed, and ruled that this record's readings stand, the
+reading above among them; see the dated note at the top. QK-0760's entry
+and `docs/PARITY.md` record the deferral.)*
 
 **Proposed in ADR-0013.** ADR-0013, which the ADR index lists against D1
 (part) and D4, had three open points still Proposed at the check: 6 (how
@@ -300,7 +322,8 @@ owner has not ruled on the reading. It is not a point left undecided by
 the test above: both texts are accepted, neither is marked Proposed or
 left to the owner, and the reading is the only one under which R1 and
 R2, both accepted, pass Layer 6 ("The markers left, read again at the
-close" above).
+close" above). *(Later on 2026-11-22 the owner ruled that this record's
+readings stand, this one among them; see the dated note at the top.)*
 
 **ADR-0019, accepted after the check.** On 2026-11-21, after the check was
 made, the project owner decided "we will drop filters below the wallet's
@@ -413,7 +436,9 @@ implements the part of the record a question bears on, a reading the
 owner has not ruled on. At the close the rule defers nothing: ADR-0019's
 questions FB1 to FB13 are all decided. It matters for D2 only if a
 question found later bears on what ADR-0003's tables hold; such a
-question then does not reopen Phase 0.
+question then does not reopen Phase 0. *(Later on 2026-11-22 the owner
+ruled that this record's readings stand, ADR-0019's reading of "the phase
+that implements it" among them; see the dated note at the top.)*
 
 ## What else the Phase 0 section lists
 
@@ -770,7 +795,8 @@ in the same answer.
     record gave, that the two points lie outside D1, is moot. ADR-0013
     reads the §7 Layer 6 bullet with ADR-0014's amendment 5 standing over
     its words "the requests the backend saw", a reading the owner has not
-    ruled on (section 3, "Proposed in ADR-0013").
+    ruled on (section 3, "Proposed in ADR-0013"). *(Later on 2026-11-22:
+    it stands, project owner; see the dated note at the top.)*
 
 **The re-check after point 11.** With points 10 and 11 recorded, the
 records of D1 to D10 were read again for any point marked Proposed, open
@@ -783,7 +809,9 @@ cut-off rule. None counts against the third clause. Outside those
 records, one case waits on the owner under ADR-0012's Rule 11, QK-0760's
 residual case; it is a case under the decided policy, not a point of D10,
 and is listed as left (section 3, "A case open for the owner under
-ADR-0012", a reading the owner has not ruled on).
+ADR-0012", a reading the owner has not ruled on). *(Later on 2026-11-22
+the owner deferred the case to Phase 5, as proposed, and ruled that this
+record's readings stand; see the dated note at the top.)*
 
 **Closed (2026-11-22).** Phase 0 is closed on the project owner's
 instruction of 2026-11-21 to check D1 to D10 and close Phase 0, and the
@@ -806,7 +834,9 @@ nor deferred, and none rests on the cut-off rule, which covers questions
 that arise in working out ADR-0019 and nothing else. What this record
 lists as left stays listed as left, carried to the phases and events
 named, QK-0760's residual case among it, pending owner under ADR-0012's
-Rule 11 and not counted against D10.
+Rule 11 and not counted against D10. *(Later on 2026-11-22 the case was
+deferred to Phase 5, as proposed, project owner; see the dated note at
+the top.)*
 
 **What is left**, none of it part of the exit sentence, carried past the
 close:
@@ -833,7 +863,10 @@ close:
   script offset and leaves `AddCredit` and every other credit step to a
   later slice, was written without it; whether a slice that writes no
   credit falls under this deadline is put to the owner with that
-  change)*
+  change)* *(accepted by the project owner on signing that change, later
+  on 2026-11-22: the deadline is restated as before the slice that ports
+  `AddCredit` and `Rollback`'s credit step; ADR-0006, addendum
+  "2026-11-22 (later)")*
 - what the records of D1, D2, D3, D5, D7 and D10 defer: D1 to Phases 7
   and 8 (the shape of the value under the `dcr-purse` key; (c),
   installing as `dcrwallet` for Decrediton); D2 to Phase 3 (open points 2
@@ -858,7 +891,9 @@ close:
   the seed handed out is recognised and spendable; proposed for Phase 5,
   with discovery and the wallet's transaction filter, a deferral the owner
   has not accepted; until then dcr-purse's outcome in that case is Go's
-  (section 3, "A case open for the owner under ADR-0012");
+  (section 3, "A case open for the owner under ADR-0012") *(deferred to
+  Phase 5 as proposed later on 2026-11-22, project owner; see the dated
+  note at the top)*;
 - ADR-0019's rule, decided and not implemented: the syncers and the
   Phase 3 port of `ExtendMainChain`, whose check FB4 and FB11 set, and of
   `MissingCFiltersHeight`, whose start FB9 and FB12 set *(later on
@@ -866,7 +901,9 @@ close:
   (i) and FB12 (a), and reads a `birth` row pending from both a height
   and a time as below the birthday only for a block below both, a
   reading put to the owner under the cut-off rule; the syncers, FB12 (a)
-  item 2's genesis filter and the projection remain)*; its questions
+  item 2's genesis filter and the projection remain)* *(that reading
+  accepted by the project owner on signing that change, later on
+  2026-11-22)*; its questions
   FB1 to FB13 are decided; the projection of FB6 and FB12 and the range
   record are decided and not specified (ADR-0001); what the filter RPCs
   reply when a connected backend fails to serve a filter is left to the

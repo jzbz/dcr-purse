@@ -153,15 +153,21 @@ pub fn check_privcheck(ex: &Export) -> Result<(), String> {
 pub fn compare_exports(what: &str, go_pe: &str, rust_pe: &str) {
     let go = parse(go_pe).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
     let rust = parse(rust_pe).unwrap_or_else(|e| panic!("{what}: Rust export: {e}\n{rust_pe}"));
-    check_privcheck(&go).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
-    check_privcheck(&rust).unwrap_or_else(|e| panic!("{what}: Rust export: {e}"));
+    compare_parsed(what, &go, &rust);
+}
+
+/// [`compare_exports`] on parsed exports, for a test that first edits Go's
+/// to state a recorded divergence.
+pub fn compare_parsed(what: &str, go: &Export, rust: &Export) {
+    check_privcheck(go).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
+    check_privcheck(rust).unwrap_or_else(|e| panic!("{what}: Rust export: {e}"));
     for meta in ["network", "chain", "decrypt", "derived", "privcheck"] {
         assert_eq!(go.meta(meta), rust.meta(meta), "{what}: @{meta}");
     }
     for name in COVERED {
         let types: Option<&[&str]> = (name == "derived").then_some(&COVERED_DERIVED[..]);
-        let g = masked_lines(&go, name, types);
-        let r = masked_lines(&rust, name, types);
+        let g = masked_lines(go, name, types);
+        let r = masked_lines(rust, name, types);
         assert_eq!(g, r, "{what}: [{name}] differs (masked observable profile)");
     }
 }

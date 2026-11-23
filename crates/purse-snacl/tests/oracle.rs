@@ -57,6 +57,194 @@ fn differential_against_go() {
     eprintln!("{} requests agree with Go", entries.len());
 }
 
+/// Set in the child this test starts under `taskset` or a CPU quota, which
+/// prints `purse_snacl::num_cpu()` and `available_parallelism` and returns.
+const NUM_CPU_CHILD: &str = "PURSE_SNACL_NUM_CPU_CHILD";
+
+/// Set to 1 to run `processor_count_is_gos`'s quota leg, which starts a
+/// transient scope in the user's service manager; unset, or set to
+/// anything else, the leg is skipped with a message. CI's test jobs set it.
+#[cfg(target_os = "linux")]
+const CPU_QUOTA: &str = "PURSE_TEST_CPU_QUOTA";
+
+/// `systemd-run`'s arguments for a transient scope of the user's service
+/// manager with a CPU quota of one processor (`CPUQuota=100%`, cgroup v2
+/// `cpu.max` 100000 100000), which needs no privileges where the user
+/// manager runs and has the `cpu` controller delegated.
+#[cfg(target_os = "linux")]
+const QUOTA: [&str; 7] = [
+    "--user",
+    "--scope",
+    "--quiet",
+    "--collect",
+    "-p",
+    "CPUQuota=100%",
+    "--",
+];
+
+/// Go's `runtime.NumCPU()` from the oracle binary `bin`, started as the
+/// last argument of `launcher` (`taskset -c <cpu>`, or `systemd-run` with
+/// [`QUOTA`]): one request on stdin, then end of input.
+#[cfg(target_os = "linux")]
+fn go_num_cpu_under(bin: &std::path::Path, launcher: &[&str]) -> u64 {
+    use std::process::{Command, Stdio};
+    let (prog, args) = launcher.split_first().expect("a launcher");
+    let mut child = Command::new(prog)
+        .args(args)
+        .arg(bin)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap_or_else(|e| panic!("spawn {prog}: {e}"));
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(b"{\"cmd\":\"info\",\"args\":null}\n")
+        .expect("write the request");
+    let out = child.wait_with_output().expect("oracle output");
+    let line = String::from_utf8(out.stdout).expect("UTF-8");
+    let v: Value = serde_json::from_str(line.lines().next().expect("a response")).expect("JSON");
+    v["result"]["num_cpu"].as_u64().expect("num_cpu")
+}
+
+/// This test binary re-run as the last argument of `launcher`, as a child
+/// that prints its counts: `purse_snacl::num_cpu()` and
+/// `std::thread::available_parallelism`.
+#[cfg(target_os = "linux")]
+fn rust_counts_under(launcher: &[&str]) -> (u64, u64) {
+    use std::process::Command;
+    let (prog, args) = launcher.split_first().expect("a launcher");
+    let out = Command::new(prog)
+        .args(args)
+        .arg("env")
+        .arg(format!("{NUM_CPU_CHILD}=1"))
+        .arg(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            "processor_count_is_gos",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .output()
+        .unwrap_or_else(|e| panic!("re-run under {prog}: {e}"));
+    let text = String::from_utf8_lossy(&out.stdout);
+    let field = |name: &str| -> u64 {
+        text.split_whitespace()
+            .find_map(|w| w.strip_prefix(name))
+            .unwrap_or_else(|| panic!("child printed no {name}: {text}"))
+            .parse()
+            .expect("a count")
+    };
+    (field("num_cpu="), field("parallelism="))
+}
+
+/// ADR-0012 Rule 9(b), the processor count new Argon2id parameters store
+/// (decided by the project owner on 2026-11-22): `purse_snacl::num_cpu` is
+/// Go's `runtime.NumCPU`, the CPUs of the process's affinity mask, here on
+/// Linux and Android. Both sides are asked in this test's environment and,
+/// on Linux, in two more, each leg skipped with a message where its tool
+/// is missing:
+///
+/// - with both processes started on a single CPU of the mask by `taskset`
+///   (Go's oracle, and this test binary re-run as a child that prints its
+///   count): both count 1;
+/// - only with `PURSE_TEST_CPU_QUOTA=1` (otherwise skipped with a message,
+///   so that a normal run starts no unit in the user's service manager):
+///   with both started in a transient scope of that manager under a CPU
+///   quota of one processor (`systemd-run --user`, no privileges needed):
+///   Go ignores the quota and counts the mask, and so must `num_cpu`,
+///   while `available_parallelism`, the count before the decision,
+///   honours it. This is the leg that tells the decided count from the
+///   old one; it compares only where the quota takes effect (the child's
+///   `available_parallelism` falls below Go's count), and says so
+///   otherwise, as on a one-processor mask or where the user manager has
+///   no `cpu` controller.
+///
+/// On other systems the two counts are printed and not compared (see
+/// `num_cpu`'s documentation for what differs there).
+#[test]
+fn processor_count_is_gos() {
+    if std::env::var_os(NUM_CPU_CHILD).is_some() {
+        println!(
+            "num_cpu={} parallelism={}",
+            purse_snacl::num_cpu(),
+            std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
+        );
+        return;
+    }
+    let Some(bin) = purse_testutil::oracle_bin_or_skip("snacl") else {
+        return;
+    };
+    let mut oracle = Oracle::spawn_at(&bin);
+    let go = oracle.call("info", Value::Null)["num_cpu"]
+        .as_u64()
+        .expect("num_cpu");
+    let rust = u64::try_from(purse_snacl::num_cpu()).expect("fits");
+    eprintln!("runtime.NumCPU() {go}, purse_snacl::num_cpu() {rust}");
+    if !cfg!(any(target_os = "linux", target_os = "android")) {
+        return;
+    }
+    assert_eq!(rust, go, "the processor count Go stores");
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::{Command, Stdio};
+        if Command::new("taskset").arg("--version").output().is_err() {
+            eprintln!("taskset not installed: the single-CPU leg is skipped");
+        } else {
+            let status = std::fs::read_to_string("/proc/self/status").expect("/proc/self/status");
+            let cpu = status
+                .lines()
+                .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
+                .and_then(|l| l.trim().split([',', '-']).next())
+                .expect("Cpus_allowed_list")
+                .to_owned();
+            let pin = ["taskset", "-c", cpu.as_str()];
+            let go_pinned = go_num_cpu_under(&bin, &pin);
+            let (rust_pinned, _) = rust_counts_under(&pin);
+            eprintln!("on CPU {cpu} alone: runtime.NumCPU() {go_pinned}, num_cpu() {rust_pinned}");
+            assert_eq!((go_pinned, rust_pinned), (1, 1), "on CPU {cpu} alone");
+        }
+        if std::env::var_os(CPU_QUOTA).as_deref() != Some(std::ffi::OsStr::new("1")) {
+            eprintln!("{CPU_QUOTA} is not set to 1: the quota leg is skipped");
+            return;
+        }
+        let mut quota = vec!["systemd-run"];
+        quota.extend(QUOTA);
+        let probe = Command::new(quota[0])
+            .args(&quota[1..])
+            .arg("true")
+            .stdin(Stdio::null())
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => {
+                let go_quota = go_num_cpu_under(&bin, &quota);
+                let (rust_quota, parallelism) = rust_counts_under(&quota);
+                eprintln!(
+                    "under a quota of one CPU: runtime.NumCPU() {go_quota}, num_cpu() \
+                     {rust_quota}, available_parallelism {parallelism}"
+                );
+                if parallelism >= go_quota {
+                    eprintln!(
+                        "the quota did not lower available_parallelism ({parallelism}): the \
+                         quota leg cannot tell the counts apart and is skipped"
+                    );
+                } else {
+                    assert_eq!(go_quota, go, "Go ignores the quota");
+                    assert_eq!(rust_quota, go_quota, "num_cpu ignores the quota, as Go");
+                }
+            }
+            Ok(out) => eprintln!(
+                "systemd-run --user failed ({}): the quota leg is skipped: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(e) => eprintln!("systemd-run not available ({e}): the quota leg is skipped"),
+        }
+    }
+}
+
 #[test]
 fn generated_database_against_go() {
     let Some(mut oracle) = oracle_or_skip("snacl") else {

@@ -9,7 +9,7 @@
 use std::any::Any;
 use std::io;
 use std::num::NonZero;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread::{self, Scope, ScopedJoinHandle};
 
 use argon2::{Algorithm, Argon2, Block, Version};
@@ -292,10 +292,13 @@ fn spawn_lane_thread<'scope>(
 }
 
 /// How many threads fill `lanes` lanes, the calling thread included: one
-/// per lane, at most one per CPU this process may use ([`num_cpu`]).
+/// per lane, at most one per CPU this process may use
+/// (`std::thread::available_parallelism`, which honours a cgroup CPU quota,
+/// as Go's scheduler does when it sizes `GOMAXPROCS`; not [`num_cpu`], the
+/// count Go stores in new parameters).
 fn lane_threads(lanes: u32) -> NonZero<usize> {
     let lanes = usize::try_from(lanes).unwrap_or(usize::MAX);
-    NonZero::new(lanes.min(num_cpu())).unwrap_or(NonZero::<usize>::MIN)
+    NonZero::new(lanes.min(usable_parallelism())).unwrap_or(NonZero::<usize>::MIN)
 }
 
 /// A derivation, owned: rayon runs it as a `'static` job, which cannot
@@ -443,17 +446,93 @@ fn run_on_pool<'scope>(
     built
 }
 
-/// The number of CPUs this process may use, for
-/// [`Argon2idParams::threads_for_cpus`]: `std::thread::available_parallelism`,
-/// or 1 when it is unknown.
+/// The number of CPUs this process may use, counted as Go's
+/// `runtime.NumCPU` counts them, for [`Argon2idParams::threads_for_cpus`]
+/// (decided by the project owner on 2026-11-22; ADR-0012 Rule 9(b)).
 ///
-/// Go's `runtime.NumCPU` counts the CPUs in the process's affinity mask;
-/// `available_parallelism` also honours cgroup CPU quotas, so in a container
-/// with a quota it can be lower. The count shapes new parameters, which are
-/// stored, so no existing passphrase depends on it, and caps the threads a
-/// derivation runs on, which do not change its key.
+/// On Linux and Android, Go counts the bits of the main thread's CPU
+/// affinity mask (`sched_getaffinity` at process start-up, 1 if the call
+/// fails or the mask is empty) and ignores cgroup CPU quotas. This reads
+/// the same mask from the `Cpus_allowed` line of `/proc/self/status`,
+/// which the kernel prints for the thread group leader, the thread Go asks
+/// from, and counts its bits the same way (an empty mask counts 1). It is
+/// read once, at the first call, and kept for the life of the process, as
+/// Go keeps the count it took at start-up; a change of the affinity mask
+/// between start-up and the first call is seen here and not by Go. Where
+/// `/proc` is not mounted or the line is missing, the count falls back to
+/// `std::thread::available_parallelism`, which counts the calling thread's
+/// mask and also honours a cgroup CPU quota, so it can be lower than Go's
+/// in a container with a quota; Go's system call does not fail there. The
+/// workspace forbids `unsafe` code, so the system call itself is not made.
+///
+/// Elsewhere the count is `available_parallelism`, which differs from Go's
+/// as follows (read from both sources, not run): on Windows it is
+/// `GetSystemInfo`'s processor count, where Go counts the process affinity
+/// mask (`GetProcessAffinityMask`, falling back to that count), so a
+/// process restricted to fewer processors stores a higher count than Go's
+/// would; on Apple systems it is the online processor count
+/// (`sysconf(_SC_NPROCESSORS_ONLN)`), where Go reads `hw.ncpu`, which can
+/// differ only while processors are offline. FreeBSD reads the affinity
+/// mask on both sides.
+///
+/// The count shapes new parameters, which are stored, so no existing
+/// passphrase depends on it. It does not cap the threads a derivation runs
+/// on, which do not change its key (that cap honours a quota, see the
+/// crate documentation, "Stored parameters and resource bounds").
 pub fn num_cpu() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(go_num_cpu)
+}
+
+/// [`num_cpu`]'s count, measured once.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn go_num_cpu() -> usize {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| cpus_allowed(&status))
+        .unwrap_or_else(usable_parallelism)
+}
+
+/// [`num_cpu`]'s count, measured once.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn go_num_cpu() -> usize {
+    usable_parallelism()
+}
+
+/// The CPUs `std::thread::available_parallelism` counts, or 1 when it is
+/// unknown.
+fn usable_parallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, NonZero::get)
+}
+
+/// The number of CPUs in the `Cpus_allowed` mask of a `/proc/<pid>/status`
+/// text (comma-separated hexadecimal words), counted as Go's
+/// `getCPUCount` counts the mask `sched_getaffinity` returns: the set
+/// bits, or 1 when none is set. `None` when the text has no such line or
+/// the line is not a mask.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "android", test)),
+    allow(dead_code, reason = "called on Linux and Android, and by its tests")
+)]
+fn cpus_allowed(status: &str) -> Option<usize> {
+    let mask = status
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed:"))?
+        .trim();
+    if mask.is_empty() {
+        return None;
+    }
+    let mut count = 0usize;
+    for word in mask.split(',') {
+        if word.is_empty() {
+            return None;
+        }
+        for c in word.chars() {
+            let nibble = c.to_digit(16)?;
+            count = count.saturating_add(usize::try_from(nibble.count_ones()).ok()?);
+        }
+    }
+    Some(count.max(1))
 }
 
 #[cfg(test)]
@@ -641,7 +720,7 @@ mod tests {
     /// thread derives alone.
     #[test]
     fn threads_are_capped_at_the_cpu_count() {
-        let cpus = num_cpu();
+        let cpus = usable_parallelism();
         let lanes = u8::try_from(cpus.saturating_add(1)).unwrap_or(u8::MAX);
         let params = Argon2idParams {
             salt: FOUR_LANES.salt,
@@ -753,5 +832,46 @@ mod tests {
             threads: 0,
         };
         assert_eq!(Argon2idParams::unmarshal_binary(&p.marshal_binary()), Ok(p));
+    }
+
+    /// The `Cpus_allowed` line as Linux prints it (`%*pb`: 32-bit words in
+    /// hexadecimal, most significant first, separated by commas), counted
+    /// as Go's `getCPUCount` counts the affinity mask: set bits, at least 1.
+    #[test]
+    fn cpus_allowed_counts_the_mask_as_go_does() {
+        let status =
+            |mask: &str| format!("Name:\tx\nCpus_allowed:\t{mask}\nCpus_allowed_list:\t0\n");
+        for (mask, want) in [
+            ("1", Some(1)),
+            ("f", Some(4)),
+            ("ff", Some(8)),
+            ("ffffffff", Some(32)),
+            ("00000001", Some(1)),
+            ("5", Some(2)),
+            ("80000000,00000000", Some(1)),
+            ("ffff,ffffffff,ffffffff", Some(80)),
+            ("00000000,00000000", Some(1)),
+            ("0", Some(1)),
+            ("FfFf", Some(16)),
+            ("", None),
+            ("ff,,ff", None),
+            ("fg", None),
+            ("0x1", None),
+        ] {
+            assert_eq!(cpus_allowed(&status(mask)), want, "{mask:?}");
+        }
+        assert_eq!(cpus_allowed("Name:\tx\nCpus_allowed_list:\t0-3\n"), None);
+        assert_eq!(cpus_allowed(""), None);
+    }
+
+    /// On Linux the count is the mask of this process's main thread, as
+    /// `/proc/self/status` prints it, and stays the same once taken.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn num_cpu_reads_the_affinity_mask() {
+        let status = std::fs::read_to_string("/proc/self/status").expect("/proc/self/status");
+        let want = cpus_allowed(&status).expect("a Cpus_allowed line");
+        assert_eq!(num_cpu(), want);
+        assert_eq!(num_cpu(), want);
     }
 }

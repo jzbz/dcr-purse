@@ -28,6 +28,13 @@
   and brief §3 W1's text stays as it is, the funds Rule 7's default fixes
   being governed by that default alone. See "Addendum, 2026-11-22" at the
   end.
+- **Decided, 2026-11-22, later (project owner):** the base58 codecs'
+  lookup as built, arithmetic on the alphabet's six runs, stands in place
+  of the lookup reading all 58 entries that the addendum of 2026-11-21
+  named; and the codecs' timing checks run in a workflow of their own,
+  filtered on the paths that can change their result and run nightly,
+  while the disassembly check stays in `ci.yml` on every push. See
+  "Addendum, 2026-11-22 (later)" at the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -594,7 +601,8 @@ above, which named a lookup that reads all 58 entries and selects the
 match; it is the same in effect (no output changes, no time that
 depends on the character) with six masks in place of 58 and no read of
 the alphabet. Whether that substitution stands is the owner's to
-confirm.
+confirm. *Confirmed (project owner, 2026-11-22, later): the substitution
+stands; addendum "2026-11-22 (later)".*
 
 The barrier sits on the masks for a reason found in review. The first
 form of the change, a masked scan of all 58 entries with only the
@@ -727,6 +735,11 @@ target, as smoke tests of the harness; in the runs of the final form every
 target passed at 3 and at "s" and both controls were found, as they
 did again, at 10 s a target, after the encoders' division was rewritten.
 None is recorded. There is no timing of record and no ledger entry.
+*2026-11-22, later (project owner): the timing steps moved out of that
+job into a workflow of their own, `.github/workflows/constant-time.yml`,
+run on a change to the paths that can move their result and nightly; the
+job keeps the disassembly, now at all five opt-levels in steps of its
+own; addendum "2026-11-22 (later)".*
 
 Speed, unrecorded, on the same desktop. The final form against the
 parent commit, in six interleaved `purse-bench run` sessions each,
@@ -805,3 +818,69 @@ procedure item 3 and the second point under "Not settled" in the addendum
 of 2026-11-19, and the last sentence of item 1 of the addendum of
 2026-11-20, by dated pointers; the brief (§3, last paragraph, and §9
 D10); the ADR index; `docs/PHASE0-EXIT.md`.
+
+## Addendum, 2026-11-22 (later) — Decisions of the project owner: the base58 lookup's form, and where its timing check runs
+
+**Decision.** Later on 2026-11-22 the project owner accepted every
+recommendation then open. For this record that is two points, both
+about the addendum of 2026-11-21 and its note of 2026-11-22.
+The text above stays as written, apart from the dated pointers added to
+it. The other points of the same answer are rulings on single cases
+under Rules 6, 7, 9 and 11 (QK-0760's residual case, QK-0761, QK-0762,
+QK-0766 to QK-0769, QK-0780, QK-0781, the processor count of Rule 9(b))
+and choices of `purse-udb`'s transaction store; as with QK-0744 and
+QK-0035 before them, each is recorded in its QUIRKS entry, in
+`docs/PARITY.md` and in the crate's documentation, not here.
+
+1. **The lookup as built stands.** The decision of 2026-11-21 named a
+   lookup that reads all 58 entries of the alphabet and selects the
+   match in constant time. The replacement made on 2026-11-22 computes a
+   character's digit, and a digit's character, from the bounds of the
+   alphabet's six runs, with masks behind `core::hint::black_box` and no
+   read of the alphabet (the note of that date). It is the same in effect
+   (no output changes, no time that depends on the character), and the
+   form the decision named, a masked scan, was the one the review found
+   compiled into a branch on the secret character at opt-level "s". The
+   note's "Whether that substitution stands is the owner's to confirm" is
+   answered: it stands. No code changes with this point.
+2. **The timing check runs in a workflow of its own.** dudect's targets
+   (ten, at opt-levels 3 and "s") ran in `ci.yml`'s constant-time job on
+   every push, beside the disassembly check. They now run in
+   `.github/workflows/constant-time.yml`, as dcroxide's "Constant time"
+   workflow runs its own: on a push to `master` or a pull request that
+   changes a path that can move their result, nightly, and on dispatch.
+   The paths are the two codec crates (`crates/purse-hdkeychain`,
+   `crates/purse-dcrutil`, neither of which depends on another crate of
+   this workspace but `purse-testutil`, a dev-dependency of both),
+   `crates/purse-testutil` (the harness and the generator that draws the
+   classes), `Cargo.lock` (a dependency's version, dcroxide's revision
+   among them), `rust-toolchain.toml` (the compiler), the root
+   `Cargo.toml` (its release profile; a path filter cannot narrow a file
+   to one table, so any change to the manifest runs the workflow) and the
+   workflow file itself. Each target runs for 10 s on pushes and pull
+   requests, as in `ci.yml` before, and for 60 s nightly, as dcroxide's
+   nightly does; a dispatch may set 1 to 90 s, the cap dcroxide's
+   workflow puts on a dispatch of every target. The rule a target fails
+   by, the pinning to the runner's last processor, the build before each
+   timed step and the two opt-levels are unchanged. The disassembly check,
+   which is deterministic and takes seconds a level, stays in `ci.yml`'s
+   constant-time job on every push, now in steps of its own at opt-levels
+   3, "s", 1, 2 and "z" (before, its runs at 3 and "s" came with the
+   timing steps' filter); the job is renamed "constant time, disassembly".
+
+What this leaves as it was: whether the timing steps stay free of false
+failures on shared runners is still not established, and a change to a
+path outside the filter that could move a timed binary would not run the
+workflow until the next nightly run; the workflow has not run on GitHub.
+Its commands, and the disassembly steps, were run on an x86_64 Linux
+desktop as a smoke test that is not recorded, as were the targets before;
+there is no timing of record and no ledger entry.
+
+**Places amended with this addendum:** the Status line (a dated bullet);
+the note of 2026-11-22 under the addendum of 2026-11-21, by two dated
+pointers; `.github/workflows/ci.yml` and the new
+`.github/workflows/constant-time.yml`; the module documentation of each
+crate's `src/ct_check.rs`; `purse-dcrutil`'s crate documentation, which
+gains a section on what of a WIF's handling is constant time; the ADR
+index; `docs/PHASE0-EXIT.md`, whose list of CI's jobs carries a dated
+pointer.

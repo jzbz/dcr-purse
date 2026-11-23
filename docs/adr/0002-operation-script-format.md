@@ -466,7 +466,8 @@ Per operation (`—` is `null`):
 
 | Operations | `ok` |
 | --- | --- |
-| `mgr.lock`, `unlock`, `unlocked_with_passphrase`, `unlock_account`, `lock_account`, `set_account_passphrase`, `change_passphrase`, `convert_to_watching_only`, `upgrade_to_slip0044_coin_type`, `import_xpub_account`, `mark_used`, `mark_used_child_index`, `mark_returned_child_index`, `sync_account_to_addr_index`, `record_derived_address`, `rename_account`; `udb.validate_account_name` | — |
+| `mgr.lock`, `unlock`, `unlocked_with_passphrase`, `unlock_account`, `lock_account`, `set_account_passphrase`, `change_passphrase`, `convert_to_watching_only`, `import_xpub_account`, `mark_used`, `mark_used_child_index`, `mark_returned_child_index`, `sync_account_to_addr_index`, `record_derived_address`, `rename_account`; `udb.validate_account_name` | — |
+| `mgr.upgrade_to_slip0044_coin_type` | — ; `{passphrase_dropped}` (`true`) when account 0 had a passphrase of its own, which dcr-purse's upgrade drops and reports (QK-0767; added 2026-11-22): `oprunner` reads account 0's `kdf-params` from the bucket before Go's call, so both sides give it |
 | `mgr.watching_only`, `is_locked`, `exists_hash160`, `have_private_key`; `udb.is_imported_voting` | boolean |
 | `mgr.chain_params` | the parameters' `Name` |
 | `mgr.coin_type`, `addr_account`, `lookup_account`, `new_account`, `last_account`, `last_imported_account`, `import_voting_account` (the account) | integer |

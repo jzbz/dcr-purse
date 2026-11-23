@@ -72,6 +72,40 @@ opt-level = 3
 [profile.dev.package.argon2]
 opt-level = 3
 
+# Every dependency, and purse-hdkeychain, is built with optimisations in test
+# builds too.  The seed differential (purse-udb's tests/wallet_diff.rs) runs
+# two address managers on each of about 16,400 seeds in the normal suite;
+# unoptimised, over 80 % of its CPU time was elliptic-curve arithmetic in
+# k256, dcroxide-secp256k1-vartime and crypto-bigint (profiles of its two
+# large tests, not of the whole binary: 82 % in the leading-zero test, which
+# takes most of the time, and 88 % in the random-seed test; in both about a
+# quarter of all samples copied field elements through memcpy), and most of
+# the rest HMAC-SHA512 (8.5 % in the leading-zero test), purse-hdkeychain's
+# base58 and BLAKE-256.  On GitHub's runners the binary took 781 s on
+# ubuntu-24.04-arm and had not finished after 19 minutes on ubuntu-latest.
+# On an x86_64 Linux desktop (unrecorded measurements on a
+# shared machine) a seed cost 97.5 to 102 ms in the dev profile and 11.7 to
+# 11.8 ms with this, and on four cores the binary took 465 s and 62.5 s, and
+# the whole `cargo test --workspace` 1,129 s and 628 s, the hdkeychain key
+# differential (tests/oracle_diff.rs) 81.5 s and 7.6 s of that.  Every
+# dependency rather than a list of the hot ones (which measured 12.2 ms), so
+# that the setting needs no upkeep as the graph moves and the other suites
+# gain too; purse-hdkeychain because its base58 codec and the generic field
+# code instantiated in it were 16 % of what remained.  The price, on four of
+# the same desktop's cores with incremental compilation off as on CI: a cold
+# `cargo test --workspace --no-run` took 36.6 s against 24.0 s (CI pays this
+# when the dependency cache's key changes), a cold `cargo clippy` 12.2 s
+# against 6.9 s, and rebuilding the workspace's own crates 13.8 s against
+# 11.9 s.  Only opt-level changes: overflow checks and debug assertions stay
+# on in every crate, so the dependencies' own consistency checks still run,
+# and the workspace's other crates keep the dev profile.  The four entries
+# above are covered by `"*"` and are kept with their measurements.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.purse-hdkeychain]
+opt-level = 3
+
 # Release binaries: single codegen unit with thin LTO, line tables kept.
 # A panic aborts: state a panic left half-mutated cannot be reasoned about in
 # a process that holds keys and a database.  Overflow wraps, as Go's does;

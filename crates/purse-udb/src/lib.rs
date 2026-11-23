@@ -85,7 +85,9 @@
 //! are in [`txstore`]. "Slice 1" is ported: checked against Go through the
 //! oracle on all four networks; "later" is a later slice, with the reason;
 //! "blocked on script offsets" needs `wire.MsgTx.PkScriptLocs`, whose
-//! dcroxide port is not at dcr-purse's dcroxide pin. Rust names are methods
+//! dcroxide port, `MsgTx::pk_script_locs`, is at dcr-purse's dcroxide pin
+//! since dcroxide `1587ca1` (2026-11-23) and is called by no slice yet: the
+//! entries so marked are the credit slice's. Rust names are methods
 //! of [`txstore::TxStore`] unless stated, in snake case of Go's.
 //!
 //! | Go (`wallet/udb`) | Rust | Status |

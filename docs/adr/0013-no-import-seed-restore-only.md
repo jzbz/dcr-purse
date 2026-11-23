@@ -640,6 +640,8 @@ to it by number.
    that store that ports `AddCredit` and `Rollback`'s credit step, its
    first slice, which writes no credit, having shipped without it;
    ADR-0006, addendum "2026-11-22 (later)".)*
+   *(2026-11-23: landed in dcroxide `1587ca1` as `MsgTx::pk_script_locs`,
+   and the pin moved to it; ADR-0006, the dated note in rule 3's table.)*
    Keeping it was already settled by ADR-0006 rule 3's table (accepted
    2026-11-18) and ADR-0003 Decision item 2 (accepted 2026-11-19), which
    keeps each credit's script offset and length, so the condition for

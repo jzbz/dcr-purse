@@ -16,17 +16,17 @@ repository = "https://github.com/jzbz/dcr-purse"
 # Decred primitives come from dcroxide at one pinned revision (brief, D3).
 # Every dcroxide crate names the same `rev`; move them together.
 [workspace.dependencies]
-dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-gcs = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9", default-features = false }
-dcroxide-stake = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9", default-features = false }
-dcroxide-standalone = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
+dcroxide-base58 = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-crypto = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-dcrjson = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-gcs = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa", default-features = false }
+dcroxide-stake = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa", default-features = false }
+dcroxide-standalone = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
 
 purse-dcrutil = { path = "crates/purse-dcrutil" }
 purse-errors = { path = "crates/purse-errors" }

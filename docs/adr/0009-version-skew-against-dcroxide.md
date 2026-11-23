@@ -30,9 +30,9 @@ directly and four more indirectly (dcrwallet `go.mod:7-28`, `:50-53`),
 with no `replace` (spec 23 §5.4.2 item 1). dcr-purse consumes dcroxide as
 git dependencies at one revision since the first crates (`3237b79`); the
 revision was `5c6742f` from `b40513c`, `f4b3d2e` from the pin move of
-2026-11-19, `2074168` from the pin move of 2026-11-20, and is `48f5b5e`
-since the pin move of 2026-11-21 (`Cargo.toml`,
-`[workspace.dependencies]`; addenda below). Its dcrd pin is master `46e9df48` (dcroxide
+2026-11-19, `2074168` from the pin move of 2026-11-20, `48f5b5e` from
+the pin move of 2026-11-21, and is `1587ca1` since the pin move of
+2026-11-23 (`Cargo.toml`, `[workspace.dependencies]`; addenda below). Its dcrd pin is master `46e9df48` (dcroxide
 `docs/PARITY.md:3-4`). dcroxide moves that pin at upstream milestones and
 on its owner's word, and each move brings frozen batteries due (dcroxide
 `docs/PARITY.md:5-7`; dcroxide `docs/adr/README.md`, ADR-0001 entry). An
@@ -353,3 +353,24 @@ the dcrd revision it ports: dcroxide's dcrd pin and reference Go are
 unchanged, so no ledger row's delta moved. `docs/SKEW.md` records the move
 in its 2026-11-21 section and notes it in the Disposition cells of the
 `base58`, `dcrec/secp256k1` and `dcrec/edwards` rows.
+
+## Addendum, 2026-11-23 — pin moved to dcroxide `1587ca1`
+
+The pin moved from `48f5b5e` to `1587ca1`, one dcroxide commit, which
+touches one crate dcr-purse builds: `dcroxide-wire` gains
+`MsgTx::pk_script_locs`, `pk_script_locs_iter` and the iterator type
+`PkScriptLocs` (dcrd `MsgTx.PkScriptLocs`), an addition no dcr-purse code
+calls yet; no existing function or type changes, and the crate's
+`lib.rs` only adds `PkScriptLocs` to its re-exports and mentions the
+function in its crate documentation; the rest of the commit is
+dcroxide's tests, oracle command, fuzz target and records (its QK-0038
+among them). This is a change in dcroxide's own code, not in the dcrd
+revision it ports: dcroxide's dcrd pin (`DCRD_COMMIT` `46e9df48`) and
+reference Go (go1.27.3) are unchanged, and so are its oracle's `go.mod`
+and `go.sum`, so no ledger row's delta moved. dcrd's `wire` at `46e9df48`
+is still identical to v1.8.0, which dcrwallet links, so the function
+ported is the one dcrwallet calls. `docs/SKEW.md` records the move in its
+2026-11-23 section, including what is known of dcroxide's CI at
+`1587ca1`, and notes the addition in the Disposition cell of the `wire`
+row. With the function at the pin, ADR-0006 rule 3's item for it is met
+(the dated note in rule 3's table there).

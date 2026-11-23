@@ -30,7 +30,11 @@
   decided ADR-0019's FB1 and FB2 as recommended: the initial sync fetches
   no filter below the birthday however set, and rescans and discoveries
   from below it in SPV mode fetch on demand and keep none (Open point
-  5).*
+  5).* *The dcroxide pin moved to `1587ca1` on 2026-11-23, which only adds
+  `dcroxide-wire`'s `pk_script_locs`, called by no dcr-purse code, so no
+  measured path changed; no measurement of record was made at that pin,
+  and the gate baselines are unchanged (`docs/SKEW.md`, 2026-11-23
+  section).*
 - **Date:** 2026-11-19
 
 ## Context

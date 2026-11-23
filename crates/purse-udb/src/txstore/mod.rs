@@ -22,9 +22,12 @@
 //! it writes, and `purse-store`'s credit rows keep that location too
 //! ([`purse_store::ScriptLoc`] in [`purse_store::CreditRow`],
 //! [`purse_store::UnspentRow`] and [`purse_store::UnminedCreditRow`];
-//! ADR-0003 Decision item 2). The port of `PkScriptLocs` in dcroxide is not
-//! at dcr-purse's dcroxide pin, so no operation that writes a credit row can
-//! be ported yet, and this crate computes no script offset of its own.
+//! ADR-0003 Decision item 2). The port of `PkScriptLocs` in dcroxide was not
+//! at dcr-purse's dcroxide pin when this slice was written, so no operation
+//! that writes a credit row was ported, and this crate computes no script
+//! offset of its own. *(Since 2026-11-23 the pin is dcroxide `1587ca1`,
+//! which has `MsgTx::pk_script_locs`; nothing here calls it yet, and the
+//! credit-writing operations are the next slice's.)*
 //! Exactly two places in the Go code compute one:
 //!
 //! - `AddCredit` (`txmined.go:1384-1558`): every one of its three writes
@@ -203,7 +206,9 @@
 //! `ssgen_block_voted_on`; `dcroxide-gcs` (default features off) for
 //! `FilterV2` and `blockcf2`; `dcroxide-standalone` for the coinbase rule
 //! of `compat.IsEitherCoinBaseTx`; and `dcroxide-chainhash`. All are at the
-//! workspace's dcroxide pin, which has no `pk_script_locs`.
+//! workspace's dcroxide pin, which had no `pk_script_locs` when the slice
+//! was written and has one since 2026-11-23 (`1587ca1`); the slice does not
+//! call it.
 //!
 //! Records: `TxRecord::new(bytes, received)` is `NewTxRecord`. It keeps
 //! the caller's bytes verbatim, trailing bytes after the transaction
@@ -557,7 +562,8 @@
 //!
 //! # The next slice
 //!
-//! Once `pk_script_locs` is at the dcroxide pin: `AddCredit`, the credit
+//! Once `pk_script_locs` is at the dcroxide pin (it is since 2026-11-23,
+//! dcroxide `1587ca1`; the next slice is not started): `AddCredit`, the credit
 //! steps of the table above with the balance mutators of ADR-0003 Decision
 //! item 4 (and `acct_history`), the ticket commitments, the multisig
 //! outputs, the UTXO queries, balances, input selection, `Spender`,

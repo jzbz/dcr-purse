@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-chainhash"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+source = "git+https://github.com/jzbz/dcroxide?rev=1587ca1917c120f18e9be40917b1ebc6f3b197fa#1587ca1917c120f18e9be40917b1ebc6f3b197fa"
 dependencies = [
  "dcroxide-crypto",
 ]
@@ -170,7 +170,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-crypto"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+source = "git+https://github.com/jzbz/dcroxide?rev=1587ca1917c120f18e9be40917b1ebc6f3b197fa#1587ca1917c120f18e9be40917b1ebc6f3b197fa"
 dependencies = [
  "ripemd",
 ]
@@ -178,7 +178,7 @@ dependencies = [
 [[package]]
 name = "dcroxide-dcrec"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+source = "git+https://github.com/jzbz/dcroxide?rev=1587ca1917c120f18e9be40917b1ebc6f3b197fa#1587ca1917c120f18e9be40917b1ebc6f3b197fa"
 dependencies = [
  "curve25519-dalek",
  "dcroxide-crypto",
@@ -193,12 +193,12 @@ dependencies = [
 [[package]]
 name = "dcroxide-secp256k1-vartime"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+source = "git+https://github.com/jzbz/dcroxide?rev=1587ca1917c120f18e9be40917b1ebc6f3b197fa#1587ca1917c120f18e9be40917b1ebc6f3b197fa"
 
 [[package]]
 name = "dcroxide-wire"
 version = "0.1.0"
-source = "git+https://github.com/jzbz/dcroxide?rev=48f5b5ec1f122ee89170e939ead53e32cd0ac8d9#48f5b5ec1f122ee89170e939ead53e32cd0ac8d9"
+source = "git+https://github.com/jzbz/dcroxide?rev=1587ca1917c120f18e9be40917b1ebc6f3b197fa#1587ca1917c120f18e9be40917b1ebc6f3b197fa"
 dependencies = [
  "blake3",
  "dcroxide-chainhash",

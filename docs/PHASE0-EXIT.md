@@ -7,6 +7,8 @@ This record names, for each, what holds it, with files, tests and counts,
 and what is left. It also lists, at the end, what the Phase 0 section asks
 for beyond its exit sentence and where each stands. Parity pin: dcrwallet
 `54b85b33`, bbolt v1.3.12 as dcrwallet links it. dcroxide pin: `48f5b5e`.
+*(The pin moved to `1587ca1` on 2026-11-23, after this check:
+`docs/SKEW.md`, 2026-11-23 section.)*
 The check was made at `69a6f6d`, on the project owner's instruction of
 2026-11-21 to check D1 to D10 and close Phase 0. It found the first two
 clauses held and the third short by eight points that the owner had not
@@ -866,7 +868,8 @@ close:
   change)* *(accepted by the project owner on signing that change, later
   on 2026-11-22: the deadline is restated as before the slice that ports
   `AddCredit` and `Rollback`'s credit step; ADR-0006, addendum
-  "2026-11-22 (later)")*
+  "2026-11-22 (later)")* *(2026-11-23: written in dcroxide `1587ca1`,
+  and the pin moved to it; ADR-0006, the dated note in rule 3's table)*
 - what the records of D1, D2, D3, D5, D7 and D10 defer: D1 to Phases 7
   and 8 (the shape of the value under the `dcr-purse` key; (c),
   installing as `dcrwallet` for Decrediton); D2 to Phase 3 (open points 2

@@ -9,8 +9,9 @@
 //!
 //! The method, the constants and the verdict are those of the shared
 //! harness of the sister project dcroxide (`dcroxide-testutil`'s `ct`
-//! module at the pinned revision `48f5b5e`, which its "Constant time"
-//! workflow runs), reduced to what this workspace's targets need: no
+//! module, which its "Constant time" workflow runs; ported at the revision
+//! `48f5b5e` and unchanged at the pinned revision `1587ca1`), reduced to
+//! what this workspace's targets need: no
 //! known reports, no per-segment trace and no DIT probe. The workspace
 //! does not link `dcroxide-testutil`; a port keeps it out of the lockfile.
 //!

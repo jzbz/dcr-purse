@@ -18,11 +18,11 @@ cargo-fuzz = true
 # networks from, and the script engine it verifies signatures with: already
 # in the graph through purse-txauthor.  The rev is the root workspace's
 # dcroxide pin and moves with it.
-dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
-dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "48f5b5ec1f122ee89170e939ead53e32cd0ac8d9" }
+dcroxide-chaincfg = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-chainhash = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-dcrec = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-txscript = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
+dcroxide-wire = { git = "https://github.com/jzbz/dcroxide", rev = "1587ca1917c120f18e9be40917b1ebc6f3b197fa" }
 libfuzzer-sys = "0.4"
 purse-boltread = { path = "../crates/purse-boltread" }
 purse-dcrutil = { path = "../crates/purse-dcrutil" }

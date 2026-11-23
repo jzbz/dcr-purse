@@ -2268,6 +2268,7 @@ fn a_conversion_leaves_no_removed_value_in_rows_or_a_backup() {
     let mut rng = SplitMix64::from_env("purse-udb-conversion-pages");
     let mut values = 0usize;
     let mut live = 0usize;
+    let mut unread = 0usize;
     for case in 0..cases().div_ceil(4).max(4) {
         let (path, store, mgr, chain) = wallet_file(&mut rng, "prop-convert-pages");
         mgr.unlock(b"private").expect("unlock");
@@ -2379,15 +2380,20 @@ fn a_conversion_leaves_no_removed_value_in_rows_or_a_backup() {
                 "case {case}: {what} is in the backup's file"
             );
         }
-        let file = std::fs::read(&path).expect("read the store file");
-        live += removed.iter().filter(|(_, n)| holds(&file, n)).count();
+        // A diagnostic, not an assertion.  The store is still open, and
+        // on Windows the lock it holds on its file refuses this read.
+        match std::fs::read(&path) {
+            Ok(file) => live += removed.iter().filter(|(_, n)| holds(&file, n)).count(),
+            Err(_) => unread += 1,
+        }
         drop(mgr);
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(path.parent().expect("dir"));
     }
     eprintln!(
-        "removed values: {values}; still in the live store files' freed pages (not asserted): {live}"
+        "removed values: {values}; still in the live store files' freed pages (not asserted): {live}; \
+         live store files that could not be read while open: {unread}"
     );
 }
 

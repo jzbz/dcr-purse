@@ -3,23 +3,25 @@
 // Use of this source code is governed by an ISC license that can be found in
 // the LICENSE file.
 
-//! The transaction store's first slice without the oracle: the upstream
-//! tests it reaches, and its property tests.
+//! The transaction store without the oracle: the upstream tests, and the
+//! property tests.
 //!
 //! Upstream (`wallet/udb` at the parity pin):
 //!
 //! - `TestSetBirthState` (`txmined_test.go:32-80`), with the random state
 //!   drawn from this crate's seeded generator;
-//! - `TestStakeInvalidationOfTip` (`stakevalidation_test.go:42-200`) up to
-//!   what needs no credit: `txcommon_test.go`'s header chain from the
-//!   testnet3 genesis block (`blockGenerator`, `emptyFilters`; the zero
-//!   `time.Time` serialized as wire does, and block 1's hash pinned to
-//!   Go's) connected with `ExtendMainChain`, the two transactions inserted unmined and then
-//!   mined, and the third block's vote bits invalidating the second. Its
-//!   `AddCredit` calls and every balance and unspent-output assertion wait
-//!   for the credit slice. `TestInsertsCreditsDebitsRollbacks` and
-//!   `TestCoinbases` (`tx_test.go`) call `AddCredit` throughout and are
-//!   left whole for it.
+//! - `TestStakeInvalidationOfTip` (`stakevalidation_test.go:42-187`):
+//!   `txcommon_test.go`'s header chain from the testnet3 genesis block
+//!   (`blockGenerator`, `emptyFilters`; the zero `time.Time` serialized as
+//!   wire does, and block 1's hash pinned to Go's) connected with
+//!   `ExtendMainChain`, the two transactions inserted unmined with their
+//!   credits and then mined, and the third block's vote bits invalidating
+//!   the second, with Go's balance and unspent-output assertions;
+//! - `TestInsertsCreditsDebitsRollbacks` (`tx_test.go:20-351`) and
+//!   `TestCoinbases` (`tx_test.go:353-574`), with Go's assertions (and, for
+//!   `TestCoinbases`, the spendable balance its table states and its loop
+//!   never compares). These three run Rust only: Go runs them itself, and
+//!   the oracle compares the same operations in scripts.
 //!
 //! Properties (random sequences from `PURSE_TEST_SEED`, over every
 //! operation of the slice on a store with no address manager, which the
@@ -29,7 +31,12 @@
 //! `TxRecord` round trips; the dependency order of `unmined_txs`; the
 //! guard of the later slices' tables; the rows the range walks read, the
 //! values the existence tests do not read, and the block rows
-//! `IterateTickets` reads (one per block, not per ticket).
+//! `IterateTickets` reads (one per block, not per ticket). Two targeted
+//! tests reach states no random sequence does: a ticket's live debit whose
+//! credit `AddCredit` overwrote in an invalidated block (`acct_history`'s
+//! spender rule), and `UnspentTickets` at Go's maturity boundary, at its
+//! `int32` wrap (QK-0784) and over a dangling unmined-inputs entry
+//! (QK-0048).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -48,12 +55,16 @@ use dcroxide_stake::TxType;
 use dcroxide_wire::{BlockHeader, MsgTx, OutPoint, TxIn, TxOut};
 use purse_errors::Kind;
 use purse_store::{
-    BirthState, Blocks, Hash32, HeaderBytes, History, ReadTx, Store, Table, TableId, Tickets, Tip,
-    TxMined, TxUnmined, UnminedInputs, WriteTx,
+    AcctHistory, AcctHistoryKey, BalanceClass, BalanceHeights, BalanceRow, Balances, BirthState,
+    Blocks, CreditKey, Credits, CreditsInvalidated, Debits, Hash32, HeaderBytes, History, ReadTx,
+    Store, Table, TableId, Tickets, Tip, TxMined, TxUnmined, UnminedCredits, UnminedInputs,
+    Unpublished, Unspent, WriteTx,
 };
 use purse_testutil::SplitMix64;
 use purse_udb::addrmgr::ChainParams;
-use purse_udb::txstore::{LATER_TABLES, TxRead, TxRecord, TxStore};
+use purse_udb::txstore::{
+    BlockMeta, LATER_TABLES, TxRead, TxRecord, TxStore, mined_class, unmined_class,
+};
 use support::scratch;
 
 /// The error of a test's write transaction: the store's, or a deliberate
@@ -181,9 +192,64 @@ fn set_birth_state_round_trips() {
     }
 }
 
-/// `TestStakeInvalidationOfTip` without its credits.
+/// A block meta as `txcommon_test.go`'s `makeBlockMeta` builds it: the
+/// header's hash and height, Go's zero time, vote bits 0.
+fn make_block_meta(h: &BlockHeader) -> BlockMeta {
+    BlockMeta {
+        block: purse_udb::txstore::Block {
+            hash: Hash32(*h.block_hash().as_bytes()),
+            height: i32::try_from(h.height).expect("small"),
+        },
+        time: purse_udb::txstore::ZERO_TIME,
+        vote_bits: 0,
+    }
+}
+
+/// A transaction with no input and outputs of `values`, as the upstream
+/// tests write `wire.MsgTx{TxOut: ...}`.
+fn outputs_tx(values: &[i64]) -> MsgTx {
+    MsgTx {
+        tx_out: values
+            .iter()
+            .map(|v| TxOut {
+                value: *v,
+                version: 0,
+                pk_script: Vec::new(),
+            })
+            .collect(),
+        ..MsgTx::default()
+    }
+}
+
+/// `spendOutput` (`tx_test.go:385-397`): one input spending `hash:index`
+/// of `tree`, outputs of `values`.
+fn spend_output(hash: Hash, index: u32, tree: i8, values: &[i64]) -> MsgTx {
+    MsgTx {
+        tx_in: vec![TxIn {
+            previous_out_point: OutPoint { hash, index, tree },
+            ..TxIn::default()
+        }],
+        ..outputs_tx(values)
+    }
+}
+
+/// The outpoints of `UnspentOutputs`, with their trees.
+fn unspent_set(ts: &TxStore, tx: &mut WriteTx<'_>) -> BTreeSet<(Hash32, u32, i8)> {
+    ts.unspent_outputs(tx)
+        .expect("UnspentOutputs")
+        .iter()
+        .map(|c| (Hash32(c.outpoint.hash.0), c.outpoint.index, c.outpoint.tree))
+        .collect()
+}
+
+/// `TestStakeInvalidationOfTip` (`stakevalidation_test.go:42-187`):
+/// `txcommon_test.go`'s header chain from the testnet3 genesis block, two
+/// transactions inserted unmined with a credit each (the second spending
+/// the first's), mined in blocks 1 and 2, and the third block's vote bits
+/// invalidating the second: the balances and unspent outputs before and
+/// after.
 #[test]
-fn stake_invalidation_of_tip_without_credits() {
+fn stake_invalidation_of_tip() {
     let (store, ts, _) = tx_store("testnet3");
     let mut g = BlockGenerator::new();
     let block1 = g.generate(1);
@@ -196,30 +262,8 @@ fn stake_invalidation_of_tip_without_credits() {
     // The chain is Go's: block 1's hash is the one the upstream test's
     // generator makes.
     assert_eq!(block1.block_hash().to_string(), GO_BLOCK1_HASH);
-    let block1_tx = MsgTx {
-        tx_out: vec![TxOut {
-            value: 200_000_000,
-            version: 0,
-            pk_script: Vec::new(),
-        }],
-        ..MsgTx::default()
-    };
-    let block2_tx = MsgTx {
-        tx_in: vec![TxIn {
-            previous_out_point: OutPoint {
-                hash: block1_tx.tx_hash(),
-                index: 0,
-                tree: 0,
-            },
-            ..TxIn::default()
-        }],
-        tx_out: vec![TxOut {
-            value: 100_000_000,
-            version: 0,
-            pk_script: Vec::new(),
-        }],
-        ..MsgTx::default()
-    };
+    let block1_tx = outputs_tx(&[200_000_000]);
+    let block2_tx = spend_output(block1_tx.tx_hash(), 0, 0, &[100_000_000]);
     let rec1 = TxRecord::from_msg_tx(block1_tx, purse_udb::txstore::ZERO_TIME).expect("record");
     let rec2 = TxRecord::from_msg_tx(block2_tx, purse_udb::txstore::ZERO_TIME).expect("record");
     let h1 = Hash32(*block1.block_hash().as_bytes());
@@ -227,34 +271,296 @@ fn stake_invalidation_of_tip_without_credits() {
     store
         .update(|tx| {
             ts.insert_mem_pool_tx(tx, &rec1).expect("InsertMemPoolTx");
+            ts.add_credit(tx, &rec1, None, 0, false, 0)
+                .expect("AddCredit");
             ts.insert_mem_pool_tx(tx, &rec2).expect("InsertMemPoolTx");
+            ts.add_credit(tx, &rec2, None, 0, false, 0)
+                .expect("AddCredit");
+            let bal = ts.account_balance(tx, 0, 0).expect("AccountBalance");
+            assert_eq!(bal.total, 100_000_000, "before mining either: {bal:?}");
+
             insert_main_chain_headers(&ts, tx, &[&block1, &block2]);
             ts.insert_mined_tx(tx, &rec1, &h1).expect("InsertMinedTx");
             ts.insert_mined_tx(tx, &rec2, &h2).expect("InsertMinedTx");
+            // Only the credit of block 2's transaction is unspent.
+            let bal = ts.account_balance(tx, 1, 0).expect("AccountBalance");
+            assert_eq!(bal.total, 100_000_000, "{bal:?}");
+            let credits = ts.unspent_outputs(tx).expect("UnspentOutputs");
+            assert_eq!(credits.len(), 1);
+            assert_eq!(Hash32(credits[0].outpoint.hash.0), *rec2.hash());
+            assert_eq!(credits[0].amount, 100_000_000);
             assert_eq!(
                 ts.block_in_main_chain(tx, &h2).expect("query"),
                 (true, false)
             );
-            assert_eq!(ts.tx_block_height(tx, rec2.hash()).expect("height"), 2);
-            // The next header invalidates block 2's regular tree.
+
+            // The next header invalidates block 2's regular tree: only the
+            // output of block 1's transaction is unspent.
             insert_main_chain_headers(&ts, tx, &[&block3]);
+            let bal = ts.account_balance(tx, 1, 0).expect("AccountBalance");
+            assert_eq!(bal.total, 200_000_000, "{bal:?}");
+            let credits = ts.unspent_outputs(tx).expect("UnspentOutputs");
+            assert_eq!(credits.len(), 1);
+            assert_eq!(Hash32(credits[0].outpoint.hash.0), *rec1.hash());
+            assert_eq!(credits[0].amount, 200_000_000);
+            // Beyond Go's assertions: the flag, the records left in their
+            // blocks, the block row's time (Go's zero time as wire wrote
+            // it) and the row invariants.
             assert_eq!(
                 ts.block_in_main_chain(tx, &h2).expect("query"),
                 (true, true)
             );
-            assert_eq!(
-                ts.block_in_main_chain(tx, &h1).expect("query"),
-                (true, false)
-            );
-            // The records stay in their blocks (the credits would move).
             assert_eq!(ts.tx_block_height(tx, rec2.hash()).expect("height"), 2);
-            // The block row keeps the header's time, Go's zero time as
-            // wire wrote it.
             let d = ts.tx_details(tx, rec2.hash()).expect("TxDetails");
             assert_eq!(d.block.block.hash, h2);
             assert_eq!(d.block.time, i64::from(GO_ZERO_TIMESTAMP));
             assert!(ts.unmined_tx_hashes(tx).expect("hashes").is_empty());
             check_rows(tx);
+            check_utxo_queries(&ts, tx);
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+}
+
+/// `TestInsertsCreditsDebitsRollbacks` (`tx_test.go:20-351`): a credit
+/// inserted unmined, mined, rolled back and mined again, spent by a mined
+/// transaction that a rollback returns to the unmined set, and an unmined
+/// transaction spending an output the wallet never saw; after each step,
+/// in its own transaction, the spendable and unconfirmed balances at one
+/// confirmation, the unspent outputs and the unmined transactions.
+#[test]
+fn inserts_credits_debits_rollbacks() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let b1 = g.generate(1);
+    let b2 = g.generate(1);
+    let b3 = g.generate(1);
+    let (b1h, b2h) = (
+        Hash32(*b1.block_hash().as_bytes()),
+        Hash32(*b2.block_hash().as_bytes()),
+    );
+    let tx1 = outputs_tx(&[200_000_000]);
+    let tx1_rec =
+        TxRecord::from_msg_tx(tx1.clone(), purse_udb::txstore::ZERO_TIME).expect("record");
+    let mut s_tx1 = spend_output(tx1.tx_hash(), 0, 0, &[200_000_000]);
+    s_tx1.tx_in[0].value_in = 200_000_000;
+    s_tx1.tx_in[0].block_height = b2.height;
+    s_tx1.tx_in[0].block_index = 0;
+    let s_tx1_rec = TxRecord::from_msg_tx(s_tx1, purse_udb::txstore::ZERO_TIME).expect("record");
+    let tx2 = outputs_tx(&[300_000_000]);
+    let mut s_tx2 = spend_output(tx2.tx_hash(), 0, 0, &[300_000_000]);
+    s_tx2.tx_in[0].value_in = 300_000_000;
+    s_tx2.tx_in[0].block_height = b3.height;
+    s_tx2.tx_in[0].block_index = 0;
+    let s_tx2_rec = TxRecord::from_msg_tx(s_tx2, purse_udb::txstore::ZERO_TIME).expect("record");
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&b1, &b2, &b3]);
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+
+    // A step: its name, what it does, then the spendable and unconfirmed
+    // balances, the unspent outputs and the unmined transactions after it.
+    type Step<'a> = (
+        &'static str,
+        Box<dyn Fn(&mut WriteTx<'_>) + 'a>,
+        i64,
+        i64,
+        Vec<(Hash32, u32, i8)>,
+        Vec<Hash32>,
+    );
+    let tx1_out = (*tx1_rec.hash(), 0u32, 0i8);
+    let steps: Vec<Step<'_>> = vec![
+        ("new store", Box::new(|_| {}), 0, 0, vec![], vec![]),
+        (
+            "txout insert",
+            Box::new(|tx| {
+                ts.insert_mem_pool_tx(tx, &tx1_rec)
+                    .expect("InsertMemPoolTx");
+                ts.add_credit(tx, &tx1_rec, None, 0, false, 0)
+                    .expect("AddCredit");
+            }),
+            0,
+            200_000_000,
+            vec![tx1_out],
+            vec![*tx1_rec.hash()],
+        ),
+        (
+            "insert duplicate unconfirmed",
+            Box::new(|tx| {
+                ts.insert_mem_pool_tx(tx, &tx1_rec)
+                    .expect("InsertMemPoolTx");
+            }),
+            0,
+            200_000_000,
+            vec![tx1_out],
+            vec![*tx1_rec.hash()],
+        ),
+        (
+            "confirmed txout insert",
+            Box::new(|tx| {
+                ts.insert_mined_tx(tx, &tx1_rec, &b1h)
+                    .expect("InsertMinedTx");
+            }),
+            200_000_000,
+            0,
+            vec![tx1_out],
+            vec![],
+        ),
+        (
+            "rollback confirmed credit",
+            Box::new(|tx| {
+                ts.rollback(tx, 1).expect("Rollback");
+            }),
+            0,
+            200_000_000,
+            vec![tx1_out],
+            vec![*tx1_rec.hash()],
+        ),
+        (
+            "insert duplicate confirmed",
+            Box::new(|tx| {
+                insert_main_chain_headers(&ts, tx, &[&b1, &b2, &b3]);
+                // Go ignores this insert's error.
+                let _ = ts.insert_mined_tx(tx, &tx1_rec, &b1h);
+            }),
+            200_000_000,
+            0,
+            vec![tx1_out],
+            vec![],
+        ),
+        (
+            "insert confirmed double spend",
+            Box::new(|tx| {
+                ts.insert_mined_tx(tx, &s_tx1_rec, &b2h)
+                    .expect("InsertMinedTx");
+                ts.insert_mined_tx(tx, &s_tx1_rec, &b2h)
+                    .expect("InsertMinedTx");
+            }),
+            0,
+            0,
+            vec![],
+            vec![],
+        ),
+        (
+            "rollback after spending tx",
+            Box::new(|tx| {
+                ts.rollback(tx, 2).expect("Rollback");
+            }),
+            0,
+            0,
+            vec![],
+            vec![*s_tx1_rec.hash()],
+        ),
+        (
+            "insert unconfirmed debit",
+            Box::new(|tx| {
+                ts.insert_mem_pool_tx(tx, &s_tx2_rec)
+                    .expect("InsertMemPoolTx");
+            }),
+            0,
+            0,
+            vec![],
+            vec![*s_tx1_rec.hash(), *s_tx2_rec.hash()],
+        ),
+    ];
+    for (name, f, bal, unc, unspents, unmined) in &steps {
+        store
+            .update(|tx| {
+                f(tx);
+                let b = ts.account_balance(tx, 1, 0).expect("AccountBalance");
+                assert_eq!(b.spendable, *bal, "{name}: balance");
+                assert_eq!(b.unconfirmed, *unc, "{name}: unconfirmed balance");
+                assert_eq!(
+                    unspent_set(&ts, tx),
+                    unspents.iter().copied().collect(),
+                    "{name}: unspent outputs"
+                );
+                let got: BTreeSet<Hash32> = ts
+                    .unmined_txs(tx)
+                    .expect("UnminedTxs")
+                    .iter()
+                    .map(|r| *r.hash())
+                    .collect();
+                assert_eq!(
+                    got,
+                    unmined.iter().copied().collect(),
+                    "{name}: unmined transactions"
+                );
+                check_rows(tx);
+                check_utxo_queries(&ts, tx);
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("update");
+    }
+}
+
+/// `TestCoinbases` (`tx_test.go:353-574`): a coinbase with two credits
+/// in block 1 of testnet3, immature until its 16-block maturity is
+/// reached at block 17, partly spent there, and the immature amount after
+/// rolling back block 17 and then block 1. Go's table also states the
+/// spendable balance, which its loop never compares (it checks the
+/// immature amount twice); the port compares both.
+#[test]
+fn coinbases() {
+    let (store, ts, _) = tx_store("testnet3");
+    let cb = MsgTx {
+        tx_in: vec![TxIn {
+            previous_out_point: OutPoint {
+                hash: Hash::ZERO,
+                index: u32::MAX,
+                tree: 0,
+            },
+            ..TxIn::default()
+        }],
+        ..outputs_tx(&[2_000_000_000, 1_000_000_000, 3_000_000_000])
+    };
+    let cb_rec = TxRecord::from_msg_tx(cb, purse_udb::txstore::ZERO_TIME).expect("record");
+    let mut g = BlockGenerator::new();
+    let headers: Vec<BlockHeader> = (0..19).map(|_| g.generate(1)).collect();
+    let b1_meta = make_block_meta(&headers[0]);
+    let b1h = Hash32(*headers[0].block_hash().as_bytes());
+    store
+        .update(|tx| {
+            let hs: Vec<&BlockHeader> = headers.iter().collect();
+            insert_main_chain_headers(&ts, tx, &hs[0..1]);
+            ts.insert_mined_tx(tx, &cb_rec, &b1h)
+                .expect("InsertMinedTx");
+            ts.add_credit(tx, &cb_rec, Some(&b1_meta), 0, false, 0)
+                .expect("AddCredit");
+            ts.add_credit(tx, &cb_rec, Some(&b1_meta), 2, false, 0)
+                .expect("AddCredit");
+            let maturity = |tx: &mut WriteTx<'_>, step: &str, immature: i64, spendable: i64| {
+                let b = ts.account_balance(tx, 0, 0).expect("AccountBalance");
+                assert_eq!(b.immature_coinbase_rewards, immature, "{step}: immature");
+                assert_eq!(b.spendable, spendable, "{step}: spendable");
+                check_rows(tx);
+                check_utxo_queries(&ts, tx);
+            };
+            maturity(tx, "block 1", 5_000_000_000, 0);
+            insert_main_chain_headers(&ts, tx, &hs[1..7]);
+            maturity(tx, "block 7", 5_000_000_000, 0);
+            insert_main_chain_headers(&ts, tx, &hs[7..13]);
+            maturity(tx, "block 13", 5_000_000_000, 0);
+            insert_main_chain_headers(&ts, tx, &hs[13..16]);
+            maturity(tx, "block 16", 5_000_000_000, 0);
+            insert_main_chain_headers(&ts, tx, &hs[16..17]);
+            maturity(tx, "block 17", 0, 5_000_000_000);
+            // Spending output 0 leaves output 2 mature.
+            let spender = spend_output(Hash(cb_rec.hash().0), 0, 0, &[500_000_000, 1_500_000_000]);
+            let spender_rec = TxRecord::from_msg_tx(spender, 1_795_300_000).expect("record");
+            let b17h = Hash32(*headers[16].block_hash().as_bytes());
+            ts.insert_mined_tx(tx, &spender_rec, &b17h)
+                .expect("InsertMinedTx");
+            maturity(tx, "spent at block 17", 0, 3_000_000_000);
+            // Block 17 rolled back: output 2 immature again, output 0
+            // spent by the returned (unmined) spender.
+            ts.rollback(tx, 17).expect("Rollback");
+            maturity(tx, "block 17 rolled back", 3_000_000_000, 0);
+            // Block 1 rolled back: the coinbase is gone.
+            ts.rollback(tx, 1).expect("Rollback");
+            maturity(tx, "block 1 rolled back", 0, 0);
             Ok::<_, purse_store::Error>(())
         })
         .expect("update");
@@ -606,11 +912,370 @@ fn check_rows(tx: &mut WriteTx<'_>) {
             "an unmined input row names a transaction not spending it"
         );
     }
-    // The later slices' tables stay empty.
+    // The next slice's tables stay empty.
     for t in LATER_TABLES {
         assert!(tx.is_empty(t).expect("empty"), "{} holds rows", t.name());
     }
+    check_credit_rows(tx);
     tx.check_chain_rows();
+}
+
+/// The UTXO queries against the rows:
+///
+/// - `UnspentOutputs` gives each unspent row no unmined input names, in
+///   key order (from the outpoint's unmined credit when it has one, as
+///   Go's `outputCreditInfo` looks there first), then each unmined credit
+///   no unmined input names whose transaction is not unpublished, each
+///   with the script of its output in the record's own transaction (so
+///   the stored script locations are checked against a decoding);
+/// - `ForEachUnspentOutpoint` gives the same outpoints, trees included, in
+///   the same order;
+/// - `ExistsUTXO` holds for every unspent row and unmined credit, and
+///   `UnspentOutput` answers for each (with the mempool for an unmined
+///   credit);
+/// - `IsUnspentOutpoint` is false exactly for an outpoint an unmined input
+///   names or whose transaction is unpublished (QK-0088);
+/// - `PreviousPkScripts` of each mined record in its block gives one
+///   script per debit, that of the output the debit spends.
+fn check_utxo_queries(ts: &TxStore, tx: &mut WriteTx<'_>) {
+    let unspent = all::<Unspent>(tx);
+    let ucredits = all::<UnminedCredits>(tx);
+    let uinputs: BTreeSet<purse_store::Outpoint> = all::<UnminedInputs>(tx)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    let unpublished: BTreeSet<Hash32> =
+        all::<Unpublished>(tx).into_iter().map(|(k, _)| k).collect();
+    let ucmap: BTreeMap<purse_store::Outpoint, purse_store::UnminedCreditRow> =
+        ucredits.iter().cloned().collect();
+    let tree = |tag: purse_store::OutputTag| i8::from(tag != purse_store::OutputTag::NonStake);
+    // (outpoint, tree, height, amount, coinbase, expiry)
+    let mut want = Vec::new();
+    for (op, u) in &unspent {
+        if uinputs.contains(op) {
+            continue;
+        }
+        want.push(match ucmap.get(op) {
+            Some(m) => (*op, tree(m.flags.tag), -1, m.amount, false, m.flags.expiry),
+            None => (
+                *op,
+                tree(u.flags.tag),
+                i32::try_from(u.height).expect("height"),
+                u.amount,
+                u.flags.coinbase,
+                u.flags.expiry,
+            ),
+        });
+    }
+    for (op, m) in &ucredits {
+        if !uinputs.contains(op) && !unpublished.contains(&op.hash) {
+            want.push((*op, tree(m.flags.tag), -1, m.amount, false, m.flags.expiry));
+        }
+    }
+    let got = ts.unspent_outputs(tx).expect("UnspentOutputs");
+    assert_eq!(got.len(), want.len(), "UnspentOutputs: count");
+    for (c, w) in got.iter().zip(&want) {
+        let op = purse_store::Outpoint {
+            hash: Hash32(c.outpoint.hash.0),
+            index: c.outpoint.index,
+        };
+        assert_eq!(
+            (
+                op,
+                c.outpoint.tree,
+                c.block.block.height,
+                c.amount,
+                c.from_coinbase,
+                c.has_expiry
+            ),
+            *w,
+            "UnspentOutputs: {c:?}"
+        );
+        assert_eq!(c.block.time, purse_udb::txstore::ZERO_TIME);
+        let (bytes, received) = if c.block.block.height < 0 {
+            assert_eq!(c.block.block.hash, Hash32::default());
+            let row = tx.get::<TxUnmined>(&op.hash).expect("get").expect("record");
+            (row.tx, row.received)
+        } else {
+            let height = u32::try_from(c.block.block.height).expect("height");
+            let b = tx
+                .get::<Blocks>(&purse_store::Height(height))
+                .expect("get")
+                .expect("block");
+            assert_eq!(c.block.block.hash, b.hash, "the credit's block hash");
+            let row = tx
+                .get::<TxMined>(&purse_store::TxRecKey {
+                    hash: op.hash,
+                    height,
+                })
+                .expect("get")
+                .expect("record");
+            (row.tx, row.received)
+        };
+        let (m, _) = MsgTx::from_bytes(&bytes).expect("record decodes");
+        assert_eq!(
+            c.pk_script, m.tx_out[op.index as usize].pk_script,
+            "the script of {op:?}"
+        );
+        assert_eq!(c.received, received);
+    }
+    let mut each = Vec::new();
+    ts.for_each_unspent_outpoint(tx, |op| {
+        each.push(*op);
+        Ok(())
+    })
+    .expect("ForEachUnspentOutpoint");
+    assert_eq!(
+        each,
+        got.iter().map(|c| c.outpoint).collect::<Vec<_>>(),
+        "ForEachUnspentOutpoint"
+    );
+    let wire = |op: &purse_store::Outpoint| OutPoint {
+        hash: Hash(op.hash.0),
+        index: op.index,
+        tree: 0,
+    };
+    for (op, _) in &unspent {
+        assert!(ts.exists_utxo(tx, &wire(op)).expect("ExistsUTXO"));
+        let c = ts
+            .unspent_output(tx, &wire(op), false)
+            .expect("UnspentOutput");
+        assert_eq!(c.block.block.height < 0, ucmap.contains_key(op));
+    }
+    for (op, _) in &ucredits {
+        assert!(ts.exists_utxo(tx, &wire(op)).expect("ExistsUTXO"));
+        let c = ts
+            .unspent_output(tx, &wire(op), true)
+            .expect("UnspentOutput");
+        assert_eq!(c.block.block.height, -1);
+        assert_eq!(
+            ts.is_unspent_outpoint(tx, &wire(op))
+                .expect("IsUnspentOutpoint"),
+            !uinputs.contains(op) && !unpublished.contains(&op.hash)
+        );
+    }
+    for op in &uinputs {
+        assert!(
+            !ts.is_unspent_outpoint(tx, &wire(op))
+                .expect("IsUnspentOutpoint")
+        );
+    }
+    let debits = all::<Debits>(tx);
+    for (k, row) in all::<TxMined>(tx) {
+        let n = debits
+            .iter()
+            .filter(|(d, _)| d.hash == k.hash && d.height == k.height)
+            .count();
+        let b = tx
+            .get::<Blocks>(&purse_store::Height(k.height))
+            .expect("get")
+            .expect("block");
+        let rec = TxRecord::new(&row.tx, row.received).expect("record");
+        let block = purse_udb::txstore::Block {
+            hash: b.hash,
+            height: i32::try_from(k.height).expect("height"),
+        };
+        let mine: Vec<_> = debits
+            .iter()
+            .filter(|(d, _)| d.hash == k.hash && d.height == k.height)
+            .map(|(_, d)| d.credit)
+            .collect();
+        let res = ts.previous_pk_scripts(tx, &rec, Some(&block));
+        // A debit whose credit is not live (a spender recorded below the
+        // transaction it spends, whose block was rolled back; or one moved
+        // to the invalidated table): Go's IO.
+        let mut missing = false;
+        for ck in &mine {
+            missing |= tx.get::<Credits>(ck).expect("get").is_none();
+        }
+        if missing {
+            let e = res.expect_err("PreviousPkScripts with a debit's credit missing");
+            assert_eq!(e.as_kind(), Some(Kind::Io), "{e:?}");
+            assert!(format!("{e}").contains("missing credit val for key"), "{e}");
+            continue;
+        }
+        let scripts = res.expect("PreviousPkScripts");
+        assert_eq!(scripts.len(), n, "PreviousPkScripts of {k:?}");
+        for (ck, s) in mine.iter().zip(&scripts) {
+            let r = tx
+                .get::<TxMined>(&purse_store::TxRecKey {
+                    hash: ck.hash,
+                    height: ck.height,
+                })
+                .expect("get")
+                .expect("the spent credit's record");
+            let (m, _) = MsgTx::from_bytes(&r.tx).expect("record decodes");
+            assert_eq!(*s, m.tx_out[ck.index as usize].pk_script);
+        }
+    }
+}
+
+/// All rows of table `T`.
+fn all<T: Table>(tx: &mut WriteTx<'_>) -> Vec<(T::Key, T::Value)> {
+    tx.iter::<T>()
+        .expect("iter")
+        .map(|r| r.expect("row"))
+        .collect()
+}
+
+/// The credit rows' invariants (crate `txstore`, "The credit slice"):
+///
+/// - every unspent output's credit is a live credit at the height the
+///   unspent row names, and the row is what that credit makes;
+/// - an unspent output's credit names no spender, with one exception, the
+///   state of QK-0785, which Go makes and dcr-purse reproduces: a credit
+///   whose spender is a live debit that stake invalidation of the credit's
+///   block does not move, that of a stake transaction or of a transaction
+///   recorded in another block (below the credit's, QK-0101's state);
+///   invalidation moves the credit, spender kept, to the invalidated table
+///   and leaves that debit live, and stake validation moves the credit
+///   back with an unspent entry;
+/// - every unmined credit's class is the one its flags and its
+///   transaction's unpublished mark give;
+/// - `balances` and `balance_heights` are the sums, by account and class
+///   (and height for the mined classes), of the unspent outputs and
+///   unmined credits no unmined transaction spends;
+/// - `acct_history` holds exactly, for every mined record, the accounts of
+///   its live credits and of the credits (live or invalidated) its live
+///   debits spend that name the debit as their spender.
+fn check_credit_rows(tx: &mut WriteTx<'_>) {
+    let mut sums: BTreeMap<(u32, BalanceClass), (i64, i64)> = BTreeMap::new();
+    let mut heights: BTreeMap<(u32, BalanceClass, u32), (i64, i64)> = BTreeMap::new();
+    let mut add = |account: u32, class: BalanceClass, height: u32, amount: i64| {
+        let e = sums.entry((account, class)).or_default();
+        e.0 = e.0.wrapping_add(amount);
+        e.1 += 1;
+        if class.is_windowed() {
+            let e = heights.entry((account, class, height)).or_default();
+            e.0 = e.0.wrapping_add(amount);
+            e.1 += 1;
+        }
+    };
+    for (op, u) in all::<Unspent>(tx) {
+        let ck = CreditKey {
+            hash: op.hash,
+            height: u.height,
+            index: op.index,
+        };
+        let c = tx
+            .get::<Credits>(&ck)
+            .expect("get")
+            .unwrap_or_else(|| panic!("unspent {op:?} without its credit at {}", u.height));
+        assert_eq!(u.amount, c.amount, "unspent amount");
+        assert_eq!(u.account, c.account, "unspent account");
+        assert_eq!(u.flags, c.flags, "unspent flags");
+        assert_eq!(u.script, c.script, "unspent script");
+        assert_eq!(u.class, mined_class(&c.flags), "unspent class");
+        if let Some(s) = c.spender {
+            assert!(
+                spent_by_a_debit_invalidation_leaves(tx, &ck, &s),
+                "unspent {op:?} whose credit names the spender {s:?}, which is not \
+                 a live debit stake invalidation leaves (QK-0785's one exception)"
+            );
+        }
+        if !tx.contains::<UnminedInputs>(&op).expect("contains") {
+            add(u.account, u.class, u.height, u.amount);
+        }
+    }
+    for (op, m) in all::<UnminedCredits>(tx) {
+        let unpublished = tx.contains::<Unpublished>(&op.hash).expect("contains");
+        assert_eq!(
+            m.class,
+            unmined_class(&m.flags, unpublished),
+            "unmined credit class"
+        );
+        if !tx.contains::<UnminedInputs>(&op).expect("contains") {
+            add(m.account, m.class, 0, m.amount);
+        }
+    }
+    let have: BTreeMap<(u32, BalanceClass), (i64, i64)> = all::<Balances>(tx)
+        .into_iter()
+        .map(|(k, BalanceRow { sum, count })| ((k.account, k.class), (sum, count)))
+        .collect();
+    assert_eq!(have, sums, "balances against the rows");
+    let have: BTreeMap<(u32, BalanceClass, u32), (i64, i64)> = all::<BalanceHeights>(tx)
+        .into_iter()
+        .map(|(k, BalanceRow { sum, count })| ((k.account, k.class, k.height), (sum, count)))
+        .collect();
+    assert_eq!(have, heights, "balance_heights against the rows");
+    let mut want = BTreeSet::new();
+    for (k, row) in all::<TxMined>(tx) {
+        let lo = CreditKey {
+            hash: k.hash,
+            height: k.height,
+            index: 0,
+        };
+        let hi = CreditKey {
+            index: u32::MAX,
+            ..lo
+        };
+        let credits: Vec<_> = tx
+            .range::<Credits>(Bound::Included(&lo), Bound::Included(&hi))
+            .expect("range")
+            .map(|r| r.expect("row").1.account)
+            .collect();
+        let debits: Vec<_> = tx
+            .range::<Debits>(Bound::Included(&lo), Bound::Included(&hi))
+            .expect("range")
+            .map(|r| r.expect("row"))
+            .collect();
+        let mut accounts: Vec<u32> = credits;
+        for (dk, d) in debits {
+            let c = match tx.get::<Credits>(&d.credit).expect("get") {
+                Some(c) => Some(c),
+                None => tx.get::<CreditsInvalidated>(&d.credit).expect("get"),
+            };
+            let me = purse_store::Spender {
+                hash: dk.hash,
+                height: dk.height,
+                input: dk.index,
+            };
+            accounts.extend(c.filter(|c| c.spender == Some(me)).map(|c| c.account));
+        }
+        for a in accounts {
+            want.insert((
+                AcctHistoryKey {
+                    account: a,
+                    height: k.height,
+                    position: row.position,
+                },
+                k.hash,
+            ));
+        }
+    }
+    let have: BTreeSet<_> = all::<AcctHistory>(tx).into_iter().collect();
+    assert_eq!(have, want, "acct_history against the rows");
+}
+
+/// Whether `s` is a live debit of credit `ck` that stake invalidation of
+/// the credit's block leaves in place, by a mined transaction that is not
+/// regular or that is recorded at another height: the only spender an
+/// unspent output's credit may name (QK-0785).
+fn spent_by_a_debit_invalidation_leaves(
+    tx: &mut WriteTx<'_>,
+    ck: &CreditKey,
+    s: &purse_store::Spender,
+) -> bool {
+    let dk = CreditKey {
+        hash: s.hash,
+        height: s.height,
+        index: s.input,
+    };
+    let Some(d) = tx.get::<Debits>(&dk).expect("get") else {
+        return false;
+    };
+    let Some(row) = tx
+        .get::<TxMined>(&purse_store::TxRecKey {
+            hash: s.hash,
+            height: s.height,
+        })
+        .expect("get")
+    else {
+        return false;
+    };
+    let (m, _) = MsgTx::from_bytes(&row.tx).expect("record decodes");
+    let rec = TxRecord::from_msg_tx(m, 0).expect("record");
+    d.credit == *ck && (rec.tx_type() != TxType::Regular || s.height != ck.height)
 }
 
 /// `ReadTx::check_chain` from a write transaction, through a check of the
@@ -916,7 +1581,16 @@ impl Sim {
 fn answers(ts: &TxStore, r: &mut ReadTx, sim: &Sim) -> String {
     let mut out = format!("{:?}\n", ts.main_chain_tip(r).expect("tip"));
     out += &format!("{:?}\n", ts.unmined_txs(r).expect("unmined"));
+    for minconf in [0, 1, 6] {
+        out += &format!("{:?}\n", ts.account_balances(r, minconf).expect("balances"));
+    }
+    let (_, tip) = ts.main_chain_tip(r).expect("tip");
+    out += &format!(
+        "{:?}\n",
+        ts.unspent_tickets(r, tip, false).expect("tickets")
+    );
     out += &format!("{:?}\n", ts.iterate_tickets(r).expect("tickets"));
+    out += &format!("{:?}\n", ts.unspent_outputs(r).expect("UnspentOutputs"));
     for rec in &sim.recs {
         out += &format!(
             "{:?} {:?} {:?}\n",
@@ -925,6 +1599,20 @@ fn answers(ts: &TxStore, r: &mut ReadTx, sim: &Sim) -> String {
             ts.exists_tx_mined_or_unmined(r, rec.hash())
                 .expect("exists"),
         );
+        for index in 0..rec.msg_tx().tx_out.len() {
+            let op = OutPoint {
+                hash: Hash(rec.hash().0),
+                index: u32::try_from(index).expect("small"),
+                tree: 0,
+            };
+            out += &format!(
+                "{:?} {:?} {:?} {:?}\n",
+                ts.exists_utxo(r, &op).expect("ExistsUTXO"),
+                ts.is_unspent_outpoint(r, &op).expect("IsUnspentOutpoint"),
+                ts.unspent_output(r, &op, true).map_err(|e| e.as_kind()),
+                ts.unspent_output(r, &op, false).map_err(|e| e.as_kind()),
+            );
+        }
     }
     let mut batches = Vec::new();
     ts.range_transactions(r, -1, -1, |d| {
@@ -966,6 +1654,7 @@ fn dump_read(r: &ReadTx) -> Vec<(TableId, Vec<u8>, Vec<u8>)> {
 fn random_sequences_keep_the_row_invariants() {
     let mut seeds = SplitMix64::from_env("purse-udb-txstore-sequences");
     let mut failures: BTreeMap<String, usize> = BTreeMap::new();
+    let mut credits_added = 0usize;
     for _ in 0..12 {
         let (mut store, ts, path) = tx_store("simnet");
         let mut sim = Sim {
@@ -976,7 +1665,7 @@ fn random_sequences_keep_the_row_invariants() {
             nonce: 0,
         };
         for step in 0..120 {
-            let choice = sim.rng.below(14);
+            let choice = sim.rng.below(18);
             let pre = dump_read(&store.read().expect("read"));
             let mut failed = None;
             let r: Result<(), TErr> = store.update(|tx| {
@@ -1049,6 +1738,44 @@ fn random_sequences_keep_the_row_invariants() {
                         stake_insert = matches!(rec.tx_type(), TxType::SSGen | TxType::SSRtx);
                         ts.insert_mem_pool_tx(tx, &rec)
                     }
+                    14..=17 if !sim.recs.is_empty() => {
+                        // A credit: unmined, or in a block the record is
+                        // mined in (mostly its last), or in a block it is
+                        // not; an output index sometimes out of range.
+                        let i =
+                            usize::try_from(sim.rng.below(sim.recs.len() as u64)).expect("small");
+                        let rec = sim.recs[i].clone();
+                        let n = rec.msg_tx().tx_out.len() as u64;
+                        let index = u32::try_from(sim.rng.below(n + 1)).expect("small");
+                        let account = u32::try_from(sim.rng.below(3)).expect("small");
+                        let change = sim.rng.below(2) == 0;
+                        let (mined, unmined) = ts
+                            .exists_tx_mined_or_unmined(tx, rec.hash())
+                            .expect("exists");
+                        let own = match ts.tx_block_height(tx, rec.hash()).unwrap_or(-1) {
+                            h if h >= 0 => ts
+                                .get_main_chain_block_hash_for_height(tx, h)
+                                .ok()
+                                .and_then(|b| ts.get_block_meta_for_hash(tx, &b).ok()),
+                            _ => None,
+                        };
+                        let block = match sim.rng.below(8) {
+                            0 => None,
+                            1 if !sim.blocks.is_empty() => {
+                                let j = usize::try_from(sim.rng.below(sim.blocks.len() as u64))
+                                    .expect("small");
+                                ts.get_block_meta_for_hash(tx, &sim.blocks[j]).ok()
+                            }
+                            _ if unmined || !mined => None,
+                            _ => own,
+                        };
+                        let block: Option<BlockMeta> = block;
+                        let r = ts.add_credit(tx, &rec, block.as_ref(), index, change, account);
+                        if r.is_ok() {
+                            credits_added += 1;
+                        }
+                        r
+                    }
                     _ => {
                         let rec = sim.build();
                         ts.insert_mem_pool_tx(tx, &rec)
@@ -1057,6 +1784,7 @@ fn random_sequences_keep_the_row_invariants() {
                 match res {
                     Ok(()) => {
                         check_rows(tx);
+                        check_utxo_queries(&ts, tx);
                         Ok(())
                     }
                     Err(e) => {
@@ -1110,7 +1838,13 @@ fn random_sequences_keep_the_row_invariants() {
             }
         }
     }
-    eprintln!("failed operations checked: {failures:?}");
+    eprintln!(
+        "failed operations checked: {failures:?}; AddCredit calls that succeeded: {credits_added}"
+    );
+    assert!(
+        credits_added >= 60,
+        "too few credits added: {credits_added}"
+    );
     assert!(
         failures.len() >= 4,
         "too few kinds of failure exercised: {failures:?}"
@@ -1241,11 +1975,12 @@ fn unmined_txs_are_in_dependency_order() {
     }
 }
 
-/// A row in a later slice's table, which only a write outside the
-/// transaction store can make, stops every operation that would read or
-/// change it with kind `Bug`, before anything is written; every other
-/// operation is not stopped by it. All 13 tables against every operation
-/// that has a guard, and against the mutators that have none.
+/// A row in the next slice's tables (the ticket commitments and the
+/// multisig outputs), which only a write outside the transaction store can
+/// make, stops every operation that would read or change it with kind
+/// `Bug`, before anything is written; every other operation is not stopped
+/// by it. All 4 tables against every operation that has a guard, and
+/// against the mutators that have none.
 #[test]
 fn the_guard_stops_on_later_slice_rows() {
     let (store, ts, _) = tx_store("simnet");
@@ -1319,19 +2054,10 @@ fn the_guard_stops_on_later_slice_rows() {
     // so it stops for the tables that guard does.)
     const OPS: &str = "mMrudDRtTepxsn";
     for (table, stops) in [
-        (TableId::Credits, "mrdDRtTe"),
-        (TableId::CreditsInvalidated, "e"),
-        (TableId::Unspent, "mrdDRTe"),
-        (TableId::UnminedCredits, "mMrudDRT"),
-        (TableId::Debits, "mrdDRTe"),
-        (TableId::DebitsInvalidated, "me"),
         (TableId::Commitments, "ru"),
         (TableId::CommitmentsUnspent, "ru"),
         (TableId::MultisigOuts, "ru"),
         (TableId::MultisigUnspent, "ru"),
-        (TableId::Balances, "mre"),
-        (TableId::BalanceHeights, ""),
-        (TableId::AcctHistory, ""),
     ] {
         assert!(LATER_TABLES.contains(&table));
         for op in OPS.chars() {
@@ -1600,9 +2326,11 @@ fn range_walks_read_what_they_visit() {
         }
         assert_eq!(got, want, "RangeTransactions({begin}, {end})");
         // Five history rows, three block rows, five records; the unmined
-        // set is empty.
+        // set is empty. Each record adds two range lookups, its credits'
+        // and its debits' (none here), as Go's credit and debit iterators
+        // seek once each.
         assert_eq!(rows.get(), 13, "RangeTransactions({begin}, {end}) rows");
-        assert!(ranges.get() <= 5, "{} range lookups", ranges.get());
+        assert!(ranges.get() <= 5 + 2 * 5, "{} range lookups", ranges.get());
     }
 
     // RangeBlocks stopped at once reads one row, either way.
@@ -1802,4 +2530,249 @@ fn iterate_tickets_reads_each_block_once() {
     assert_eq!(r.read_from(TableId::TxUnmined), 1, "unmined records read");
     assert_eq!(r.read_from(TableId::Tickets), 0, "ticket values read");
     assert_eq!(keys.get(), 67, "ticket keys read");
+}
+
+/// A regular transaction paying the wallet (output 0, 1,100 atoms) and a
+/// ticket spending that output, for the tests below that need a ticket
+/// whose debit spends a regular credit of its own block.
+fn funded_ticket() -> (TxRecord, TxRecord) {
+    let a_tx = MsgTx {
+        tx_in: vec![TxIn {
+            previous_out_point: OutPoint {
+                hash: Hash([9u8; 32]),
+                index: 0,
+                tree: 0,
+            },
+            sequence: u32::MAX,
+            value_in: 5000,
+            ..TxIn::default()
+        }],
+        tx_out: vec![TxOut {
+            value: 1100,
+            version: 0,
+            pk_script: p2pkh(None, 3),
+        }],
+        ..MsgTx::default()
+    };
+    let mut commitment = vec![7u8; 20];
+    commitment.extend_from_slice(&1100i64.to_le_bytes());
+    commitment.extend_from_slice(&0x5800u16.to_le_bytes());
+    let t_tx = MsgTx {
+        tx_in: vec![TxIn {
+            previous_out_point: OutPoint {
+                hash: a_tx.tx_hash(),
+                index: 0,
+                tree: 0,
+            },
+            sequence: u32::MAX,
+            value_in: 1100,
+            ..TxIn::default()
+        }],
+        tx_out: vec![
+            TxOut {
+                value: 1000,
+                version: 0,
+                pk_script: p2pkh(Some(0xba), 4),
+            },
+            TxOut {
+                value: 0,
+                version: 0,
+                pk_script: op_return(&commitment),
+            },
+            TxOut {
+                value: 0,
+                version: 0,
+                pk_script: p2pkh(Some(0xbd), 5),
+            },
+        ],
+        ..MsgTx::default()
+    };
+    let a = TxRecord::from_msg_tx(a_tx, 1_795_400_000).expect("record");
+    let t = TxRecord::from_msg_tx(t_tx, 1_795_400_000).expect("record");
+    assert_eq!(a.tx_type(), TxType::Regular);
+    assert_eq!(t.tx_type(), TxType::SStx);
+    (a, t)
+}
+
+/// `acct_history`'s rule that a debit names its credit's account only
+/// while that credit names the debit as its spender. A ticket mined in
+/// block 1 spends a regular credit of block 1; block 2 disapproves block
+/// 1, which moves the credit, spender kept, to the invalidated table and
+/// leaves the ticket's debit live (stake invalidation moves only regular
+/// transactions' rows); `AddCredit` then overwrites the invalidated credit
+/// with another account and no spender. The ticket's live debit now names
+/// a credit that does not name it, and its record names no account; the
+/// row checker recomputes `acct_history` from the rows after each step.
+/// No generated script or random sequence reaches this state; the same
+/// steps run against Go, through what Go exposes, at the end of
+/// `33-txstore-credit-edges`.
+#[test]
+fn an_overwritten_invalidated_credit_drops_its_old_spenders_account() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let block1 = g.generate(1);
+    let block2 = g.generate(0);
+    let (a, t) = funded_ticket();
+    let h1 = Hash32(*block1.block_hash().as_bytes());
+    let accounts_of = |tx: &mut WriteTx<'_>, hash: &Hash32| -> BTreeSet<u32> {
+        all::<AcctHistory>(tx)
+            .into_iter()
+            .filter(|(_, h)| h == hash)
+            .map(|(k, _)| k.account)
+            .collect()
+    };
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&block1]);
+            ts.insert_mined_tx(tx, &a, &h1).expect("InsertMinedTx a");
+            ts.add_credit(tx, &a, Some(&make_block_meta(&block1)), 0, false, 1)
+                .expect("AddCredit a");
+            ts.insert_mined_tx(tx, &t, &h1).expect("InsertMinedTx t");
+            check_rows(tx);
+            assert_eq!(accounts_of(tx, t.hash()), BTreeSet::from([1]));
+            insert_main_chain_headers(&ts, tx, &[&block2]);
+            check_rows(tx);
+            assert_eq!(all::<CreditsInvalidated>(tx).len(), 1);
+            assert_eq!(all::<Debits>(tx).len(), 1, "the ticket's debit stays live");
+            assert_eq!(accounts_of(tx, t.hash()), BTreeSet::from([1]));
+            ts.add_credit(tx, &a, Some(&make_block_meta(&block1)), 0, false, 2)
+                .expect("AddCredit over the invalidated credit");
+            let inv = all::<CreditsInvalidated>(tx);
+            assert_eq!(inv.len(), 1);
+            assert_eq!(inv[0].1.account, 2);
+            assert_eq!(inv[0].1.spender, None);
+            check_rows(tx);
+            assert_eq!(
+                accounts_of(tx, t.hash()),
+                BTreeSet::new(),
+                "the ticket's debit no longer names an account"
+            );
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+}
+
+/// `UnspentTickets` without immature tickets at Go's `ticketMatured`
+/// boundary (a ticket mined at height h is mature from the height
+/// `h + TicketMaturity + 1`, `TicketMaturity` being 16 on testnet3) and
+/// at the `int32` wrap Go's subtraction makes
+/// (QK-0784, reproduced: a sync height more than 2^31 below h counts the
+/// ticket as mature); and its `IO` where an unmined-inputs entry names a
+/// spender with no unmined record, at which Go panics (QK-0048, ADR-0012
+/// Rule 2(a)). No operation writes that entry without its record, so the
+/// test writes it directly.
+#[test]
+fn unspent_tickets_follow_ticket_matured_and_refuse_a_dangling_spender() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let block1 = g.generate(1);
+    let (a, t) = funded_ticket();
+    let h1 = Hash32(*block1.block_hash().as_bytes());
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&block1]);
+            ts.insert_mined_tx(tx, &a, &h1).expect("InsertMinedTx a");
+            ts.insert_mined_tx(tx, &t, &h1).expect("InsertMinedTx t");
+            ts.add_credit(tx, &t, Some(&make_block_meta(&block1)), 0, false, 0)
+                .expect("AddCredit t");
+            let ticket = vec![*t.hash()];
+            for (sync, want) in [
+                (1, false),
+                (16, false),
+                (17, false),
+                (18, true),
+                (i32::MAX, true),
+                // 1 - 2^31: the difference is i32::MIN, no wrap.
+                (-2_147_483_647, false),
+                // 2^31 + 1 below: Go's difference wraps to i32::MAX.
+                (i32::MIN, true),
+            ] {
+                let got = ts.unspent_tickets(tx, sync, false).expect("UnspentTickets");
+                let want = if want { ticket.clone() } else { Vec::new() };
+                assert_eq!(got, want, "sync height {sync}");
+                assert_eq!(
+                    ts.unspent_tickets(tx, sync, true).expect("UnspentTickets"),
+                    ticket,
+                    "sync height {sync}, immature included"
+                );
+            }
+            let op = purse_store::Outpoint {
+                hash: *t.hash(),
+                index: 0,
+            };
+            tx.put::<UnminedInputs>(&op, &Hash32([0x42; 32]))
+                .expect("put");
+            let e = ts
+                .unspent_tickets(tx, 300, true)
+                .expect_err("a spender with no unmined record");
+            assert_eq!(e.as_kind(), Some(Kind::Io), "{e:?}");
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+}
+
+/// QK-0785 (reproduced, pending owner): a ticket mined in block 1 spends a
+/// regular credit of block 1; block 2 disapproves block 1, which moves the
+/// credit, spender kept, to the invalidated table and leaves the ticket's
+/// debit live; `Rollback` over block 1 then fails with `IO` and writes
+/// nothing, and once block 2 is detached and another block 2 approves
+/// block 1, stake validation moves the credit back with an unspent entry
+/// although it is still spent, as Go's does: an unspent output, counted as
+/// spendable, whose credit `TxDetails` reports spent. The row checker
+/// accepts an unspent output with a spent credit in this state alone (with
+/// a stake spender, as here, or a spender in another block); Go's answers for the same steps are pinned by
+/// `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
+/// in `tests/oracle.rs`.
+#[test]
+fn a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let block1 = g.generate(1);
+    let mut g2 = BlockGenerator {
+        last_hash: g.last_hash,
+        last_height: g.last_height,
+    };
+    let block2 = g.generate(0);
+    let block2x = g2.generate(1);
+    let (a, t) = funded_ticket();
+    let h1 = Hash32(*block1.block_hash().as_bytes());
+    let a_out = |tx: &mut WriteTx<'_>| {
+        ts.unspent_outputs(tx)
+            .expect("UnspentOutputs")
+            .into_iter()
+            .filter(|c| c.outpoint.hash.as_bytes() == &a.hash().0)
+            .count()
+    };
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&block1]);
+            ts.insert_mined_tx(tx, &a, &h1).expect("InsertMinedTx a");
+            ts.add_credit(tx, &a, Some(&make_block_meta(&block1)), 0, false, 0)
+                .expect("AddCredit a");
+            ts.insert_mined_tx(tx, &t, &h1).expect("InsertMinedTx t");
+            ts.add_credit(tx, &t, Some(&make_block_meta(&block1)), 0, false, 0)
+                .expect("AddCredit t");
+            insert_main_chain_headers(&ts, tx, &[&block2]);
+            check_rows(tx);
+            assert_eq!(ts.unspent_output_count(tx).expect("count"), 1);
+            let before = dump(tx);
+            let e = ts.rollback(tx, 1).expect_err("the missing credit");
+            assert_eq!(e.as_kind(), Some(Kind::Io), "{e:?}");
+            assert!(format!("{e}").contains("missing credit"), "{e}");
+            assert_eq!(dump(tx), before, "a refused Rollback writes nothing");
+            ts.rollback(tx, 2).expect("Rollback of block 2");
+            insert_main_chain_headers(&ts, tx, &[&block2x]);
+            check_rows(tx);
+            assert_eq!(ts.unspent_output_count(tx).expect("count"), 2);
+            assert_eq!(a_out(tx), 1, "a's spent output listed as unspent");
+            let b = ts.account_balances(tx, 0).expect("AccountBalances");
+            assert_eq!((b[0].spendable, b[0].voting_authority), (1100, 1000));
+            let d = ts.tx_details(tx, a.hash()).expect("TxDetails");
+            assert!(d.credits[0].spent, "{:?}", d.credits);
+            ts.rollback(tx, 1).expect("Rollback over block 1");
+            check_rows(tx);
+            assert_eq!(a_out(tx), 0);
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
 }

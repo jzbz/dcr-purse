@@ -26,7 +26,7 @@ use purse_errors::AnyError;
 use purse_store::{BirthState, Hash32, HeaderBytes};
 use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{hex, unhex};
-use purse_udb::txstore::{Block, BlockMeta, TxDetails, TxRead, TxRecord};
+use purse_udb::txstore::{Balances, Block, BlockMeta, Credit, TxDetails, TxRead, TxRecord};
 use sha2::{Digest, Sha256};
 
 use super::{Args, OpResult, Runner, fault, resolve_err};
@@ -95,14 +95,62 @@ fn meta_value(b: &BlockMeta) -> Value {
     })
 }
 
-/// Go's `txDetailsValue` (the credit and debit lists are empty).
+/// Go's `txDetailsValue`.
 fn details_value(d: &TxDetails) -> Value {
     let mut v = record_value(&d.record);
     v["block"] = meta_value(&d.block);
     v["height"] = json!(d.height());
-    v["credits"] = json!([]);
-    v["debits"] = json!([]);
+    v["credits"] = Value::Array(
+        d.credits
+            .iter()
+            .map(|c| {
+                json!({
+                    "index": c.index, "amount": c.amount, "spent": c.spent,
+                    "change": c.change, "opcode": c.opcode, "coinbase": c.coinbase,
+                    "expiry": c.expiry,
+                })
+            })
+            .collect(),
+    );
+    v["debits"] = Value::Array(
+        d.debits
+            .iter()
+            .map(|x| json!({"index": x.index, "amount": x.amount}))
+            .collect(),
+    );
     v
+}
+
+/// Go's `outpointValue`.
+fn outpoint_value(op: &OutPoint) -> Value {
+    json!({"hash": op.hash.to_string(), "index": op.index, "tree": op.tree})
+}
+
+/// Go's `creditValue`.
+fn credit_value(c: &Credit) -> Value {
+    json!({
+        "outpoint": outpoint_value(&c.outpoint),
+        "block": meta_value(&c.block),
+        "amount": c.amount,
+        "pkscript": hex(&c.pk_script),
+        "received~c": c.received,
+        "coinbase": c.from_coinbase,
+        "expiry": c.has_expiry,
+    })
+}
+
+/// Go's `balancesValue`.
+fn balances_value(b: &Balances) -> Value {
+    json!({
+        "account": b.account,
+        "immaturecoinbaserewards": b.immature_coinbase_rewards,
+        "immaturestakegeneration": b.immature_stake_generation,
+        "lockedbytickets": b.locked_by_tickets,
+        "spendable": b.spendable,
+        "total": b.total,
+        "votingauthority": b.voting_authority,
+        "unconfirmed": b.unconfirmed,
+    })
 }
 
 /// Go's `detHash`: SHA-256 of `<kind>/<height>/<counter>`.
@@ -237,6 +285,38 @@ impl Runner {
                 self.block_meta(r, &h, what).map(Some)
             }
         }
+    }
+
+    /// Go's `argOutpoint`: `{tx, index, tree?}`, `tx` a hash reference.
+    fn arg_outpoint(&self, a: &Args<'_>, key: &str) -> Result<OutPoint, String> {
+        let what = format!("{} {key}", a.op);
+        let bad = || fault(format!("{what}: an outpoint is {{tx, index, tree?}}"));
+        let o = a.value(key)?.as_object().ok_or_else(bad)?;
+        if o.keys()
+            .any(|k| !["tx", "index", "tree"].contains(&k.as_str()))
+        {
+            return Err(bad());
+        }
+        let h = self.hash_ref(o.get("tx").ok_or_else(bad)?, &what)?;
+        let index = match o.get("index") {
+            None => 0,
+            Some(v) => v
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+                .ok_or_else(bad)?,
+        };
+        let tree = match o.get("tree") {
+            None => 0,
+            Some(v) => v
+                .as_i64()
+                .and_then(|v| i8::try_from(v).ok())
+                .ok_or_else(bad)?,
+        };
+        Ok(OutPoint {
+            hash: dcroxide_chainhash::Hash(h.0),
+            index,
+            tree,
+        })
     }
 
     fn arg_tx(&self, a: &Args<'_>, key: &str) -> Result<TxRecord, String> {
@@ -569,6 +649,95 @@ impl Runner {
                 let sdiff = a.i64("sdiff")?;
                 self.update(|tx| st.prune_unmined(tx, sdiff).map_err(|e| e.error))?
                     .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
+            }
+            "store.add_credit" => {
+                a.check(&["tx", "index", "change", "account", "block"])?;
+                let rec = self.arg_tx(a, "tx")?;
+                let index = a.u32("index")?;
+                let change = Self::opt_bool(a, "change")?;
+                let account = a.u32("account")?;
+                let m = self.arg_meta(a, "block")?;
+                let what = format!("{} block", a.op);
+                ok_null(self.update(|tx| {
+                    // Resolved last, as Go's runner: its failure is the
+                    // operation's result.
+                    let block = self.resolve_meta(tx, &m, &what)?;
+                    st.add_credit(tx, &rec, block.as_ref(), index, change, account)
+                })?)
+            }
+            "store.account_balance" => {
+                a.check(&["minconf", "account"])?;
+                let minconf = Self::i32_arg(a, "minconf")?;
+                let account = a.u32("account")?;
+                self.view(|r| st.account_balance(r, minconf, account))?
+                    .map(|b| balances_value(&b))
+            }
+            "store.account_balances" => {
+                a.check(&["minconf"])?;
+                let minconf = Self::i32_arg(a, "minconf")?;
+                self.view(|r| st.account_balances(r, minconf))?.map(|bs| {
+                    Value::Array(
+                        bs.iter()
+                            .map(|b| {
+                                let mut v = balances_value(b);
+                                v["key"] = json!(b.account);
+                                v
+                            })
+                            .collect(),
+                    )
+                })
+            }
+            "store.unspent_tickets" => {
+                a.check(&["syncheight", "include_immature"])?;
+                let sh = Self::i32_arg(a, "syncheight")?;
+                let imm = Self::bool_arg(a, "include_immature")?;
+                self.view(|r| st.unspent_tickets(r, sh, imm))?
+                    .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
+            }
+            "store.exists_utxo" => {
+                a.check(&["outpoint"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                self.view(|r| st.exists_utxo(r, &op))?.map(|v| json!(v))
+            }
+            "store.is_unspent_outpoint" => {
+                a.check(&["outpoint"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                self.view(|r| st.is_unspent_outpoint(r, &op))?
+                    .map(|v| json!(v))
+            }
+            "store.unspent_outputs" => {
+                a.check(&[])?;
+                self.view(|r| st.unspent_outputs(r))?
+                    .map(|cs| Value::Array(cs.iter().map(credit_value).collect()))
+            }
+            "store.unspent_output" => {
+                a.check(&["outpoint", "include_mempool"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                let mempool = Self::bool_arg(a, "include_mempool")?;
+                self.view(|r| st.unspent_output(r, &op, mempool))?
+                    .map(|c| credit_value(&c))
+            }
+            "store.for_each_unspent_outpoint" => {
+                a.check(&[])?;
+                let mut out = Vec::new();
+                let r = self.view(|r| {
+                    st.for_each_unspent_outpoint(r, |op| {
+                        out.push(outpoint_value(op));
+                        Ok(())
+                    })
+                })?;
+                r.map(|()| Value::Array(out))
+            }
+            "store.previous_pk_scripts" => {
+                a.check(&["tx", "block"])?;
+                let rec = self.arg_tx(a, "tx")?;
+                let m = self.arg_meta(a, "block")?;
+                let what = format!("{} block", a.op);
+                self.view(|r| {
+                    let meta = self.resolve_meta(r, &m, &what)?;
+                    st.previous_pk_scripts(r, &rec, meta.as_ref().map(|m| &m.block))
+                })?
+                .map(|ss| Value::Array(ss.iter().map(|s| json!(hex(s))).collect()))
             }
             "store.unspent_output_count" => {
                 a.check(&[])?;

@@ -5,50 +5,39 @@
 // the LICENSE file.
 
 //! Mined transactions: `InsertMinedTx` with `moveMinedTx` and
-//! `removeDoubleSpends`, and `Rollback` (`txmined.go:1053-1375`,
-//! `1874-2240`; `txunmined.go:149-173`).
+//! `removeDoubleSpends`, `Rollback`, and the credit and debit moves of
+//! stake (in)validation (`txmined.go:631-885`, `1053-1375`, `1874-2240`;
+//! `txunmined.go:149-173`).
 
+use std::collections::BTreeMap;
 use std::ops::Bound;
 
 use dcroxide_stake::TxType;
 use dcroxide_wire::MsgTx;
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
-    Blocks, Hash32, Height, History, HistoryKey, TableId, TxMined, TxMinedRow, TxRecKey, TxUnmined,
-    TxUnminedRow, UnminedInputs, Unpublished, WriteTx,
+    Blocks, CreditFlags, CreditKey, CreditRow, Credits, CreditsInvalidated, DebitRow, Debits,
+    DebitsInvalidated, Hash32, Height, History, HistoryKey, Outpoint, Spender, TableId, TxMined,
+    TxMinedRow, TxRecKey, TxUnmined, TxUnminedRow, Unspent, UnspentRow, WriteTx,
 };
 
 use super::chain::{block_at, header_of, tip};
+use super::credit::{
+    AcctTracker, del_ucredit, del_uinput, del_unspent, del_unspent_row, is_either_coinbase,
+    put_ucredit, put_uinput, put_unspent, script_loc, set_unpublished, unspent_row,
+};
 use super::record::{Block, TxRecord, canonical, display};
 use super::store::{TxRead, TxStore, guard, store_err};
 use super::unmined::{put_ticket, read_unmined};
 
-/// The tables `InsertMinedTx` and `moveMinedTx` read and change in Go
-/// beside the transaction records: each input's unspent entry, the
-/// debits, the credits it spends, each output's unmined credit.
-const INSERT_MINED_TABLES: [TableId; 6] = [
-    TableId::Unspent,
-    TableId::Credits,
-    TableId::Debits,
-    TableId::DebitsInvalidated,
-    TableId::UnminedCredits,
-    TableId::Balances,
-];
-
-/// The tables `Rollback` reads and changes in Go beside the transaction
-/// records and the chain: each output's credit and unspent entry, each
-/// input's debit, the multisig records, a vote's or revocation's
-/// commitment flags.
-const ROLLBACK_TABLES: [TableId; 9] = [
-    TableId::Credits,
-    TableId::Unspent,
-    TableId::UnminedCredits,
-    TableId::Debits,
+/// The tables `Rollback` reads in Go that this crate does not maintain
+/// yet: the multisig records of each input and output, a vote's or
+/// revocation's commitment flags (crate documentation, "The next slice").
+const ROLLBACK_TABLES: [TableId; 4] = [
     TableId::MultisigOuts,
     TableId::MultisigUnspent,
     TableId::Commitments,
     TableId::CommitmentsUnspent,
-    TableId::Balances,
 ];
 
 /// The transactions `Rollback` removed from one block.
@@ -60,20 +49,115 @@ pub struct RolledBack {
     pub txs: Vec<MsgTx>,
 }
 
-/// `compat.IsEitherCoinBaseTx`: a coinbase before or after the treasury
-/// agenda.
-fn is_either_coinbase(tx: &MsgTx) -> bool {
-    dcroxide_standalone::is_coin_base_tx(tx, false)
-        || dcroxide_standalone::is_coin_base_tx(tx, true)
+/// `spendCredit` (`txdb.go:942-955`): marks the credit `key` spent by
+/// input `input` of the mined record (`hash`, `height`) and returns it.
+///
+/// # Errors
+///
+/// No such credit, where Go writes a zero-amount spent credit (QK-0101,
+/// reachable only through state no operation writes here): `IO`.
+fn spend_credit(
+    tx: &mut WriteTx<'_>,
+    acct: &mut AcctTracker,
+    key: &CreditKey,
+    spender: Spender,
+) -> Result<CreditRow, AnyError> {
+    let Some(mut c) = tx.get::<Credits>(key).map_err(store_err)? else {
+        return Err(e!(
+            Kind::Io,
+            format!(
+                "missing credit {}:{} at height {}, spent by {}",
+                display(&key.hash),
+                key.index,
+                key.height,
+                display(&spender.hash)
+            )
+        )
+        .into());
+    };
+    if let Some(old) = c.spender {
+        acct.touch(tx, &old.hash, old.height)?;
+    }
+    acct.touch(tx, &spender.hash, spender.height)?;
+    c.spender = Some(spender);
+    tx.put::<Credits>(key, &c).map_err(store_err)?;
+    Ok(c)
+}
+
+/// `unspendRawCredit` (`txdb.go:959-976`): marks the credit `key` unspent
+/// and returns it, or `None` when no credit has the key.
+fn unspend_credit(
+    tx: &mut WriteTx<'_>,
+    acct: &mut AcctTracker,
+    key: &CreditKey,
+) -> Result<Option<CreditRow>, AnyError> {
+    let Some(mut c) = tx.get::<Credits>(key).map_err(store_err)? else {
+        return Ok(None);
+    };
+    if let Some(old) = c.spender {
+        acct.touch(tx, &old.hash, old.height)?;
+    }
+    c.spender = None;
+    tx.put::<Credits>(key, &c).map_err(store_err)?;
+    Ok(Some(c))
+}
+
+/// Records the debit of input `input` of the mined record (`hash`,
+/// `height`) spending the unspent output `prev`, whose row the caller has
+/// read as `u` (`InsertMinedTx`'s and `moveMinedTx`'s live branch): the
+/// credit marked spent, the debit written with the credit's amount (as
+/// Go's `spendCredit` returns it), the unspent output deleted without a
+/// second read of its row.
+fn debit_unspent(
+    tx: &mut WriteTx<'_>,
+    acct: &mut AcctTracker,
+    prev: &Outpoint,
+    u: &UnspentRow,
+    hash: &Hash32,
+    height: u32,
+    input: u32,
+) -> Result<(), AnyError> {
+    let ck = CreditKey {
+        hash: prev.hash,
+        height: u.height,
+        index: prev.index,
+    };
+    let c = spend_credit(
+        tx,
+        acct,
+        &ck,
+        Spender {
+            hash: *hash,
+            height,
+            input,
+        },
+    )?;
+    tx.put::<Debits>(
+        &CreditKey {
+            hash: *hash,
+            height,
+            index: input,
+        },
+        &DebitRow {
+            amount: c.amount,
+            credit: ck,
+        },
+    )
+    .map_err(store_err)?;
+    del_unspent_row(tx, prev, u)
 }
 
 impl TxStore {
     /// `InsertMinedTx`: records `rec` as mined in the main-chain block
-    /// `block_hash`. A transaction recorded unmined is moved into the
-    /// block, its record keeping the unmined record's received time and
-    /// bytes, as Go copies the stored value; otherwise the unmined
-    /// transactions it double spends are removed with their spenders, and
-    /// the record is written. A ticket is added to the ticket set.
+    /// `block_hash`. Each input spending an unspent wallet output is
+    /// debited (in a stake-invalidated block, a regular transaction's
+    /// debits are recorded invalidated and spend nothing). A transaction
+    /// recorded unmined is moved into the block, its record keeping the
+    /// unmined record's received time and bytes, as Go copies the stored
+    /// value, and its unmined credits becoming mined ones; otherwise the
+    /// unmined transactions it double spends are removed with their
+    /// spenders, and the record is written. A ticket is added to the
+    /// ticket set.
     ///
     /// # Errors
     ///
@@ -81,7 +165,8 @@ impl TxStore {
     /// main chain: `Invalid` (also where no main-chain block stands at the
     /// header's height, where Go panics, QK-0086); an unmined regular
     /// transaction into a stake-invalidated block: `Invalid`, with Go's
-    /// panic text (Go does not implement it). The guard. The store's.
+    /// panic text (Go does not implement it), nothing written. A spent
+    /// output's credit missing (QK-0101): `IO`. The store's.
     pub fn insert_mined_tx(
         &self,
         tx: &mut WriteTx<'_>,
@@ -104,62 +189,130 @@ impl TxStore {
         };
         let tx_type = dcroxide_stake::determine_tx_type(rec.msg_tx());
         let invalidated = tx_type == TxType::Regular && row.invalid;
-        // Each input's unspent credit and its debit: the credit slice's.
-        if !rec.msg_tx().tx_in.is_empty() {
-            guard(tx, "InsertMinedTx", &INSERT_MINED_TABLES)?;
-        }
         let hash = *rec.hash();
         let key = TxRecKey { hash, height };
-        if tx.contains::<TxMined>(&key).map_err(store_err)? {
-            return Ok(());
-        }
-        // Go records a ticket before it moves or removes anything; here the
-        // ticket row is written after the refusals and guards those steps
-        // make, so that a refusal or a guard stop writes nothing (the same
-        // rows on success: neither step touches the ticket set).
-        if let Some(unmined) = tx.get::<TxUnmined>(&hash).map_err(store_err)? {
-            if invalidated {
-                return Err(e!(
-                    Kind::Invalid,
-                    format!(
-                        "unimplemented: moveMinedTx called on a stake-invalidated tx: block {} height {} tx {}",
-                        display(block_hash),
-                        height,
-                        display(&hash)
-                    )
+        let exists = tx.contains::<TxMined>(&key).map_err(store_err)?;
+        let unmined = if exists {
+            None
+        } else {
+            tx.get::<TxUnmined>(&hash).map_err(store_err)?
+        };
+        // Go writes the debits of the input loop and then panics; the
+        // refusal comes first here, so that it writes nothing.
+        if unmined.is_some() && invalidated {
+            return Err(e!(
+                Kind::Invalid,
+                format!(
+                    "unimplemented: moveMinedTx called on a stake-invalidated tx: block {} height {} tx {}",
+                    display(block_hash),
+                    height,
+                    display(&hash)
                 )
-                .into());
-            }
-            // Each output's unmined credit becoming a mined one: the credit
-            // slice's (guarded above for a transaction with inputs).
-            guard(tx, "moveMinedTx", &[TableId::UnminedCredits])?;
-            if tx_type == TxType::SStx {
-                put_ticket(tx, &hash)?;
-            }
-            return self.move_mined_tx(tx, rec, &key, unmined);
+            )
+            .into());
         }
-        self.remove_double_spends(tx, rec)?;
+        let mut acct = AcctTracker::default();
+        acct.touch(tx, &hash, height)?;
+        for (i, input) in rec.msg_tx().tx_in.iter().enumerate() {
+            let prev = canonical(&input.previous_out_point);
+            let Some(u) = tx.get::<Unspent>(&prev).map_err(store_err)? else {
+                continue;
+            };
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            if invalidated {
+                let ck = CreditKey {
+                    hash: prev.hash,
+                    height: u.height,
+                    index: prev.index,
+                };
+                let Some(c) = tx.get::<Credits>(&ck).map_err(store_err)? else {
+                    return Err(e!(Kind::Io, "credit len 0").into());
+                };
+                tx.put::<DebitsInvalidated>(
+                    &CreditKey {
+                        hash,
+                        height,
+                        index: i,
+                    },
+                    &DebitRow {
+                        amount: c.amount,
+                        credit: ck,
+                    },
+                )
+                .map_err(store_err)?;
+            } else {
+                debit_unspent(tx, &mut acct, &prev, &u, &hash, height, i)?;
+            }
+        }
+        if exists {
+            return acct.flush(tx);
+        }
         if tx_type == TxType::SStx {
             put_ticket(tx, &hash)?;
         }
-        append_to_block(tx, &key, rec.received(), rec.serialized().to_vec())
+        if let Some(unmined) = unmined {
+            self.move_mined_tx(tx, &mut acct, rec, &key, unmined)?;
+            return acct.flush(tx);
+        }
+        self.remove_double_spends(tx, rec)?;
+        append_to_block(tx, &key, rec.received(), rec.serialized().to_vec())?;
+        acct.flush(tx)
     }
 
-    /// `moveMinedTx`: the unmined record of `rec` moved into its block (the
-    /// caller has made the guard of its unmined credits).
+    /// `moveMinedTx`: the unmined record of `rec` moved into its block,
+    /// with its unmined credits.
     fn move_mined_tx(
         &self,
         tx: &mut WriteTx<'_>,
+        acct: &mut AcctTracker,
         rec: &TxRecord,
         key: &TxRecKey,
         unmined: TxUnminedRow,
     ) -> Result<(), AnyError> {
         append_to_block(tx, key, unmined.received, unmined.tx)?;
-        for input in &rec.msg_tx().tx_in {
-            tx.delete::<UnminedInputs>(&canonical(&input.previous_out_point))
-                .map_err(store_err)?;
+        for (i, input) in rec.msg_tx().tx_in.iter().enumerate() {
+            let prev = canonical(&input.previous_out_point);
+            let u = tx.get::<Unspent>(&prev).map_err(store_err)?;
+            del_uinput(tx, &prev)?;
+            // Dead in Go (QK-0080): `InsertMinedTx` has consumed every
+            // unspent output the transaction spends.
+            if let Some(u) = u {
+                let i = u32::try_from(i).unwrap_or(u32::MAX);
+                debit_unspent(tx, acct, &prev, &u, &key.hash, key.height, i)?;
+            }
         }
-        tx.delete::<Unpublished>(&key.hash).map_err(store_err)?;
+        let n = u32::try_from(rec.msg_tx().tx_out.len()).unwrap_or(u32::MAX);
+        for index in 0..n {
+            let op = Outpoint {
+                hash: key.hash,
+                index,
+            };
+            let Some(m) = del_ucredit(tx, &op)? else {
+                continue;
+            };
+            // Go rebuilds the credit without its expiry flag (QK-0079).
+            let credit = CreditRow {
+                amount: m.amount,
+                flags: CreditFlags {
+                    expiry: false,
+                    ..m.flags
+                },
+                account: m.account,
+                script: m.script,
+                spender: None,
+            };
+            tx.put::<Credits>(
+                &CreditKey {
+                    hash: key.hash,
+                    height: key.height,
+                    index,
+                },
+                &credit,
+            )
+            .map_err(store_err)?;
+            put_unspent(tx, &op, &unspent_row(key.height, &credit))?;
+        }
+        set_unpublished(tx, &key.hash, false)?;
         tx.delete::<TxUnmined>(&key.hash).map_err(store_err)?;
         Ok(())
     }
@@ -169,7 +322,10 @@ impl TxStore {
     fn remove_double_spends(&self, tx: &mut WriteTx<'_>, rec: &TxRecord) -> Result<(), AnyError> {
         for input in &rec.msg_tx().tx_in {
             let k = canonical(&input.previous_out_point);
-            if let Some(spender) = tx.get::<UnminedInputs>(&k).map_err(store_err)? {
+            if let Some(spender) = tx
+                .get::<purse_store::UnminedInputs>(&k)
+                .map_err(store_err)?
+            {
                 let ds = read_unmined(tx, &spender)?;
                 self.remove_unconfirmed(tx, ds.msg_tx(), &spender)?;
             }
@@ -181,8 +337,13 @@ impl TxStore {
     /// the tip first. Each block's transactions are moved back to the
     /// unmined set with their record bytes, their inputs registered in the
     /// unmined-inputs index (a vote's stakebase excepted, over another
-    /// spender's rows, as Go), coinbases dropped; the blocks' headers and
-    /// filters are kept as detached ones. Returns each block's
+    /// spender's rows, as Go), the credits their debits spent restored to
+    /// the unspent set, and their credits made unmined credits; coinbases
+    /// are dropped with their credits, and afterwards the unmined
+    /// transactions spending a dropped coinbase credit are removed. The
+    /// detached blocks' invalidated credits and debits are deleted, which
+    /// Go leaves (ADR-0003 Decision item 5; QK-0081). The blocks' headers
+    /// and filters are kept as detached ones. Returns each block's
     /// transactions in record order, highest block first, for the blocks
     /// that had any (Go's map has no entry for the others).
     ///
@@ -191,8 +352,8 @@ impl TxStore {
     /// Go's: height 0: `Invalid`. A height below 0 or two or more above
     /// the tip, where Go panics (after removing every block for a negative
     /// height): `Invalid`, nothing written. A recorded transaction that
-    /// does not decode, or a record or block row missing: `IO`. The guard.
-    /// The store's.
+    /// does not decode, or a record, block row or debited credit missing:
+    /// `IO`. The guard of the multisig and commitment tables. The store's.
     pub fn rollback(&self, tx: &mut WriteTx<'_>, height: i32) -> Result<Vec<RolledBack>, AnyError> {
         if height == 0 {
             return Err(e!(Kind::Invalid, "cannot rollback the genesis block").into());
@@ -236,12 +397,18 @@ impl TxStore {
                 _ => blocks.push((hk.height, vec![(hk, txh)])),
             }
         }
+        rollback_check(tx, &blocks)?;
+        let mut acct = AcctTracker::default();
+        let mut coinbase_credits: Vec<Outpoint> = Vec::new();
         let mut out = Vec::with_capacity(blocks.len());
         // Highest block first, each block's records in position order.
         for (h, history) in blocks.into_iter().rev() {
             let Some(row) = block_at(tx, h)? else {
                 return Err(e!(Kind::Io, format!("missing block record for height {h}")).into());
             };
+            // The credits removed from this block, which a later record of
+            // the same block may have debited (Go's `removedCredits`).
+            let mut removed: BTreeMap<CreditKey, CreditRow> = BTreeMap::new();
             let mut txs = Vec::with_capacity(history.len());
             for (hk, txh) in history {
                 let key = TxRecKey {
@@ -251,28 +418,89 @@ impl TxStore {
                 let Some(mined) = tx.get::<TxMined>(&key).map_err(store_err)? else {
                     return Err(e!(Kind::Io, "tx record len 0").into());
                 };
+                acct.touch(tx, &txh, h)?;
                 let rec = TxRecord::stored(txh, &mined.tx, mined.received)?;
                 tx.delete::<TxMined>(&key).map_err(store_err)?;
                 tx.delete::<History>(&hk).map_err(store_err)?;
                 let tx_type = rec.tx_type();
                 let msg = rec.into_msg_tx();
-                if !is_either_coinbase(&msg) {
-                    tx.put::<TxUnmined>(
-                        &txh,
-                        &TxUnminedRow {
-                            received: mined.received,
-                            tx: mined.tx,
-                        },
-                    )
-                    .map_err(store_err)?;
-                    for (i, input) in msg.tx_in.iter().enumerate() {
-                        if i == 0 && tx_type == TxType::SSGen {
+                let n_out = u32::try_from(msg.tx_out.len()).unwrap_or(u32::MAX);
+                if is_either_coinbase(&msg) {
+                    for index in 0..n_out {
+                        let ck = CreditKey {
+                            hash: txh,
+                            height: h,
+                            index,
+                        };
+                        let Some(c) = tx.get::<Credits>(&ck).map_err(store_err)? else {
                             continue;
+                        };
+                        let op = Outpoint { hash: txh, index };
+                        coinbase_credits.push(op);
+                        del_unspent(tx, &op)?;
+                        if let Some(s) = c.spender {
+                            acct.touch(tx, &s.hash, s.height)?;
                         }
-                        tx.put::<UnminedInputs>(&canonical(&input.previous_out_point), &txh)
-                            .map_err(store_err)?;
+                        tx.delete::<Credits>(&ck).map_err(store_err)?;
+                        removed.insert(ck, c);
                     }
+                    delete_invalidated(tx, &mut acct, &txh, h, &msg)?;
+                    txs.push(msg);
+                    continue;
                 }
+                tx.put::<TxUnmined>(
+                    &txh,
+                    &TxUnminedRow {
+                        received: mined.received,
+                        tx: mined.tx,
+                    },
+                )
+                .map_err(store_err)?;
+                for (i, input) in msg.tx_in.iter().enumerate() {
+                    if i == 0 && tx_type == TxType::SSGen {
+                        continue;
+                    }
+                    let prev = canonical(&input.previous_out_point);
+                    put_uinput(tx, &prev, &txh)?;
+                    let dk = CreditKey {
+                        hash: txh,
+                        height: h,
+                        index: u32::try_from(i).unwrap_or(u32::MAX),
+                    };
+                    let Some(d) = tx.get::<Debits>(&dk).map_err(store_err)? else {
+                        continue;
+                    };
+                    // `rollback_check` found the credit of every debit.
+                    let restored = unspend_credit(tx, &mut acct, &d.credit)?;
+                    tx.delete::<Debits>(&dk).map_err(store_err)?;
+                    // Go restores nothing when the credit's amount is 0,
+                    // which is also its answer for a credit already removed
+                    // (QK-0100).
+                    let Some(c) = restored.filter(|c| c.amount != 0) else {
+                        continue;
+                    };
+                    put_unspent(tx, &prev, &unspent_row(d.credit.height, &c))?;
+                }
+                for index in 0..n_out {
+                    let ck = CreditKey {
+                        hash: txh,
+                        height: h,
+                        index,
+                    };
+                    let Some(c) = tx.get::<Credits>(&ck).map_err(store_err)? else {
+                        continue;
+                    };
+                    let script = script_loc(&msg, index)?;
+                    let op = Outpoint { hash: txh, index };
+                    put_ucredit(tx, &op, c.amount, c.flags, c.account, script)?;
+                    if let Some(s) = c.spender {
+                        acct.touch(tx, &s.hash, s.height)?;
+                    }
+                    tx.delete::<Credits>(&ck).map_err(store_err)?;
+                    removed.insert(ck, c);
+                    del_unspent(tx, &op)?;
+                }
+                delete_invalidated(tx, &mut acct, &txh, h, &msg)?;
                 txs.push(msg);
             }
             // Go's map has an entry only for a block with transactions,
@@ -286,8 +514,355 @@ impl TxStore {
             });
         }
         tx.disconnect_from(from).map_err(store_err)?;
+        for op in coinbase_credits {
+            if let Some(spender) = tx
+                .get::<purse_store::UnminedInputs>(&op)
+                .map_err(store_err)?
+            {
+                let rec = read_unmined(tx, &spender)?;
+                self.remove_unconfirmed(tx, rec.msg_tx(), &spender)?;
+            }
+        }
+        acct.flush(tx)?;
         Ok(out)
     }
+
+    /// The refusal `stake_move` would meet validating the block at
+    /// `height`, made before `ExtendMainChain` writes anything: an
+    /// invalidated debit of one of its regular transactions whose credit is
+    /// neither a live credit nor an invalidated credit of an earlier regular
+    /// transaction of the block (which validation makes live first). Go
+    /// writes a zero-amount spent credit there (QK-0101); the state comes
+    /// only from a spender recorded in a block below its funding
+    /// transaction's.
+    ///
+    /// # Errors
+    ///
+    /// As described: `IO`. A record that does not decode: `IO`. The store's.
+    pub(crate) fn stake_validate_check(
+        &self,
+        tx: &mut WriteTx<'_>,
+        height: u32,
+    ) -> Result<(), AnyError> {
+        let history = tx
+            .rows::<History>(
+                Bound::Included(&HistoryKey {
+                    height,
+                    position: 0,
+                }),
+                Bound::Included(&HistoryKey {
+                    height,
+                    position: u32::MAX,
+                }),
+                false,
+                usize::MAX,
+            )
+            .map_err(store_err)?;
+        let mut moved: std::collections::BTreeSet<CreditKey> = std::collections::BTreeSet::new();
+        for (_, txh) in history {
+            let lo = CreditKey {
+                hash: txh,
+                height,
+                index: 0,
+            };
+            let hi = CreditKey {
+                index: u32::MAX,
+                ..lo
+            };
+            let debits = tx
+                .rows::<DebitsInvalidated>(
+                    Bound::Included(&lo),
+                    Bound::Included(&hi),
+                    false,
+                    usize::MAX,
+                )
+                .map_err(store_err)?;
+            let credits = TxRead::keys::<CreditsInvalidated>(
+                tx,
+                Bound::Included(&lo),
+                Bound::Included(&hi),
+                false,
+                usize::MAX,
+            )
+            .map_err(store_err)?;
+            if debits.is_empty() && credits.is_empty() {
+                continue;
+            }
+            let Some(mined) = tx
+                .get::<TxMined>(&TxRecKey { hash: txh, height })
+                .map_err(store_err)?
+            else {
+                continue;
+            };
+            if TxRecord::stored(txh, &mined.tx, mined.received)?.tx_type() != TxType::Regular {
+                continue;
+            }
+            for (_, d) in debits {
+                if !moved.contains(&d.credit)
+                    && !tx.contains::<Credits>(&d.credit).map_err(store_err)?
+                {
+                    return Err(e!(
+                        Kind::Io,
+                        format!(
+                            "stake validation: invalidated debit of {} spends credit {}:{} at height {}, which is not recorded",
+                            display(&txh),
+                            display(&d.credit.hash),
+                            d.credit.index,
+                            d.credit.height
+                        )
+                    )
+                    .into());
+                }
+            }
+            moved.extend(credits);
+        }
+        Ok(())
+    }
+
+    /// The credit and debit moves of `stakeInvalidate` (`invalidate`) or
+    /// `stakeValidate` for the regular transactions recorded in the block
+    /// at `height` (`txmined.go:631-885`), in record order; the block row's
+    /// flag is the caller's.
+    ///
+    /// A debit of an invalidated transaction restores the unspent output
+    /// of the credit it spent only while that credit is a live credit:
+    /// Go restores it in every case, and an earlier transaction of the
+    /// same block whose spent credit was moved to the invalidated table
+    /// leaves an unspent entry with no credit (QK-0082, fixed under
+    /// ADR-0012 Rule 7; PARITY.md, `purse-udb`).
+    ///
+    /// # Errors
+    ///
+    /// A record missing or not decoding: `IO`, Go's text. A credit an
+    /// invalidated debit names missing at validation (QK-0101): `IO`. The
+    /// store's.
+    pub(crate) fn stake_move(
+        &self,
+        tx: &mut WriteTx<'_>,
+        height: u32,
+        block_hash: &Hash32,
+        invalidate: bool,
+    ) -> Result<(), AnyError> {
+        let history = tx
+            .rows::<History>(
+                Bound::Included(&HistoryKey {
+                    height,
+                    position: 0,
+                }),
+                Bound::Included(&HistoryKey {
+                    height,
+                    position: u32::MAX,
+                }),
+                false,
+                usize::MAX,
+            )
+            .map_err(store_err)?;
+        if history.is_empty() {
+            return Ok(());
+        }
+        let mut acct = AcctTracker::default();
+        for (_, txh) in history {
+            let key = TxRecKey { hash: txh, height };
+            let Some(mined) = tx.get::<TxMined>(&key).map_err(store_err)? else {
+                return Err(e!(
+                    Kind::Io,
+                    format!(
+                        "missing transaction record for tx {} block {}",
+                        display(&txh),
+                        display(block_hash)
+                    )
+                )
+                .into());
+            };
+            let rec = TxRecord::stored(txh, &mined.tx, mined.received)?;
+            if rec.tx_type() != TxType::Regular {
+                continue;
+            }
+            acct.touch(tx, &txh, height)?;
+            let msg = rec.msg_tx();
+            let n_out = u32::try_from(msg.tx_out.len()).unwrap_or(u32::MAX);
+            for index in 0..n_out {
+                let ck = CreditKey {
+                    hash: txh,
+                    height,
+                    index,
+                };
+                let op = Outpoint { hash: txh, index };
+                if invalidate {
+                    let Some(c) = tx.get::<Credits>(&ck).map_err(store_err)? else {
+                        continue;
+                    };
+                    tx.delete::<Credits>(&ck).map_err(store_err)?;
+                    tx.put::<CreditsInvalidated>(&ck, &c).map_err(store_err)?;
+                    del_unspent(tx, &op)?;
+                } else {
+                    let Some(c) = tx.get::<CreditsInvalidated>(&ck).map_err(store_err)? else {
+                        continue;
+                    };
+                    tx.delete::<CreditsInvalidated>(&ck).map_err(store_err)?;
+                    tx.put::<Credits>(&ck, &c).map_err(store_err)?;
+                    // Go's unconditional `putUnspent`, a spent credit
+                    // included: the debit of a regular spender in this block,
+                    // moved back by its own loop below, deletes the entry
+                    // again; the live debit of a stake spender, or of a
+                    // spender in another block, leaves it (QK-0785,
+                    // reproduced, pending owner).
+                    put_unspent(tx, &op, &unspent_row(height, &c))?;
+                }
+            }
+            for (i, input) in msg.tx_in.iter().enumerate() {
+                let dk = CreditKey {
+                    hash: txh,
+                    height,
+                    index: u32::try_from(i).unwrap_or(u32::MAX),
+                };
+                let prev = canonical(&input.previous_out_point);
+                if invalidate {
+                    let Some(d) = tx.get::<Debits>(&dk).map_err(store_err)? else {
+                        continue;
+                    };
+                    let restored = unspend_credit(tx, &mut acct, &d.credit)?;
+                    tx.delete::<Debits>(&dk).map_err(store_err)?;
+                    tx.put::<DebitsInvalidated>(&dk, &d).map_err(store_err)?;
+                    if let Some(c) = restored {
+                        put_unspent(tx, &prev, &unspent_row(d.credit.height, &c))?;
+                    }
+                } else {
+                    let Some(d) = tx.get::<DebitsInvalidated>(&dk).map_err(store_err)? else {
+                        continue;
+                    };
+                    spend_credit(
+                        tx,
+                        &mut acct,
+                        &d.credit,
+                        Spender {
+                            hash: txh,
+                            height,
+                            input: dk.index,
+                        },
+                    )?;
+                    del_unspent(tx, &prev)?;
+                    tx.delete::<DebitsInvalidated>(&dk).map_err(store_err)?;
+                    tx.put::<Debits>(&dk, &d).map_err(store_err)?;
+                }
+            }
+        }
+        acct.flush(tx)
+    }
+}
+
+/// `Rollback`'s one refusal found as it goes in Go, made before any write:
+/// a debit of a record being detached whose credit is neither a live
+/// credit nor one an earlier record of the same block removed (Go's
+/// `removedCredits`): Go's `IO` "missing credit" after its earlier writes,
+/// which its caller abandons. A credit removed by a higher block is gone by
+/// the time the debit is met, as in Go, whose walk goes from the tip down.
+/// Two states reach it, neither on a consensus-valid chain: a spender
+/// recorded in a block below its funding transaction's, whose block was
+/// rolled back first (QK-0101); and a live debit of a stake transaction
+/// spending a regular transaction's credit of its own block, which stake
+/// invalidation of that block moved to the invalidated table while the
+/// stake debit stayed live (QK-0785; Go refuses alike until the block is
+/// approved again). The text's key is dcrwallet's 72-byte credit key, its
+/// block hash the main-chain block now at the credit's height (zero when
+/// none), which is the one Go's key holds while that block is connected:
+/// always in the second state, and in the first when one `Rollback`
+/// covers both blocks.
+fn rollback_check(
+    tx: &mut WriteTx<'_>,
+    blocks: &[(u32, Vec<(HistoryKey, Hash32)>)],
+) -> Result<(), AnyError> {
+    let mut seen: std::collections::BTreeSet<TxRecKey> = std::collections::BTreeSet::new();
+    for (h, history) in blocks.iter().rev() {
+        for (_, txh) in history {
+            let lo = CreditKey {
+                hash: *txh,
+                height: *h,
+                index: 0,
+            };
+            let hi = CreditKey {
+                index: u32::MAX,
+                ..lo
+            };
+            let debits = tx
+                .rows::<Debits>(
+                    Bound::Included(&lo),
+                    Bound::Included(&hi),
+                    false,
+                    usize::MAX,
+                )
+                .map_err(store_err)?;
+            for (_, d) in debits {
+                let owner = TxRecKey {
+                    hash: d.credit.hash,
+                    height: d.credit.height,
+                };
+                let gone = seen.contains(&owner) && owner.height != *h;
+                if gone || !tx.contains::<Credits>(&d.credit).map_err(store_err)? {
+                    let block = block_at(tx, d.credit.height)?
+                        .map(|b| b.hash)
+                        .unwrap_or_default();
+                    let mut key = Vec::with_capacity(72);
+                    key.extend_from_slice(&d.credit.hash.0);
+                    key.extend_from_slice(&d.credit.height.to_be_bytes());
+                    key.extend_from_slice(&block.0);
+                    key.extend_from_slice(&d.credit.index.to_be_bytes());
+                    let key: String = key.iter().map(|b| format!("{b:02x}")).collect();
+                    return Err(e!(
+                        Kind::Io,
+                        format!(
+                            "missing credit {}:{}, key {key}, spent by {}",
+                            display(&d.credit.hash),
+                            d.credit.index,
+                            display(txh)
+                        )
+                    )
+                    .into());
+                }
+            }
+            seen.insert(TxRecKey {
+                hash: *txh,
+                height: *h,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Deletes the invalidated credits and debits of the detached record
+/// (`hash`, `height`) (ADR-0003 Decision item 5: Go leaves them, QK-0081),
+/// noting for `acct_history` the record spending each deleted credit.
+fn delete_invalidated(
+    tx: &mut WriteTx<'_>,
+    acct: &mut AcctTracker,
+    hash: &Hash32,
+    height: u32,
+    msg: &MsgTx,
+) -> Result<(), AnyError> {
+    let n_out = u32::try_from(msg.tx_out.len()).unwrap_or(u32::MAX);
+    for index in 0..n_out {
+        let ck = CreditKey {
+            hash: *hash,
+            height,
+            index,
+        };
+        if let Some(c) = tx.get::<CreditsInvalidated>(&ck).map_err(store_err)? {
+            if let Some(s) = c.spender {
+                acct.touch(tx, &s.hash, s.height)?;
+            }
+            tx.delete::<CreditsInvalidated>(&ck).map_err(store_err)?;
+        }
+    }
+    let n_in = u32::try_from(msg.tx_in.len()).unwrap_or(u32::MAX);
+    for index in 0..n_in {
+        tx.delete::<DebitsInvalidated>(&CreditKey {
+            hash: *hash,
+            height,
+            index,
+        })
+        .map_err(store_err)?;
+    }
+    Ok(())
 }
 
 /// Appends a record to its block: the `history` row at the block's next

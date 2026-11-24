@@ -12,8 +12,14 @@
 //! This module is written in slices. The crate documentation has the table
 //! of every Go entry point with the slice it belongs to; this page is the
 //! design of the first slice, the rows it keeps, and the rules that bound
-//! it. The first slice is written as designed here; where the code departs
-//! from the design as first drafted, this page says so.
+//! it, and then of the credit slice ("The credit slice" below), which fills
+//! in the steps the first slice left. The first slice
+//! is written as designed here; where the code departs from the design as
+//! first drafted, this page says so. The sections on the first slice
+//! describe it as it was written: where they say that a credit table is
+//! empty or guarded, the credit slice has since replaced the step, and only
+//! the ticket commitment and multisig tables are still guarded
+//! ([`LATER_TABLES`]).
 //!
 //! # What bounds the first slice
 //!
@@ -505,13 +511,172 @@
 //!   to `TxRecord::new` (the filters `ImportCFiltersV2` checks are
 //!   `dcroxide-gcs`'s to fuzz).
 
+//! # The credit slice
+//!
+//! Ported on 2026-11-23, after the first slice, with Go's texts and in
+//! Go's order of writes except where stated (the plan of the change is
+//! "The next slice" below, as narrowed):
+//!
+//! - `AddCredit` ([`TxStore::add_credit`]): the unmined, mined and
+//!   invalidated paths. The script location is dcroxide's
+//!   `MsgTx::pk_script_locs_iter` (no allocation), the script type
+//!   (`pkScriptType`) and stake tag (`getStakeOpCode`) dcroxide's
+//!   `determine_script_type`. The store's credit key is (hash, height,
+//!   index), without Go's block hash, so a block that is not the main-chain
+//!   block at its height, or that holds no record of the transaction, is
+//!   refused (QK-0783, pending owner), as is a script longer than the
+//!   store's 16-bit script length.
+//! - The credit and debit steps the table of "Credit-dependent steps" lists
+//!   for `InsertMinedTx`, `moveMinedTx` (the expiry flag cleared, QK-0079),
+//!   `Rollback` (the coinbase branch, the debit restoring with QK-0100's
+//!   amount-0 rule, the credit step, and the deletion of a detached block's
+//!   invalidated rows, ADR-0003 Decision item 5 and QK-0081),
+//!   `RemoveUnconfirmed` (each output's unmined credit) and stake
+//!   (in)validation (QK-0082 fixed under ADR-0012 Rule 7); the credit and
+//!   debit lists of the details queries; the credit of a ticket's output 0
+//!   in `TicketIterator.Next` and `TicketDetails`.
+//! - The balance mutators of ADR-0003 Decision item 4 (`credit.rs`): every
+//!   write of an unspent output, an unmined credit, an unmined-input entry
+//!   and the unpublished mark goes through one function, which moves the
+//!   running sums of `balances` (account, class) and, for the mined classes,
+//!   `balance_heights` (account, class, height), counting an output only
+//!   while no unmined transaction spends it, as `balanceFullScan` does. An
+//!   unmined credit's class depends on its transaction's unpublished mark,
+//!   so a change of the mark reclasses that transaction's unmined credits.
+//!   [`TxStore::account_balances`] reads the sums and applies the depth and
+//!   maturity rules at query time over the recent heights only.
+//! - `acct_history`: (account, height, position) for every mined record
+//!   with a live credit to the account, or a live debit spending a credit
+//!   of the account (live or invalidated) that names that debit as its
+//!   spender; brought up to date, for each record an operation changes the
+//!   credits or debits of, by comparing its account set before and after.
+//! - `UnspentTickets` ([`TxStore::unspent_tickets`]), and the export's
+//!   `[credits]`, `[debits]`, `[ucredits]` and `[derived]` `balance` and
+//!   `unspentticket` records.
+//! - The queries over unspent outputs that need no input selection
+//!   (`utxo.rs`): `ExistsUTXO`, `UnspentOutputs`, `UnspentOutput` and
+//!   `ForEachUnspentOutpoint` ([`TxStore::exists_utxo`],
+//!   [`TxStore::unspent_outputs`], [`TxStore::unspent_output`],
+//!   [`TxStore::for_each_unspent_outpoint`], the outputs as [`Credit`]s in
+//!   Go's order: the unspent outputs by outpoint, then the unmined credits
+//!   by outpoint), with `outputCreditInfo`'s precedence kept (an outpoint
+//!   with an unmined credit is given from it even where Go found it
+//!   unspent, which a transaction mined and unmined at once, QK-0781, can
+//!   reach); and spec 04 D-1's `IsUnspentOutpoint` and `PreviousPkScripts`
+//!   ([`TxStore::is_unspent_outpoint`], [`TxStore::previous_pk_scripts`])
+//!   ported as Go behaves (QK-0088 and QK-0089 reproduced, choice 6 below,
+//!   pending owner): `IsUnspentOutpoint` answers true for any outpoint
+//!   neither unpublished nor spent by an unmined transaction, and
+//!   `PreviousPkScripts` never answers without a block (`IO` where an input
+//!   spends an unmined credit, else an `Invalid` error where Go
+//!   dereferences the missing block and panics).
+//!
+//! Refusals found as Go goes are made before the first write here too:
+//! `Rollback` checks every debit's credit first (`rollback_check`), and
+//! stake validation every invalidated debit's (`stake_validate_check`,
+//! where Go writes a zero-amount credit, QK-0101), so a failed operation
+//! still writes nothing. Where a UTXO query meets missing stored state at
+//! which Go panics (a mined output's record), it returns `IO` (ADR-0012
+//! Rule 2).
+//!
+//! Speed: an input's debit makes three point reads of its own: the
+//! outpoint's unspent row (which gives the credit's height, as Go's
+//! unspent value gives it the credit key), the credit, which it rewrites
+//! with its spender and from which the debit takes its amount (Go's
+//! `spendCredit`), and the unmined-inputs entry the balance sums depend
+//! on (a read Go does not make, the price of the running sums); the
+//! unspent row is then deleted without being read again
+//! (`del_unspent_row`). Each balance sum the change moves costs one more
+//! point read and one write or delete (`bump`): two sums, `balances` and
+//! `balance_heights`, for an output of a windowed mined class, one for
+//! `VotingAuthority`, none for an output an unmined transaction spends.
+//! A debited output of a windowed class that no unmined transaction
+//! spends so makes five point reads and five writes or deletes (the
+//! credit, the debit, the unspent row and the two sums), where Go's input
+//! loop makes two reads and three writes per input (`existsUnspent`,
+//! `spendCredit`, `putDebit`, `deleteRawUnspent`). The balance mutators
+//! also make one read of the outpoint's unspent and unmined credit rows
+//! per unmined-input change; `acct_history` costs two prefix
+//! scans per changed record before and after the step, plus one credit read
+//! per debit (the price of an index Go does not have, on no Go query path);
+//! the details queries make two prefix reads per record, as Go's credit and
+//! debit iterators seek once each. The UTXO queries walk `unspent` and
+//! `unmined_credits` a page at a time (`store::walk`) and, per output, make
+//! Go's unmined-input and unmined-credit lookups and read the record for
+//! its received time and script, but no credit row (the unspent row holds
+//! what Go reads from it) and one block row per distinct height (for the
+//! hash Go's unspent value carries); consecutive outputs of one
+//! transaction share one record read. Each record read copies the record's
+//! bytes, where bbolt's `Get` gives Go a view of the page: a per-output
+//! copy that a borrowed read in `purse-store` would remove (not proposed
+//! before ADR-0003 M3's measurement). An unmined credit's script is cut
+//! from its record at the stored location, where Go decodes the whole
+//! transaction: the same bytes, no decoding (the location was computed
+//! from that transaction, whose prefix the record holds verbatim).
+//! `ForEachUnspentOutpoint` reads no record at all. No timed run is part
+//! of this slice.
+//!
+//! Verified, as the first slice is, by:
+//!
+//! - the hand-written scripts `32-txstore-credits`, `33-txstore-credit-edges`
+//!   and `34-txstore-utxo` (simnet; every record and the final exports equal
+//!   to Go's; frozen vectors in `tests/data/opvectors`): credits unmined,
+//!   mined and invalidated, published and unpublished, unmined and mined
+//!   spends, moves, rollbacks, invalidation and revalidation, coinbase
+//!   maturity, tickets, votes and revocations, zero-value credits, a
+//!   transaction mined twice, scripts of every kind including a record with
+//!   trailing bytes, and every UTXO query and `PreviousPkScripts` form;
+//! - seeded generated scripts drawing the slice's operations too
+//!   (`tests/support/txgen.rs`, `generate_txstore_credits`: `AddCredit`
+//!   unmined and in the block an `InsertMinedTx` of the same `update` group
+//!   has just recorded the transaction in, the UTXO queries, balances and
+//!   `UnspentTickets` (with sync heights at Go's `ticketMatured` boundary
+//!   and at the `int32` extremes, QK-0784), on all four networks, and the
+//!   same in groups; `PURSE_UDB_TX_CREDIT_SCRIPTS`,
+//!   `PURSE_UDB_TX_CREDIT_GROUP_SCRIPTS`). They avoid, by construction, the
+//!   sequences on which dcr-purse departs from Go, under a rule or a
+//!   decision (QK-0082, fixed under ADR-0012 Rule 7; QK-0081 with QK-0782,
+//!   ADR-0003 Decision item 5) or pending the project owner's ruling
+//!   (QK-0101, QK-0783; choices 7 and 8 below); the generator's module
+//!   documentation. A fixed set of 16 is frozen
+//!   (`tests/data/txstore_credit_genvectors.txt`);
+//! - the pinning tests `a_same_block_spend_chain_invalidated_leaves_no_dangling_unspent`
+//!   (QK-0082), `credits_off_the_main_chain_or_without_a_record_are_refused`
+//!   (QK-0783), `invalidated_credits_of_a_detached_block_do_not_come_back`
+//!   (QK-0782) and
+//!   `a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit`
+//!   (QK-0101), and two reproducing Go's defects:
+//!   `a_revalidated_transaction_also_unmined_is_counted_twice` (QK-0734
+//!   and QK-0736) and
+//!   `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
+//!   (QK-0785);
+//! - the upstream tests that need credits (`tests/txstore.rs`):
+//!   `TestInsertsCreditsDebitsRollbacks`, `TestCoinbases` and the whole of
+//!   `TestStakeInvalidationOfTip`;
+//! - the property tests of `tests/txstore.rs`: random sequences with
+//!   `AddCredit`, the row checker extended with the credit invariants (the
+//!   balance sums and `acct_history` recomputed from the rows), the UTXO
+//!   queries checked against the rows after every operation that succeeds
+//!   (each output's script against a decoding of its record), an unspent
+//!   output's credit naming no spender but in QK-0785's state, reopens
+//!   answering balances, ticket and UTXO queries as before; three targeted
+//!   tests, `an_overwritten_invalidated_credit_drops_its_old_spenders_account`
+//!   (`acct_history`'s spender rule, in a state no random sequence
+//!   reaches),
+//!   `unspent_tickets_follow_ticket_matured_and_refuse_a_dangling_spender`
+//!   (the maturity boundary, QK-0784's wrap, and QK-0048's `IO`) and
+//!   `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
+//!   (QK-0785's state, its refused `Rollback` writing nothing); and unit
+//!   tests in `credit.rs` and `balance.rs`.
+//!
 //! # Choices left to the project owner
 //!
 //! Each was taken here as the ADR-0012 default or the narrowest reading,
 //! and recorded. On 2026-11-22 the project owner decided 1, 2, 5 and 6 as
 //! taken (accepting every recommendation then open) and
 //! accepted 4 by signing the change that made it, after being told what
-//! signing accepts; each is marked. Choice 3 is not decided.
+//! signing accepts; each is marked. Choice 3 is not decided. Choices 7 to
+//! 11 are the credit slice's, pending owner.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
@@ -528,6 +693,22 @@
 //!    *Decided (project owner, 2026-11-22): it stays a refusal (`Invalid`),
 //!    and whether to move it into the invalidated tables instead is
 //!    decided with the credit slice.*
+//!    *Evidence for that decision, gathered with the credit slice (pending
+//!    owner):* the move would append the record to the block, record
+//!    each input that spends an unspent wallet output as an invalidated
+//!    debit (which `InsertMinedTx`'s input loop already does for a
+//!    transaction not recorded unmined), write each unmined credit as an
+//!    invalidated credit with no unspent output (as `AddCredit` does into
+//!    such a block) and drop the unmined record; nothing in Go defines it,
+//!    so it would be dcr-purse's own behaviour with no oracle to check it
+//!    against. The wallet inserts a mined transaction into the block it is
+//!    processing, which is invalidated only when the next block connects,
+//!    so live sync never reaches it; a rescan over blocks already
+//!    disapproved, of a transaction the wallet holds unmined, does, and Go
+//!    then panics. The refusal returns `Invalid` and writes nothing, so a
+//!    rescan's transaction is abandoned as Go's would be. Recommendation:
+//!    keep the refusal now and decide the move with the rescan (Phase 5),
+//!    where the case is reachable and a test can show what a wallet needs.
 //! 3. `GetMainChainCFilters` from a detached start block (QK-0751) answers
 //!    as Go's does, with the main chain's filters from the detached
 //!    header's height; the panic QK-0751 describes is in discovery
@@ -550,6 +731,121 @@
 //!    credit slice, where the spec's recommendation, not porting them,
 //!    can be taken. *Decided (project owner, 2026-11-22): D-1 is decided
 //!    with the credit slice.*
+//!    *Taken with the credit slice (pending owner):* both are ported as Go
+//!    behaves (ADR-0012 Rule 1), reproducing QK-0088 (`IsUnspentOutpoint`
+//!    tests that the unspent table exists instead of looking the outpoint
+//!    up, so it answers true for any outpoint, recorded or not, that is
+//!    neither unpublished nor spent by an unmined transaction) and QK-0089
+//!    (`PreviousPkScripts` without a block fails: `IO`, a short record key,
+//!    where an input spends an unmined credit, and otherwise a panic in
+//!    Go, an `Invalid` error here). Evidence: dcrwallet at the pin has no
+//!    caller of `IsUnspentOutpoint` at all, and of `PreviousPkScripts` only
+//!    the build-ignored `txquery_test.go`, and dcr-purse exposes no Go API,
+//!    so neither can reach a user until a caller is written; both are compared with
+//!    Go operation by operation (`34-txstore-utxo`, the generated credit
+//!    scripts) and cost a few dozen lines. The alternatives are not porting
+//!    them (spec 04's recommendation; a later caller would then port them
+//!    with a decision on their defects) or porting them with the defects
+//!    fixed, a divergence under Rule 7 that no caller needs.
+//!    Recommendation: keep them as ported, unexposed by any RPC, and decide
+//!    on fixing them only if a caller is ever written.
+//! 7. `AddCredit` under a block that is not the main-chain block at its
+//!    height, or that holds no record of the transaction (QK-0783), where
+//!    Go writes the credit under the block hash it is given: refused with
+//!    `Invalid`, writing nothing. *Pending owner* (ADR-0012 Rule 11). The
+//!    store's credit key holds the height and not the block hash, so it
+//!    cannot hold such a credit apart from the main-chain block's at that
+//!    height, and Go cannot be reproduced exactly. Evidence: the wallet
+//!    calls `AddCredit` only after recording the transaction in the block
+//!    it is processing (`processTransactionRecord`); Go's credit then
+//!    makes later queries panic or fail (spec 04 §7). The alternative is
+//!    keeping the block hash in the credit key (ADR-0003's schema).
+//!    Recommendation: keep the refusal.
+//! 8. A credit that is not recorded where Go's `spendCredit` writes a
+//!    zero-amount spent one (QK-0101): stake validation of a block whose
+//!    invalidated debit names such a credit is refused with `IO` before
+//!    anything is written, where Go connects the block and writes the
+//!    credit; `Rollback` gives Go's own `IO` text, but before any write.
+//!    *Pending owner* (ADR-0012 Rule 11: Go does not panic here, so Rule 2
+//!    does not cover it). Go's credit sits under the funding transaction's
+//!    detached block, which the store's credit key cannot tell apart from
+//!    the main-chain block at that height, so the code cannot reproduce it
+//!    while the ruling waits and keeps the refusal. Evidence: the state is
+//!    reached only through a spender recorded in a block below its funding
+//!    transaction's, which a consensus-valid chain never holds (`Rollback`'s
+//!    "missing credit" is also reached by a stake transaction's live debit
+//!    of a regular credit of its own disapproved block, QK-0785, with Go's
+//!    text exactly; stake validation's fabrication is not, since that debit
+//!    is never invalidated); Go's
+//!    continuation makes `AccountBalances` fail with `IO` once the
+//!    spender's block is disapproved
+//!    (`a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit`).
+//!    The alternatives: connect the block without the credit, taking it as
+//!    absent (the call then succeeds as Go's does, and Go's zero-amount
+//!    credit is missing from `[credits]`), or write a zero-amount spent
+//!    credit under the height, which the funding transaction, mined again
+//!    in a block at that height, would read as its own. Recommendation:
+//!    keep the refusal.
+//! 9. ADR-0003 Decision item 5 (a detached block's invalidated rows
+//!    deleted, QK-0081) stated that the difference is in nothing a client
+//!    can read; QK-0782 shows that it is after the same block is connected
+//!    again, its transaction mined in it again and the block disapproved
+//!    and approved (ADR-0003, note of 2026-11-23 at item 5). *Pending
+//!    owner*, whether item 5 stands. Recommendation: it stands; the
+//!    wallet adds the re-mined transaction's credits again, under the keys
+//!    Go's stale rows hold, before a disapproval could revive them (read
+//!    from the source, not run).
+//! 10. QK-0734: a transaction of a disapproved block mined again in a later
+//!     block, that block rolled back and the first block approved again, is
+//!     mined and unmined at once, and its outputs are both unspent outputs and
+//!     unmined credits: `UnspentOutputs` lists each twice, as unmined, and
+//!     `AccountBalances` counts each twice. Reproduced, as the code stands
+//!     (ADR-0012 Rule 11: the code reproduces Go until the ruling); *pending
+//!     owner* whether it stays reproduced (Rule 1) or is fixed under Rule 7's
+//!     first half, as ADR-0003 Open point 2 left it to be decided after an
+//!     oracle run. Evidence: the oracle confirms it on simnet with every record
+//!     and the export equal
+//!     (`a_revalidated_transaction_also_unmined_is_counted_twice`: one 900-atom
+//!     output, a balance of 1,800 at depth 0 and of 900 spendable plus 900
+//!     unconfirmed at depth 1, the transaction unmined only, and
+//!     `InsertMemPoolTx` refused as already mined, QK-0736, reproduced). A
+//!     consensus-valid chain reaches it: a disapproved block's transaction
+//!     mined again, then a reorganisation that approves the first block; the
+//!     state outlasts a restart (how Go's input selection treats the doubled
+//!     output is not run). A fix would have stake validation drop the unmined
+//!     copy of a transaction whose record it revalidates (its unmined credits
+//!     and unmined-input entries), as `moveMinedTx` does when an unmined
+//!     transaction is mined; nothing in Go defines it, so only dcr-purse's own
+//!     test would check it. Recommendation: fix it under Rule 7 in the slice
+//!     after this one, with a PARITY.md line and Go's state shown beside
+//!     dcr-purse's by the same test; it is ADR-0017's upstream-report candidate
+//!     either way. QK-0735 is QK-0082 under another number, fixed with it;
+//!     QK-0736 is reproduced (QUIRKS.md).
+//! 11. QK-0785: a stake transaction spending a regular credit of its own block,
+//!     a state no consensus-valid chain holds. When the block is disapproved
+//!     the credit moves to the invalidated table, spender kept, and the stake
+//!     debit stays live (as does the debit of a spender recorded in a block
+//!     below the credit's, QK-0101's state, which the approval below treats
+//!     alike): `Rollback` over the block fails with Go's `IO` "missing credit"
+//!     until the block is approved again (the refusal writes nothing, where
+//!     Go's caller abandons its writes); when the block is approved again the
+//!     credit comes back with an unspent entry although it is still spent, so
+//!     `UnspentOutputs` lists it and `AccountBalances` counts it as spendable
+//!     while `TxDetails` reports it spent. Reproduced (Rule 11's interim, Go
+//!     reproduced); *pending owner* whether it stays reproduced (Rule 1) or
+//!     Rule 7's first half, which names a spend wrongly recorded in persisted
+//!     state, applies to a state no wallet reaches. Evidence:
+//!     `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again` in
+//!     `tests/oracle.rs` (every record and the export equal) and the test of
+//!     that name in `tests/txstore.rs`; the generated credit scripts never mine
+//!     a spender into a block a transaction it spends may be in, nor below it,
+//!     and the row checker accepts an unspent output with a spent credit only
+//!     in this state (the property tests reach the below-funder form,
+//!     `PURSE_TEST_SEED=214`). The fix would be one condition in stake
+//!     validation (no unspent entry for a credit naming a spender).
+//!     Recommendation: keep it reproduced: no wallet reaches it, the
+//!     reproduction costs nothing, and a fix would be dcr-purse's own
+//!     behaviour, checked only by its own test.
 //!
 //! The owner's answer of that date also decided two more points this
 //! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`
@@ -562,8 +858,37 @@
 //!
 //! # The next slice
 //!
-//! Once `pk_script_locs` is at the dcroxide pin (it is since 2026-11-23,
-//! dcroxide `1587ca1`; the next slice is not started): `AddCredit`, the credit
+//! *As left by the credit slice (2026-11-23):*
+//!
+//! - **Ticket commitments** (`AddTicketCommitment`,
+//!   `RedeemTicketCommitments`, `replaceTicketCommitmentUnminedSpent`,
+//!   `removeUnspentTicketCommitments`, the commitment steps of
+//!   `RemoveUnconfirmed` and `Rollback`, and the `Locked` balance class,
+//!   whose sums `AccountBalance(s)` already reads but no operation writes):
+//!   they record no script location and so never waited for one, but they
+//!   add two tables, the `Locked` mutator, the redeem rules of votes and
+//!   revocations and the export's `[commitments]`; left out to bound the
+//!   credit slice's size.
+//! - **Multisig outputs** (`AddMultisigOut`, `SpendMultisigOut`,
+//!   `GetMultisigOutput`, `UnspentMultisigCreditsForAddress`, and the
+//!   multisig steps of `Rollback` and `RemoveUnconfirmed`): they need the
+//!   address manager's script lookup and the 135-byte record, and the
+//!   export's `[multisig]`.
+//! - **Input selection** (`MakeInputSource`, `InputSource.SelectInputs`,
+//!   `RandomUTXO`): it needs spec 23 §5.6's random-stream discipline and
+//!   the cursor behaviour of bbolt's seek and step back on `unspent`
+//!   (Q-31), and is verified as sets of selectable outputs rather than
+//!   record by record: a design of its own, on top of the UTXO queries of
+//!   the credit slice.
+//! - **`Spender`**: small (it reads the debits of mined spenders and the
+//!   unmined-inputs index), but its natural tests are selection's
+//!   reservation flows, so it moves with selection.
+//!
+//! Until then the commitment and multisig tables keep their guard
+//! ([`LATER_TABLES`]) and the export refuses their rows.
+//!
+//! *As first written:* once `pk_script_locs` is at the dcroxide pin (it is
+//! since 2026-11-23, dcroxide `1587ca1`): `AddCredit`, the credit
 //! steps of the table above with the balance mutators of ADR-0003 Decision
 //! item 4 (and `acct_history`), the ticket commitments, the multisig
 //! outputs, the UTXO queries, balances, input selection, `Spender`,
@@ -574,18 +899,26 @@
 //! script location; the commitments would bring the balance tables'
 //! `LockedByTickets` class with them.
 
+mod balance;
 mod chain;
+mod credit;
 mod mined;
 mod query;
 mod record;
 mod store;
 mod unmined;
+mod utxo;
 
+pub use balance::Balances;
 pub use chain::{
     BlockCFilter, birth_state, extract_block_header_height, extract_block_header_parent_hash,
     extract_block_header_time, set_birth_state,
 };
+pub use credit::{OP_NONSTAKE, mined_class, tag_opcode, unmined_class};
 pub use mined::RolledBack;
-pub use record::{Block, BlockMeta, Ticket, TicketDetails, TxDetails, TxRecord, ZERO_TIME};
+pub use record::{
+    Block, BlockMeta, Credit, CreditRecord, DebitRecord, Ticket, TicketDetails, TxDetails,
+    TxRecord, ZERO_TIME,
+};
 pub use store::{LATER_TABLES, TxRead, TxStore};
 pub use unmined::PruneError;

@@ -15,11 +15,37 @@
 //! A script never faults: blocks are labelled only by extensions that
 //! cannot be refused (a child of the tip with the default height), and
 //! every transaction label is one `tx.build` made, which cannot fail.
+//!
+//! `generate_txstore_credits` draws the same operations and, with them,
+//! the credit slice's ([`CREDIT_OPS`]): `AddCredit` (unmined, and mined in
+//! an `update` group right after the `InsertMinedTx` that records the
+//! transaction in that block, so the credit's block always holds the
+//! record and is the main-chain block at its height: QK-0783, where Go
+//! writes a credit dcr-purse refuses, is never reached), the UTXO queries,
+//! `PreviousPkScripts`, balances and `UnspentTickets` (its sync height
+//! drawn at or below the tip, at Go's `ticketMatured` boundary above a
+//! height at or below the tip, or rarely at an `int32` extreme, QK-0784).
+//! It avoids the sequences on which dcr-purse departs from Go, under a
+//! rule or a decision (QK-0082, fixed under ADR-0012 Rule 7; QK-0081 with
+//! QK-0782, ADR-0003 Decision item 5) or pending the project owner's
+//! ruling (QK-0101, QK-0783): a
+//! transaction spending a built transaction's output is mined only into
+//! the tip, and never while a transaction it spends may be in that same
+//! block (the same-block spend chain whose disapproval Go records wrongly,
+//! QK-0082, fixed; a spender mined below the transaction it spends, the
+//! QK-0101 refusals); only a transaction spending no built output is
+//! mined into lower blocks; and no detached block is connected again
+//! (`extend.again` is drawn as a plain extension: Go's invalidated rows of
+//! a detached block, which dcr-purse deletes, QK-0081, would come back
+//! with it, QK-0782). The draws of `generate_txstore` are unchanged, so
+//! its frozen vectors and recorded campaigns stand.
 
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "test code: small counts, lengths and generator sizes"
 )]
+
+use std::collections::HashMap;
 
 use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{SplitMix64, hex};
@@ -91,6 +117,36 @@ pub const TX_OPS: &[&str] = &[
     "rt.clock_advance",
 ];
 
+/// The operations a credit script ([`generate_txstore_credits`]) draws
+/// besides [`TX_OPS`] (`extend.vote0` again, for more disapproved blocks):
+/// `credit.mined` is an `update` group of an `InsertMinedTx` and
+/// `AddCredit`s of the transaction in that block, `credit.unmined` an
+/// `update` group of `AddCredit`s without a block (after an
+/// `InsertMemPoolTx`, half the time).
+pub const CREDIT_OPS: &[&str] = &[
+    "credit.mined",
+    "credit.mined",
+    "credit.mined",
+    "credit.mined",
+    "credit.mined",
+    "credit.unmined",
+    "credit.unmined",
+    "credit.unmined",
+    "store.add_credit",
+    "store.exists_utxo",
+    "store.is_unspent_outpoint",
+    "store.unspent_outputs",
+    "store.unspent_output",
+    "store.unspent_output",
+    "store.for_each_unspent_outpoint",
+    "store.previous_pk_scripts",
+    "store.previous_pk_scripts",
+    "store.account_balance",
+    "store.account_balances",
+    "store.unspent_tickets",
+    "extend.vote0",
+];
+
 /// The networks, by how often a script draws them.
 const NETWORKS: [(&str, u64); 4] = [
     ("simnet", 70),
@@ -112,6 +168,8 @@ struct Built {
     label: String,
     outputs: u32,
     ticket: bool,
+    /// The labels of the built transactions it spends.
+    prevs: Vec<String>,
 }
 
 fn pick<'a, T>(rng: &mut SplitMix64, v: &'a [T]) -> Option<&'a T> {
@@ -120,6 +178,17 @@ fn pick<'a, T>(rng: &mut SplitMix64, v: &'a [T]) -> Option<&'a T> {
     } else {
         v.get(usize::try_from(rng.below(v.len() as u64)).expect("small"))
     }
+}
+
+/// The `TicketMaturity` of `network`.
+fn ticket_maturity(network: &str) -> u64 {
+    let params = match network {
+        "mainnet" => dcroxide_chaincfg::mainnet_params(),
+        "testnet3" => dcroxide_chaincfg::testnet3_params(),
+        "regnet" => dcroxide_chaincfg::regnet_params(),
+        _ => dcroxide_chaincfg::simnet_params(),
+    };
+    u64::from(params.ticket_maturity)
 }
 
 fn network(rng: &mut SplitMix64) -> &'static str {
@@ -144,6 +213,20 @@ struct Gen<'r> {
     /// The tip height as far as the generator can tell (extensions it
     /// knows succeed, rollbacks it knows are valid).
     tip: u64,
+    /// A credit script ([`generate_txstore_credits`]).
+    credits: bool,
+    /// The extensions known to have connected a block (credit scripts).
+    ext: u64,
+    /// For each transaction an `InsertMinedTx` was drawn for, `ext` at
+    /// that draw: while it is unchanged the transaction may be in the tip.
+    mined_at: HashMap<String, u64>,
+    /// A rollback was drawn since the last extension known to connect a
+    /// block: any transaction drawn mined may be in the tip.
+    rolled_back: bool,
+    /// The outputs an `AddCredit` was drawn for (credit scripts).
+    credited: Vec<(String, u32)>,
+    /// The network's `TicketMaturity`.
+    ticket_maturity: u64,
 }
 
 impl Gen<'_> {
@@ -218,6 +301,7 @@ impl Gen<'_> {
             label,
             outputs: u32::try_from(n_out).expect("small"),
             ticket: false,
+            prevs: Vec::new(),
         });
         v
     }
@@ -233,6 +317,7 @@ impl Gen<'_> {
             label,
             outputs: 1,
             ticket: false,
+            prevs: Vec::new(),
         });
         v
     }
@@ -253,6 +338,7 @@ impl Gen<'_> {
             label,
             outputs: 3,
             ticket: true,
+            prevs: Vec::new(),
         });
         v
     }
@@ -289,6 +375,7 @@ impl Gen<'_> {
             label,
             outputs: 3,
             ticket: false,
+            prevs: Vec::new(),
         });
         v
     }
@@ -307,6 +394,7 @@ impl Gen<'_> {
             label,
             outputs: 1,
             ticket: false,
+            prevs: Vec::new(),
         });
         v
     }
@@ -324,11 +412,12 @@ impl Gen<'_> {
                         v["time"] =
                             json!(1_795_300_000 + i64::try_from(self.below(9)).expect("small"));
                         self.tip += 1;
+                        self.connected();
                     }
                 }
                 v
             }
-            "extend.again" => {
+            "extend.again" if !self.credits => {
                 let b = self.block_ref();
                 json!({"op": "store.extend_main_chain", "again": b})
             }
@@ -349,12 +438,190 @@ impl Gen<'_> {
                 v["filter"] = json!(filter);
                 self.blocks.push(label);
                 self.tip += 1;
+                self.connected();
                 v
             }
         }
     }
 
+    /// An extension known to connect a block.
+    fn connected(&mut self) {
+        self.ext += 1;
+        self.rolled_back = false;
+    }
+
+    fn built(&self, label: &str) -> Option<&Built> {
+        self.txs.iter().find(|b| b.label == label)
+    }
+
+    /// The block a credit script may mine `label` into, noting the draw,
+    /// or `None`: a transaction spending no built output anywhere; one
+    /// spending a built output only into the tip, and not while a
+    /// transaction it spends may be in the tip (module documentation).
+    fn mined_block(&mut self, label: &str) -> Option<Value> {
+        let prevs = self
+            .built(label)
+            .map(|b| b.prevs.clone())
+            .unwrap_or_default();
+        let block = if prevs.is_empty() {
+            self.block_ref()
+        } else if prevs.iter().any(|p| {
+            self.mined_at
+                .get(p)
+                .is_some_and(|e| *e == self.ext || self.rolled_back)
+        }) {
+            return None;
+        } else {
+            json!("tip")
+        };
+        self.mined_at.insert(label.to_owned(), self.ext);
+        Some(block)
+    }
+
+    /// An outpoint argument: a built transaction's output (or one past its
+    /// last), or a foreign one.
+    fn outpoint(&mut self) -> Value {
+        if self.below(2) == 0
+            && let Some((label, index)) = pick(self.rng, &self.credited).cloned()
+        {
+            return json!({"tx": label, "index": index});
+        }
+        if self.below(4) != 0
+            && let Some(b) = pick(self.rng, &self.txs)
+        {
+            let (label, n) = (b.label.clone(), b.outputs);
+            return json!({"tx": label, "index": self.below(u64::from(n) + 1)});
+        }
+        let f = FOREIGN[usize::try_from(self.below(4)).expect("small")];
+        json!({"tx": f, "index": self.below(4)})
+    }
+
+    /// A sync height for `UnspentTickets`: half the time one at or below
+    /// the tip; else one exactly `TicketMaturity` or `TicketMaturity + 1`
+    /// above a height at or below the tip, which for a ticket mined there
+    /// is the last immature or the first mature height of Go's
+    /// `ticketMatured`; rarely an `int32` extreme, where Go's subtraction
+    /// wraps (QK-0784).
+    fn sync_height(&mut self) -> i64 {
+        match self.below(16) {
+            0 => [
+                i64::from(i32::MIN),
+                i64::from(i32::MIN) + 1,
+                i64::from(i32::MAX),
+            ][usize::try_from(self.below(3)).expect("small")],
+            1..=7 => {
+                let h = self.below(self.tip + 1);
+                i64::try_from(h + self.ticket_maturity + self.below(2)).expect("small")
+            }
+            _ => i64::try_from(self.below(self.tip + 4)).expect("small"),
+        }
+    }
+
+    fn minconf(&mut self) -> i64 {
+        [-1, 0, 1, 1, 2, 6][usize::try_from(self.below(6)).expect("small")]
+    }
+
+    /// The `AddCredit`s of `label`'s outputs (each with probability 2/3,
+    /// at least one; rarely an index past the last), with `block`.
+    fn credits_of(&mut self, label: &str, block: Option<&Value>) -> Vec<Value> {
+        let n = self.built(label).map_or(1, |b| b.outputs);
+        let mut out = Vec::new();
+        for i in 0..n {
+            if self.below(3) != 0 || (i + 1 == n && out.is_empty()) {
+                out.push(self.credit(label, i, block));
+            }
+        }
+        if self.below(12) == 0 {
+            out.push(self.credit(label, n, block));
+        }
+        out
+    }
+
+    fn credit(&mut self, label: &str, index: u32, block: Option<&Value>) -> Value {
+        let account = if self.below(4) == 0 { self.below(3) } else { 0 };
+        let mut v =
+            json!({"op": "store.add_credit", "tx": label, "index": index, "account": account});
+        if self.below(3) == 0 {
+            v["change"] = json!(true);
+        }
+        if let Some(b) = block {
+            v["block"] = b.clone();
+        }
+        self.credited.push((label.to_owned(), index));
+        v
+    }
+
+    /// An operation of [`CREDIT_OPS`].
+    fn credit_op(&mut self, name: &str) -> Value {
+        match name {
+            "credit.mined" => {
+                let Some(l) = self.tx_label() else {
+                    return self.build_regular();
+                };
+                let Some(block) = self.mined_block(&l) else {
+                    return json!({"op": "store.insert_mem_pool_tx", "tx": l});
+                };
+                let mut ops = vec![json!({"op": "store.insert_mined_tx", "tx": l, "block": block})];
+                ops.extend(self.credits_of(&l, Some(&block)));
+                json!({"op": "update", "ops": ops})
+            }
+            "credit.unmined" => {
+                let Some(l) = self.tx_label() else {
+                    return self.build_regular();
+                };
+                let mut ops = Vec::new();
+                if self.below(2) == 0 {
+                    ops.push(json!({"op": "store.insert_mem_pool_tx", "tx": l}));
+                }
+                ops.extend(self.credits_of(&l, None));
+                json!({"op": "update", "ops": ops})
+            }
+            "store.add_credit" => match self.tx_label() {
+                Some(l) => {
+                    let n = self.built(&l).map_or(1, |b| b.outputs);
+                    let i = u32::try_from(self.below(u64::from(n))).expect("small");
+                    self.credit(&l, i, None)
+                }
+                None => self.build_regular(),
+            },
+            "store.exists_utxo" | "store.is_unspent_outpoint" => {
+                let op = self.outpoint();
+                json!({"op": name, "outpoint": op})
+            }
+            "store.unspent_output" => {
+                let op = self.outpoint();
+                json!({"op": name, "outpoint": op, "include_mempool": self.below(2) == 0})
+            }
+            "store.previous_pk_scripts" => match self.tx_label() {
+                Some(l) => {
+                    let mut v = json!({"op": name, "tx": l});
+                    if self.below(4) != 0 {
+                        v["block"] = self.block_ref();
+                    }
+                    v
+                }
+                None => self.build_regular(),
+            },
+            "store.account_balance" => {
+                let m = self.minconf();
+                json!({"op": name, "minconf": m, "account": self.below(3)})
+            }
+            "store.account_balances" => {
+                let m = self.minconf();
+                json!({"op": name, "minconf": m})
+            }
+            "store.unspent_tickets" => {
+                let sh = self.sync_height();
+                json!({"op": name, "syncheight": sh, "include_immature": self.below(2) == 0})
+            }
+            other => json!({"op": other}),
+        }
+    }
+
     fn op(&mut self, name: &str) -> Value {
+        if self.credits && !TX_OPS.contains(&name) {
+            return self.credit_op(name);
+        }
         match name {
             "store.extend_main_chain" | "extend.vote0" | "extend.odd" | "extend.again" => {
                 self.extend(name)
@@ -378,6 +645,7 @@ impl Gen<'_> {
                     label: label.clone(),
                     outputs: 1,
                     ticket: false,
+                    prevs: Vec::new(),
                 });
                 json!({"op": "tx.raw", "label": label, "tx": tx})
             }
@@ -386,6 +654,10 @@ impl Gen<'_> {
                 None => self.build_regular(),
             },
             "store.insert_mined_tx" => match self.tx_label() {
+                Some(l) if self.credits => match self.mined_block(&l) {
+                    Some(b) => json!({"op": name, "tx": l, "block": b}),
+                    None => json!({"op": "store.insert_mem_pool_tx", "tx": l}),
+                },
                 Some(l) => {
                     let b = self.block_ref();
                     json!({"op": name, "tx": l, "block": b})
@@ -403,6 +675,7 @@ impl Gen<'_> {
             "store.rollback" => {
                 // Mostly a valid height (1 to one above the tip); sometimes
                 // 0, -1 or two or more above the tip (Go: Invalid or panic).
+                self.rolled_back = true;
                 let tip = i64::try_from(self.tip).expect("small");
                 let h = if self.below(5) == 0 || self.tip == 0 {
                     [0, -1, tip + 2, tip + 5][usize::try_from(self.below(4)).expect("small")]
@@ -503,6 +776,25 @@ pub fn generate_txstore(
     id: usize,
     network_override: Option<&'static str>,
 ) -> Value {
+    generate(rng, id, network_override, false)
+}
+
+/// A generated transaction store script drawing the credit slice's
+/// operations too (module documentation).
+pub fn generate_txstore_credits(
+    rng: &mut SplitMix64,
+    id: usize,
+    network_override: Option<&'static str>,
+) -> Value {
+    generate(rng, id, network_override, true)
+}
+
+fn generate(
+    rng: &mut SplitMix64,
+    id: usize,
+    network_override: Option<&'static str>,
+    credits: bool,
+) -> Value {
     let network = network_override.unwrap_or_else(|| network(rng));
     let seed = rng.bytes(32);
     let digest = rng.below(4) == 0;
@@ -515,10 +807,37 @@ pub fn generate_txstore(
         costly: network != "simnet",
         reopens: 0,
         tip: 0,
+        credits,
+        ext: 0,
+        mined_at: HashMap::new(),
+        rolled_back: false,
+        credited: Vec::new(),
+        ticket_maturity: ticket_maturity(network),
+    };
+    let draws = if credits {
+        TX_OPS.len() + CREDIT_OPS.len()
+    } else {
+        TX_OPS.len()
     };
     for _ in 0..n {
-        let name = TX_OPS[usize::try_from(g.below(TX_OPS.len() as u64)).expect("small")];
+        let i = usize::try_from(g.below(draws as u64)).expect("small");
+        let name = TX_OPS
+            .get(i)
+            .copied()
+            .unwrap_or_else(|| CREDIT_OPS[i - TX_OPS.len()]);
         let v = g.op(name);
+        if v["op"] == "tx.build"
+            && let Some(last) = g.txs.last_mut()
+        {
+            last.prevs = v["inputs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|i| i["prev"]["tx"].as_str())
+                .filter(|t| t.len() != 64)
+                .map(str::to_owned)
+                .collect();
+        }
         g.ops.push(v);
     }
     // Every script ends with the queries over everything it recorded.
@@ -531,10 +850,21 @@ pub fn generate_txstore(
     }
     g.ops
         .push(json!({"op": "store.range_transactions", "begin": 0, "end": -1}));
+    if credits {
+        for v in [
+            json!({"op": "store.unspent_outputs"}),
+            json!({"op": "store.for_each_unspent_outpoint"}),
+            json!({"op": "store.account_balances", "minconf": 0}),
+            json!({"op": "store.account_balances", "minconf": 1}),
+            json!({"op": "store.unspent_tickets", "syncheight": g.tip, "include_immature": true}),
+        ] {
+            g.ops.push(v);
+        }
+    }
     let rand = hex(&g.rng.bytes(32));
     let mut script = json!({
         "format": "purse-opscript 1",
-        "name": format!("txstore generated {id}"),
+        "name": format!("txstore {}generated {id}", if credits { "credit " } else { "" }),
         "setup": {
             "network": network,
             "seed": hex(&seed),
@@ -565,6 +895,7 @@ const CHANGING: &[&str] = &[
     "store.set_published",
     "store.remove_unconfirmed",
     "store.prune_unmined",
+    "store.add_credit",
 ];
 
 /// The kinds a generated group member tolerates: never `Invalid` or `IO`,

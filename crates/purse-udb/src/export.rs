@@ -24,18 +24,19 @@
 //! slice of the transaction store's ([`crate::txstore`]): `[chain]`,
 //! `[blocks]`, `[headers]`, `[cfilters]` (full and digest modes),
 //! `[txs]`, `[unpublished]`, `[uinputs]`, `[tickets]`, the records of
-//! `[derived]` that read it (`tipheight`, `missingcf`, `utxocount`), and
-//! the sections of the later slices' tables (`[credits]`, `[debits]`,
-//! `[ucredits]`, `[commitments]`, `[multisig]`, and `[derived]`'s
-//! `balance` and `unspentticket`), which are empty because the export
-//! refuses a store in which those tables hold a row ([`COVERED`]).
-//! `[agendas]`, `[treasury]` and `[vsp]` are written empty.
+//! `[derived]` that read it (`tipheight`, `missingcf`, `utxocount`); the
+//! credit slice's: `[credits]`, `[debits]`, `[ucredits]` and `[derived]`'s
+//! `balance` (minconf 0 and 1) and `unspentticket`; and the sections of the
+//! next slice's tables (`[commitments]`, `[multisig]`), which are empty
+//! because the export refuses a store in which those tables hold a row
+//! ([`COVERED`]). `[agendas]`, `[treasury]` and `[vsp]` are written empty.
 //!
 //! The producer never omits state silently (ADR-0001 principle P1): if the
-//! store holds a row this slice does not export (a credit, a debit, a
-//! commitment, a multisig output, a balance, an aux record, an
-//! `addr_by_path` entry), [`export`] fails and names the table, rather
-//! than writing an export that looks complete.
+//! store holds a row this slice does not export (a commitment, a multisig
+//! output, an aux record, an `addr_by_path` entry), [`export`] fails and
+//! names the table, rather than writing an export that looks complete.
+//! The balance sums and `acct_history` are derived from the exported rows
+//! (ADR-0003 Decision item 4) and are not exported themselves.
 //!
 //! The ticket set's value, which dcrwallet writes as −1 and never reads
 //! (QK-0056), is not kept; `ticket.picked` is written `-1`, as every
@@ -61,8 +62,9 @@ use std::ops::Bound;
 
 use purse_store::{
     AccountKey, AccountNames, Accounts, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrRow,
-    CFiltersDetached, CoinTypeKeys, Hash32, HeadersDetached, History, HistoryKey, ReadTx, TableId,
-    Tickets, TxMined, TxUnmined, UnminedInputs, Unpublished,
+    CFiltersDetached, CoinTypeKeys, Credits, CreditsInvalidated, Debits, DebitsInvalidated, Hash32,
+    HeadersDetached, History, HistoryKey, ReadTx, TableId, Tickets, TxMined, TxUnmined,
+    UnminedCredits, UnminedInputs, Unpublished, Unspent,
 };
 use sha2::{Digest, Sha256};
 
@@ -117,9 +119,7 @@ pub const COVERED: [&str; 23] = [
     "privcheck",
 ];
 
-/// The record types of `[derived]` this slice writes (`balance` and
-/// `unspentticket` never: no store it exports holds a credit or a
-/// commitment, and Go writes none for such a store).
+/// The record types of `[derived]` this slice writes.
 pub const COVERED_DERIVED: [&str; 8] = [
     "coin",
     "tipheight",
@@ -540,7 +540,7 @@ fn store_err(err: purse_store::Error) -> AnyError {
 }
 
 /// The tables whose rows this slice exports or reads.
-const EXPORTED_TABLES: [TableId; 18] = [
+const EXPORTED_TABLES: [TableId; 27] = [
     TableId::Meta,
     TableId::Wallet,
     TableId::Accounts,
@@ -559,6 +559,15 @@ const EXPORTED_TABLES: [TableId; 18] = [
     TableId::History,
     TableId::UnminedInputs,
     TableId::Tickets,
+    TableId::Credits,
+    TableId::CreditsInvalidated,
+    TableId::Unspent,
+    TableId::UnminedCredits,
+    TableId::Debits,
+    TableId::DebitsInvalidated,
+    TableId::Balances,
+    TableId::BalanceHeights,
+    TableId::AcctHistory,
 ];
 
 /// Writes the logical export of the wallet in `tx` (one snapshot,
@@ -669,7 +678,9 @@ pub fn export(
                 None => Vec::new(),
             },
             name @ ("chain" | "blocks" | "headers" | "cfilters" | "txs" | "unpublished"
-            | "uinputs" | "tickets") => txstore.remove(name).unwrap_or_default(),
+            | "credits" | "debits" | "ucredits" | "uinputs" | "tickets") => {
+                txstore.remove(name).unwrap_or_default()
+            }
             "privcheck" => match (&mgr, opts.priv_pass) {
                 (Some(m), Some(pass)) if privcheck => {
                     privcheck_records(&mut r, m, pass, opts.acct_pass, &accounts, &addrs.priv_keys)?
@@ -1048,6 +1059,8 @@ fn derived_records(
     const MISSINGCF: usize = 2;
     const UTXOCOUNT: usize = 3;
     const ACCTPROPS: usize = 4;
+    const BALANCE: usize = 5;
+    const UNSPENTTICKET: usize = 6;
     const FAILED: usize = 7;
     let mut out = vec![(
         COIN,
@@ -1055,9 +1068,10 @@ fn derived_records(
     )];
     let mut failed_items = Vec::new();
     let store = TxStore::new(chain)?;
-    match store.main_chain_tip(r) {
-        Ok((_, h)) => out.push((TIPHEIGHT, vec![h.to_string()])),
-        Err(_) => failed_items.push("tipheight"),
+    let tip = store.main_chain_tip(r).ok();
+    match tip {
+        Some((_, h)) => out.push((TIPHEIGHT, vec![h.to_string()])),
+        None => failed_items.push("tipheight"),
     }
     out.push((
         MISSINGCF,
@@ -1086,6 +1100,50 @@ fn derived_records(
     }
     if failed {
         failed_items.push("acctprops");
+    }
+    // `AccountBalances` at minconf 0 and 1, in (account, minconf) order.
+    let mut balances = Vec::new();
+    let mut balance_failed = false;
+    for minconf in [0, 1] {
+        match store.account_balances(r, minconf) {
+            Ok(bs) => {
+                for b in bs {
+                    balances.push(((b.account, minconf), b));
+                }
+            }
+            Err(_) => balance_failed = true,
+        }
+    }
+    balances.sort_by_key(|(k, _)| *k);
+    for ((account, minconf), b) in balances {
+        out.push((
+            BALANCE,
+            vec![
+                vu(account),
+                minconf.to_string(),
+                b.immature_coinbase_rewards.to_string(),
+                b.immature_stake_generation.to_string(),
+                b.locked_by_tickets.to_string(),
+                b.spendable.to_string(),
+                b.total.to_string(),
+                b.voting_authority.to_string(),
+                b.unconfirmed.to_string(),
+            ],
+        ));
+    }
+    if balance_failed {
+        failed_items.push("balance");
+    }
+    // `UnspentTickets` at the tip, immature included.
+    if let Some((_, h)) = tip {
+        match store.unspent_tickets(r, h, true) {
+            Ok(hs) => {
+                let mut hs: Vec<String> = hs.iter().map(vh).collect();
+                hs.sort();
+                out.extend(hs.into_iter().map(|h| (UNSPENTTICKET, vec![h])));
+            }
+            Err(_) => failed_items.push("unspentticket"),
+        }
     }
     failed_items.sort_unstable();
     for item in failed_items {
@@ -1159,8 +1217,8 @@ fn be32(v: usize) -> [u8; 4] {
 }
 
 /// The transaction store's sections, by name: `[chain]`, `[blocks]`,
-/// `[headers]`, `[cfilters]`, `[txs]`, `[unpublished]`, `[uinputs]`,
-/// `[tickets]` (ADR-0001 sections 6.9 to 6.16), each record in the order
+/// `[headers]`, `[cfilters]`, `[txs]`, `[unpublished]`, `[credits]`,
+/// `[debits]`, `[ucredits]`, `[uinputs]`, `[tickets]` (ADR-0001 sections 6.9 to 6.16), each record in the order
 /// of section 7: dcrwallet's bucket rows as Go's exporter decodes them
 /// (`tools/oracle/internal/walletexport/txstore.go`), rendered from the
 /// rows ADR-0003 keeps.
@@ -1383,6 +1441,8 @@ fn txstore_records(
             .collect(),
     );
 
+    credit_records(tx, &block_of_height, &mut out)?;
+
     let mut tickets = Vec::new();
     for r in tx.iter::<Tickets>().map_err(store_err)? {
         tickets.push(vh(&r.map_err(store_err)?.0));
@@ -1544,4 +1604,165 @@ fn privcheck_records(
     // locking first keeps the order of Go's exporter.
     let _ = m.lock();
     Ok(out)
+}
+
+/// The hash of the main-chain block at `height`, which every credit and
+/// debit key's height names (Go's keys hold the block hash itself).
+fn block_hash_at(
+    blocks: &BTreeMap<u32, Hash32>,
+    height: u32,
+    what: &str,
+) -> Result<String, AnyError> {
+    blocks.get(&height).map(vh).ok_or_else(|| {
+        not_exported(&format!(
+            "{what} at height {height}, where no main-chain block stands,"
+        ))
+    })
+}
+
+/// `[credits]`, `[debits]` and `[ucredits]` (ADR-0001 sections 6.13 to
+/// 6.15), as Go's exporter decodes `c` and `ic`, `d` and `id`, and `mc`:
+/// records ordered by (transaction, height, block, index, invalidated), a
+/// credit's `utxo` set when the unspent output of its outpoint names its
+/// height. The store's credits always carry their script location and
+/// account (dcrwallet writes the account bit on every credit, QK-0078), and
+/// an unmined credit never has the spent bit set.
+fn credit_records(
+    tx: &ReadTx,
+    blocks: &BTreeMap<u32, Hash32>,
+    out: &mut BTreeMap<&'static str, Vec<Record>>,
+) -> Result<(), AnyError> {
+    type Key = (String, u32, String, u32, bool);
+    let mut credits: Vec<(Key, Vec<String>)> = Vec::new();
+    for inv in [false, true] {
+        let rows: Vec<(purse_store::CreditKey, purse_store::CreditRow)> = if inv {
+            tx.iter::<CreditsInvalidated>()
+                .map_err(store_err)?
+                .collect::<Result<_, _>>()
+                .map_err(store_err)?
+        } else {
+            tx.iter::<Credits>()
+                .map_err(store_err)?
+                .collect::<Result<_, _>>()
+                .map_err(store_err)?
+        };
+        for (k, c) in rows {
+            let block = block_hash_at(blocks, k.height, "a credit")?;
+            let (sptx, spheight, spblock, spindex) = match c.spender {
+                Some(s) => (
+                    vh(&s.hash),
+                    vu(s.height),
+                    block_hash_at(blocks, s.height, "a credit's spender")?,
+                    vu(s.input),
+                ),
+                None => (
+                    ABSENT.to_owned(),
+                    ABSENT.to_owned(),
+                    ABSENT.to_owned(),
+                    ABSENT.to_owned(),
+                ),
+            };
+            let utxo = !inv
+                && tx
+                    .get::<Unspent>(&k.outpoint())
+                    .map_err(store_err)?
+                    .is_some_and(|u| u.height == k.height);
+            let key = (vh(&k.hash), k.height, block.clone(), k.index, inv);
+            credits.push((
+                key,
+                vec![
+                    vh(&k.hash),
+                    vu(k.height),
+                    block,
+                    vu(k.index),
+                    vb(inv),
+                    c.amount.to_string(),
+                    vb(c.flags.change),
+                    vu(c.flags.tag as u8),
+                    vb(c.flags.coinbase),
+                    vb(c.flags.expiry),
+                    vb(c.spender.is_some()),
+                    sptx,
+                    spheight,
+                    spblock,
+                    spindex,
+                    vu(c.script.class),
+                    vu(c.script.offset),
+                    vu(c.script.len),
+                    vu(c.account),
+                    vb(utxo),
+                ],
+            ));
+        }
+    }
+    credits.sort_by(|a, b| a.0.cmp(&b.0));
+    out.insert(
+        "credits",
+        credits.into_iter().map(|(_, v)| (0, v)).collect(),
+    );
+
+    let mut debits: Vec<(Key, Vec<String>)> = Vec::new();
+    for inv in [false, true] {
+        let rows: Vec<(purse_store::CreditKey, purse_store::DebitRow)> = if inv {
+            tx.iter::<DebitsInvalidated>()
+                .map_err(store_err)?
+                .collect::<Result<_, _>>()
+                .map_err(store_err)?
+        } else {
+            tx.iter::<Debits>()
+                .map_err(store_err)?
+                .collect::<Result<_, _>>()
+                .map_err(store_err)?
+        };
+        for (k, d) in rows {
+            let block = block_hash_at(blocks, k.height, "a debit")?;
+            let crblock = block_hash_at(blocks, d.credit.height, "a debit's credit")?;
+            let key = (vh(&k.hash), k.height, block.clone(), k.index, inv);
+            debits.push((
+                key,
+                vec![
+                    vh(&k.hash),
+                    vu(k.height),
+                    block,
+                    vu(k.index),
+                    vb(inv),
+                    d.amount.to_string(),
+                    vh(&d.credit.hash),
+                    vu(d.credit.height),
+                    crblock,
+                    vu(d.credit.index),
+                ],
+            ));
+        }
+    }
+    debits.sort_by(|a, b| a.0.cmp(&b.0));
+    out.insert("debits", debits.into_iter().map(|(_, v)| (0, v)).collect());
+
+    let mut ucredits: Vec<((String, u32), Vec<String>)> = Vec::new();
+    for r in tx.iter::<UnminedCredits>().map_err(store_err)? {
+        let (op, m) = r.map_err(store_err)?;
+        ucredits.push((
+            (vh(&op.hash), op.index),
+            vec![
+                vh(&op.hash),
+                vu(op.index),
+                m.amount.to_string(),
+                vb(m.flags.change),
+                vu(m.flags.tag as u8),
+                vb(m.flags.coinbase),
+                vb(m.flags.expiry),
+                vb(false),
+                vu(m.script.class),
+                vu(m.script.offset),
+                vu(m.script.len),
+                vu(m.account),
+            ],
+        ));
+    }
+    ucredits.sort_by(|a, b| a.0.cmp(&b.0));
+    out.insert(
+        "ucredits",
+        ucredits.into_iter().map(|(_, v)| (0, v)).collect(),
+    );
+    Ok(())
 }

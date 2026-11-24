@@ -427,29 +427,21 @@ impl<S: TxRead + ?Sized> TxRead for &mut S {
     }
 }
 
-/// The tables the later slices fill (module documentation, "Credit-dependent
-/// steps"). No operation of this slice writes them.
-pub const LATER_TABLES: [TableId; 13] = [
-    TableId::Credits,
-    TableId::CreditsInvalidated,
-    TableId::Unspent,
-    TableId::UnminedCredits,
-    TableId::Debits,
-    TableId::DebitsInvalidated,
+/// The tables the next slice fills (module documentation, "The next
+/// slice"): the ticket commitments and the multisig outputs. No operation
+/// of this crate writes them.
+pub const LATER_TABLES: [TableId; 4] = [
     TableId::Commitments,
     TableId::CommitmentsUnspent,
     TableId::MultisigOuts,
     TableId::MultisigUnspent,
-    TableId::Balances,
-    TableId::BalanceHeights,
-    TableId::AcctHistory,
 ];
 
-/// The guard of the credit-dependent steps: an error of kind `Bug` naming
-/// `step` when any of `tables` holds a row, which only a write outside
-/// this module can have put there. One emptiness check per table, where
-/// Go makes one lookup per input or output; both find nothing in every
-/// store the first slice writes.
+/// The guard of the steps that read the next slice's tables: an error of
+/// kind `Bug` naming `step` when any of `tables` holds a row, which only a
+/// write outside this module can have put there. One emptiness check per
+/// table, where Go makes one lookup per input or output; both find nothing
+/// in every store this crate writes.
 pub(crate) fn guard(
     r: &mut (impl TxRead + ?Sized),
     step: &str,
@@ -476,13 +468,17 @@ pub(crate) fn store_err(err: purse_store::Error) -> AnyError {
     err.to_purse_error().into()
 }
 
-/// What Go's `Store` holds that the first slice reads: the network's
-/// genesis block, its header and its committed filter.
+/// What Go's `Store` holds that this crate reads: the network's genesis
+/// block, its header and its committed filter, and the maturities the
+/// balance and ticket queries apply.
 #[derive(Clone, Debug)]
 pub struct TxStore {
     genesis_hash: Hash32,
     genesis_header: HeaderBytes,
     genesis_filter: CFilterRow,
+    pub(crate) coinbase_maturity: i32,
+    pub(crate) sstx_change_maturity: i32,
+    pub(crate) ticket_maturity: i32,
 }
 
 /// `genesisPrevScripter` (`upgrades.go:1271-1277`): the genesis block
@@ -523,6 +519,9 @@ impl TxStore {
                 key: blockcf2::key(&block.header.merkle_root),
                 filter: filter.bytes().to_vec(),
             },
+            coinbase_maturity: i32::from(params.coinbase_maturity),
+            sstx_change_maturity: i32::from(params.sstx_change_maturity),
+            ticket_maturity: i32::from(params.ticket_maturity),
         })
     }
 

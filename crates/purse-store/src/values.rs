@@ -178,8 +178,9 @@ pub struct ScriptLoc {
     /// Length of the script.
     pub len: u16,
     /// The script's class, a code the transaction store logic defines
-    /// (the spike used 1 for P2PKH, possibly stake-tagged, and 0 for any
-    /// other script).
+    /// (`purse-udb` writes dcrwallet's script type code, 1 to 8 as
+    /// `pkScriptType` assigns them; the spike used 1 for P2PKH, possibly
+    /// stake-tagged, and 0 for any other script).
     pub class: u8,
 }
 

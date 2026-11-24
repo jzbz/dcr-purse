@@ -13,14 +13,13 @@ use dcroxide_gcs::FilterV2;
 use dcroxide_gcs::blockcf2;
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
-    BirthState, BlockRow, Blocks, CFilterRow, ChainBlock, Hash32, HeaderBytes, Height, TableId,
-    WriteTx,
+    BirthState, BlockRow, Blocks, CFilterRow, ChainBlock, Hash32, HeaderBytes, Height, WriteTx,
 };
 
 use super::record::{
     BlockMeta, display, header_height, header_merkle_root, header_time, header_vote_bits,
 };
-use super::store::{TxRead, TxStore, guard, store_err, walk_keys};
+use super::store::{TxRead, TxStore, store_err, walk_keys};
 
 /// A main-chain committed filter (`BlockCFilter`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,16 +127,6 @@ fn birthday(r: &mut (impl TxRead + ?Sized)) -> Result<Birthday, AnyError> {
     })
 }
 
-/// The tables stake (in)validation reads and moves rows between in Go.
-const STAKE_VALIDATION_TABLES: [TableId; 6] = [
-    TableId::Credits,
-    TableId::CreditsInvalidated,
-    TableId::Unspent,
-    TableId::Debits,
-    TableId::DebitsInvalidated,
-    TableId::Balances,
-];
-
 impl TxStore {
     /// `MainChainTip`: the tip block's hash and height.
     ///
@@ -171,8 +160,8 @@ impl TxStore {
     /// `block already recorded in main chain`, when the main-chain block at
     /// the header's height is this one, `Invalid` otherwise; the wrong
     /// height: `Invalid`. A missing filter at or above the birthday height:
-    /// `Invalid`. The stake (in)validation of a tip with credit rows: `Bug`
-    /// (the guard). The store's.
+    /// `Invalid`. The stake (in)validation's (`stake_move`). The
+    /// store's.
     pub fn extend_main_chain(
         &self,
         tx: &mut WriteTx<'_>,
@@ -237,15 +226,18 @@ impl TxStore {
         .map_err(store_err)?;
         if let Some((height, row)) = validity {
             tx.put::<Blocks>(&Height(height), &row).map_err(store_err)?;
+            if row.wallet_txs != 0 {
+                self.stake_move(tx, height, &row.hash, row.invalid)?;
+            }
         }
         Ok(())
     }
 
     /// `stakeValidate` and `stakeInvalidate` (`txmined.go:631-885`): the
     /// row of the block at `height` marked invalidated or not, to be written
-    /// by the caller, or `None` when the mark does not change. Moving its
-    /// regular transactions' credits and debits is the credit slice's; here
-    /// the guard stands where Go reads them.
+    /// by the caller, or `None` when the mark does not change. The caller
+    /// then moves the block's regular transactions' credits and debits
+    /// (`stake_move`) when it has wallet transactions.
     fn stake_validity(
         &self,
         tx: &mut WriteTx<'_>,
@@ -262,16 +254,8 @@ impl TxStore {
         if row.invalid == invalid {
             return Ok(None);
         }
-        if row.wallet_txs != 0 {
-            guard(
-                tx,
-                if invalid {
-                    "stakeInvalidate"
-                } else {
-                    "stakeValidate"
-                },
-                &STAKE_VALIDATION_TABLES,
-            )?;
+        if !invalid && row.wallet_txs != 0 {
+            self.stake_validate_check(tx, height)?;
         }
         row.invalid = invalid;
         Ok(Some((height, row)))

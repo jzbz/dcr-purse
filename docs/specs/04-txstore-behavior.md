@@ -419,7 +419,7 @@ Common preamble:
 
 1. If no entry exists in invalidated credits for (tx, i, block): continue.
 2. Delete it from invalidated credits; put the same key/value into credits.
-3. Put an unspent entry for (tx, i) with the block.
+3. Put an unspent entry for (tx, i) with the block (unconditional, even for a credit whose spent bit is set: a stake transaction's live debit of it leaves it so, QK-0785).
 4. `minedBalance += output.Value`.
 
 `stakeValidate`, debit loop, for each input index `i` ascending:
@@ -1330,7 +1330,7 @@ Each item states what the Go does, with a citation, and what a port must decide.
 
 **Q-25. `AddCredit` on an invalidated block overwrites.** No existence check against `ic` or `c` (`txmined.go:1400-1428`); repeated calls rewrite the same value.
 
-**Q-26. `spendCredit` fabricates a credit when none exists.** A missing credit becomes a 94-byte zero-amount, spent value (`wallet/udb/txdb.go:942-954`). Reachable only through inconsistent state (for example Q-12 followed by re-validation).
+**Q-26. `spendCredit` fabricates a credit when none exists.** A missing credit becomes a 94-byte zero-amount, spent value (`wallet/udb/txdb.go:942-954`). Reachable only through inconsistent state: a spender recorded in a block below its funding transaction's, whose block is rolled back, then the spender's block disapproved and approved again (QK-0101, confirmed by the oracle on 2026-11-23). *Corrected 2026-11-23 (ADR-0012 Rule 12):* Q-12 followed by re-validation does not reach it when A precedes B, as Q-12 states: `stakeValidate` handles each transaction's credits before its debits, so A's credit is back in `c` when B's debit loop spends it (QK-0735; the oracle run of Q-12's sequence, rolled back and approved again, ends with both sides' rows equal).
 
 **Q-27. `UnspentOutput` ignores unmined spends,** and `outputCreditInfo` prefers an unmined credit over a mined one even when a block is supplied (`txmined.go:2248-2256`, `2537-2553`). Reproduce.
 

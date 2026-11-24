@@ -13,23 +13,178 @@ use std::ops::Bound;
 use dcroxide_wire::MsgTx;
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
-    Blocks, Hash32, Height, History, HistoryKey, TableId, Tickets, TxMined, TxMinedRow, TxRecKey,
-    TxUnmined, UnminedInputs,
+    Blocks, CreditKey, Credits, Debits, Hash32, Height, History, HistoryKey, Outpoint, TableId,
+    Tickets, TxMined, TxMinedRow, TxRecKey, TxUnmined, UnminedCredits, UnminedInputs, Unspent,
 };
 
 use super::chain::block_at;
-use super::record::{Block, BlockMeta, Ticket, TicketDetails, TxDetails, TxRecord, display};
-use super::store::{TxRead, TxStore, guard, store_err, walk};
+use super::credit::tag_opcode;
+use super::record::{
+    Block, BlockMeta, CreditRecord, DebitRecord, Ticket, TicketDetails, TxDetails, TxRecord,
+    display,
+};
+use super::store::{TxRead, TxStore, store_err, walk};
 use super::unmined::{latest_mined, latest_mined_height};
 
-/// The tables the details of a record read in Go: its credits and debits
-/// (mined), or the unspent and unmined credits its inputs spend (unmined).
-const DETAILS_TABLES: [TableId; 4] = [
-    TableId::Credits,
-    TableId::Debits,
-    TableId::Unspent,
-    TableId::UnminedCredits,
-];
+/// The bounds of the credit or debit keys of the mined record (`hash`,
+/// `height`).
+fn record_bounds(hash: &Hash32, height: u32) -> (CreditKey, CreditKey) {
+    (
+        CreditKey {
+            hash: *hash,
+            height,
+            index: 0,
+        },
+        CreditKey {
+            hash: *hash,
+            height,
+            index: u32::MAX,
+        },
+    )
+}
+
+/// The credit and debit lists of the mined record (`hash`, `height`) of
+/// `msg` (`minedTxDetails`, `txquery.go:58-108`): a credit not spent by a
+/// mined transaction is spent when an unmined one spends it.
+fn mined_lists(
+    r: &mut (impl TxRead + ?Sized),
+    hash: &Hash32,
+    height: u32,
+    msg: &MsgTx,
+) -> Result<(Vec<CreditRecord>, Vec<DebitRecord>), AnyError> {
+    let (lo, hi) = record_bounds(hash, height);
+    let mut credits = Vec::new();
+    for (k, c) in r
+        .rows::<Credits>(
+            Bound::Included(&lo),
+            Bound::Included(&hi),
+            false,
+            usize::MAX,
+        )
+        .map_err(store_err)?
+    {
+        if usize::try_from(k.index).map_or(true, |i| i >= msg.tx_out.len()) {
+            return Err(e!(Kind::Io, "saved credit index exceeds number of outputs").into());
+        }
+        let spent = c.spender.is_some()
+            || r.contains::<UnminedInputs>(&k.outpoint())
+                .map_err(store_err)?;
+        credits.push(CreditRecord {
+            index: k.index,
+            amount: c.amount,
+            spent,
+            change: c.flags.change,
+            opcode: tag_opcode(c.flags.tag),
+            coinbase: c.flags.coinbase,
+            expiry: c.flags.expiry,
+        });
+    }
+    let mut debits = Vec::new();
+    for (k, d) in r
+        .rows::<Debits>(
+            Bound::Included(&lo),
+            Bound::Included(&hi),
+            false,
+            usize::MAX,
+        )
+        .map_err(store_err)?
+    {
+        if usize::try_from(k.index).map_or(true, |i| i >= msg.tx_in.len()) {
+            return Err(e!(Kind::Io, "saved debit index exceeds number of inputs").into());
+        }
+        debits.push(DebitRecord {
+            index: k.index,
+            amount: d.amount,
+        });
+    }
+    Ok((credits, debits))
+}
+
+/// The credit and debit lists of the unmined record `hash` of `msg`
+/// (`unminedTxDetails`, `txquery.go:111-178`): the unmined credits, with
+/// no opcode and no coinbase flag (QK-0083), spent when an unmined
+/// transaction spends them; a debit for each input spending an unspent
+/// output or an unmined credit.
+fn unmined_lists(
+    r: &mut (impl TxRead + ?Sized),
+    hash: &Hash32,
+    msg: &MsgTx,
+) -> Result<(Vec<CreditRecord>, Vec<DebitRecord>), AnyError> {
+    let lo = Outpoint {
+        hash: *hash,
+        index: 0,
+    };
+    let hi = Outpoint {
+        hash: *hash,
+        index: u32::MAX,
+    };
+    let mut credits = Vec::new();
+    for (k, m) in r
+        .rows::<UnminedCredits>(
+            Bound::Included(&lo),
+            Bound::Included(&hi),
+            false,
+            usize::MAX,
+        )
+        .map_err(store_err)?
+    {
+        if usize::try_from(k.index).map_or(true, |i| i >= msg.tx_out.len()) {
+            return Err(e!(
+                Kind::Io,
+                format!(
+                    "credit output index {} does not exist for tx {}",
+                    k.index,
+                    display(hash)
+                )
+            )
+            .into());
+        }
+        credits.push(CreditRecord {
+            index: k.index,
+            amount: m.amount,
+            spent: r.contains::<UnminedInputs>(&k).map_err(store_err)?,
+            change: m.flags.change,
+            opcode: 0,
+            coinbase: false,
+            expiry: m.flags.expiry,
+        });
+    }
+    let mut debits = Vec::new();
+    for (i, input) in msg.tx_in.iter().enumerate() {
+        let op = Outpoint {
+            hash: Hash32(input.previous_out_point.hash.0),
+            index: input.previous_out_point.index,
+        };
+        let amount = match r.get::<Unspent>(&op).map_err(store_err)? {
+            Some(u) => u.amount,
+            None => match r.get::<UnminedCredits>(&op).map_err(store_err)? {
+                Some(m) => m.amount,
+                None => continue,
+            },
+        };
+        debits.push(DebitRecord {
+            index: u32::try_from(i).unwrap_or(u32::MAX),
+            amount,
+        });
+    }
+    Ok((credits, debits))
+}
+
+/// The details of the unmined record `hash`.
+fn unmined_details(
+    r: &mut (impl TxRead + ?Sized),
+    hash: &Hash32,
+    row: &purse_store::TxUnminedRow,
+) -> Result<TxDetails, AnyError> {
+    let record = TxRecord::stored(*hash, &row.tx, row.received)?;
+    let (credits, debits) = unmined_lists(r, hash, record.msg_tx())?;
+    Ok(TxDetails {
+        record,
+        block: BlockMeta::unmined(),
+        credits,
+        debits,
+    })
+}
 
 /// Go's `int32(^uint32(0) >> 1)`: a negative range bound.
 const MAX_HEIGHT: i32 = i32::MAX;
@@ -51,6 +206,7 @@ impl TxStore {
             )
             .into());
         };
+        let (credits, debits) = mined_lists(r, &key.hash, key.height, record.msg_tx())?;
         Ok(TxDetails {
             record,
             block: BlockMeta {
@@ -61,6 +217,8 @@ impl TxStore {
                 time: b.time,
                 vote_bits: 0,
             },
+            credits,
+            debits,
         })
     }
 
@@ -69,18 +227,14 @@ impl TxStore {
     /// # Errors
     ///
     /// No record: `NotExist`. A record that does not decode: `IO`. The
-    /// guard. The store's.
+    /// store's.
     pub fn tx_details(
         &self,
         r: &mut (impl TxRead + ?Sized),
         hash: &Hash32,
     ) -> Result<TxDetails, AnyError> {
-        guard(r, "TxDetails", &DETAILS_TABLES)?;
         if let Some(row) = r.get::<TxUnmined>(hash).map_err(store_err)? {
-            return Ok(TxDetails {
-                record: TxRecord::stored(*hash, &row.tx, row.received)?,
-                block: BlockMeta::unmined(),
-            });
+            return unmined_details(r, hash, &row);
         }
         match latest_mined(r, hash)? {
             Some((k, row)) => self.mined_details(r, &k, &row),
@@ -97,20 +251,16 @@ impl TxStore {
     ///
     /// # Errors
     ///
-    /// A record that does not decode: `IO`. The guard. The store's.
+    /// A record that does not decode: `IO`. The store's.
     pub fn unique_tx_details(
         &self,
         r: &mut (impl TxRead + ?Sized),
         hash: &Hash32,
         block: Option<&Block>,
     ) -> Result<Option<TxDetails>, AnyError> {
-        guard(r, "UniqueTxDetails", &DETAILS_TABLES)?;
         let Some(block) = block else {
             return match r.get::<TxUnmined>(hash).map_err(store_err)? {
-                Some(row) => Ok(Some(TxDetails {
-                    record: TxRecord::stored(*hash, &row.tx, row.received)?,
-                    block: BlockMeta::unmined(),
-                })),
+                Some(row) => unmined_details(r, hash, &row).map(Some),
                 None => Ok(None),
             };
         };
@@ -227,7 +377,7 @@ impl TxStore {
     /// # Errors
     ///
     /// `f`'s. A record or block row missing, or a record not decoding:
-    /// `IO`. The guard. The store's.
+    /// `IO`. The store's.
     pub fn range_transactions(
         &self,
         r: &mut (impl TxRead + ?Sized),
@@ -235,7 +385,6 @@ impl TxStore {
         end: i32,
         mut f: impl FnMut(&[TxDetails]) -> Result<bool, AnyError>,
     ) -> Result<(), AnyError> {
-        guard(r, "RangeTransactions", &DETAILS_TABLES)?;
         let mut added_unmined = false;
         if begin < 0 {
             if self.range_unmined(r, &mut f)? {
@@ -314,8 +463,10 @@ impl TxStore {
                 )
                 .into());
             };
+            let record = TxRecord::stored(txh, &row.tx, row.received)?;
+            let (credits, debits) = mined_lists(r, &txh, h, record.msg_tx())?;
             details.push(TxDetails {
-                record: TxRecord::stored(txh, &row.tx, row.received)?,
+                record,
                 block: BlockMeta {
                     block: Block {
                         hash: b.hash,
@@ -324,6 +475,8 @@ impl TxStore {
                     time: b.time,
                     vote_bits: 0,
                 },
+                credits,
+                debits,
             });
         }
         f(&details)
@@ -344,10 +497,7 @@ impl TxStore {
         }
         let mut details = Vec::with_capacity(rows.len());
         for (hash, row) in rows {
-            details.push(TxDetails {
-                record: TxRecord::stored(hash, &row.tx, row.received)?,
-                block: BlockMeta::unmined(),
-            });
+            details.push(unmined_details(r, &hash, &row)?);
         }
         f(&details)
     }
@@ -408,9 +558,8 @@ impl TxStore {
     /// # Errors
     ///
     /// A record that does not decode, or a block row missing: `IO`. The
-    /// guard. The store's.
+    /// store's.
     pub fn iterate_tickets(&self, r: &mut (impl TxRead + ?Sized)) -> Result<Vec<Ticket>, AnyError> {
-        guard(r, "TicketIterator.Next", &[TableId::Credits])?;
         let hashes = r
             .keys::<Tickets>(Bound::Unbounded, Bound::Unbounded, false, usize::MAX)
             .map_err(store_err)?;
@@ -433,7 +582,7 @@ impl TxStore {
                         b.hash
                     }
                 };
-                let spender = self.output0_spender(r, &hash)?;
+                let spender = self.output0_spender(r, &hash, Some(k.height))?;
                 out.push(Ticket {
                     record: TxRecord::stored(hash, &row.tx, row.received)?,
                     block: Block {
@@ -456,13 +605,28 @@ impl TxStore {
         Ok(out)
     }
 
-    /// The unmined spender of output 0 of `hash`, zero when none.
+    /// The spender of output 0 of the ticket `hash` mined at `height`
+    /// (`None`: unmined), zero when none: with a credit for the output in
+    /// that block, its mined spender if spent and zero if not (an unmined
+    /// spender is not looked at, QK-0091); without one, the unmined
+    /// spender.
     fn output0_spender(
         &self,
         r: &mut (impl TxRead + ?Sized),
         hash: &Hash32,
+        height: Option<u32>,
     ) -> Result<Hash32, AnyError> {
-        let k = purse_store::Outpoint {
+        if let Some(height) = height {
+            let ck = CreditKey {
+                hash: *hash,
+                height,
+                index: 0,
+            };
+            if let Some(c) = r.get::<Credits>(&ck).map_err(store_err)? {
+                return Ok(c.spender.map(|s| s.hash).unwrap_or_default());
+            }
+        }
+        let k = Outpoint {
             hash: *hash,
             index: 0,
         };
@@ -477,7 +641,7 @@ impl TxStore {
     ///
     /// # Errors
     ///
-    /// The spender's details' errors other than `NotExist`. The guard. The
+    /// The spender's details' errors other than `NotExist`. The
     /// store's.
     pub fn ticket_details(
         &self,
@@ -487,8 +651,8 @@ impl TxStore {
         if !dcroxide_stake::is_sstx(details.record.msg_tx()) {
             return Ok(None);
         }
-        guard(r, "TicketDetails", &[TableId::Credits])?;
-        let spender_hash = self.output0_spender(r, details.record.hash())?;
+        let height = u32::try_from(details.height()).ok();
+        let spender_hash = self.output0_spender(r, details.record.hash(), height)?;
         let spender = match self.tx_details(r, &spender_hash) {
             Ok(d) => Some(d),
             Err(err) if err.is_kind(Kind::NotExist) => None,
@@ -501,7 +665,7 @@ impl TxStore {
     }
 
     /// `UnspentOutputCount`: the number of unspent outputs (the length of
-    /// `unspent`, empty in the first slice).
+    /// `unspent`, outputs an unmined transaction spends included).
     ///
     /// # Errors
     ///

@@ -1,0 +1,2773 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-utxo",
+ "setup": {
+  "network": "simnet",
+  "seed": "3e3d3c3b3a393837363534333231302f2e2d2c2b2a29282726252423222120ff",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3434343434343434343434343434343434343434343434343434343434343434",
+  "clock": 1795300000
+ },
+ "ops": [
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+    "index": 7,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+    "index": 7,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+    "index": 7,
+    "tree": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+    "index": 7,
+    "tree": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "tx.build",
+   "label": "u1",
+   "expiry": 900,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 3
+     },
+     "value": 20000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 7000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     }
+    },
+    {
+     "value": 5000,
+     "script": "5121020000000000000000000000000000000000000000000000000000000000000001ae"
+    },
+    {
+     "value": 0,
+     "opreturn": "c0ffee"
+    },
+    {
+     "value": 4000,
+     "pay": {
+      "acct": 0,
+      "branch": 1,
+      "index": 1
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "u1"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 0,
+   "change": false,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 1,
+   "change": false,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 2,
+   "change": false,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 3,
+   "change": true,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.set_published",
+   "tx": "u1",
+   "published": false
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.set_published",
+   "tx": "u1",
+   "published": true
+  },
+  {
+   "op": "tx.build",
+   "label": "u2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "u1",
+      "index": 0
+     },
+     "value": 7000
+    },
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 1
+     },
+     "value": 100
+    },
+    {
+     "prev": {
+      "tx": "u1",
+      "index": 3
+     },
+     "value": 4000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 10000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     }
+    },
+    {
+     "value": 900,
+     "pay": {
+      "acct": 0,
+      "branch": 1,
+      "index": 3
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "u2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u2",
+   "index": 0,
+   "account": 1
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u2",
+   "index": 1,
+   "change": true,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u1"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": "b2"
+  },
+  {
+   "op": "tx.raw",
+   "label": "raw1",
+   "tx": "010000000133333333333333333333333333333333333333333333333333333333333333330500000000ffffffff0201000000000000000000016a05000000000000000000025100000000000000000001020000000000000000000000ffffffff00beef"
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "raw1"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "raw1",
+   "index": 1,
+   "account": 2
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "u1",
+   "block": "b1"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 9
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "u2",
+   "block": "b2"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "raw1",
+   "block": "b2"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": "b2"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": "b1"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u1",
+   "block": "b1"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": {
+    "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "height": 2,
+    "time": 1795300000,
+    "votebits": 1
+   }
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": {
+    "hash": "b2",
+    "height": -1,
+    "time": 0,
+    "votebits": 1
+   }
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "cb1",
+   "inputs": [
+    {
+     "prev": "coinbase",
+     "value": 60000,
+     "script": "0a0b0c0d"
+    }
+   ],
+   "outputs": [
+    {
+     "value": 50000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     }
+    },
+    {
+     "value": 10000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "cb1",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "cb1",
+   "index": 0,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "tk1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "u2",
+      "index": 1
+     },
+     "value": 900
+    }
+   ],
+   "outputs": [
+    {
+     "value": 800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 6
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 7
+      },
+      "amount": 900
+     }
+    },
+    {
+     "value": 50,
+     "pay": {
+      "acct": 0,
+      "branch": 1,
+      "index": 8
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "tk1",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk1",
+   "index": 0,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk1",
+   "index": 2,
+   "change": true,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "tx.build",
+   "label": "v1",
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300
+    },
+    {
+     "prev": {
+      "tx": "tk1",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 800
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b3"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 9
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "v1",
+   "index": 2,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "v1"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "v1",
+   "block": "b4"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "v1",
+   "block": "b4"
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 4,
+   "include_immature": true
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b5",
+   "votebits": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "tx.build",
+   "label": "u3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "cb1",
+      "index": 1
+     },
+     "value": 10000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 9000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 10
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "cb1",
+   "index": 1,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "u3",
+   "block": "b5"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u3",
+   "index": 0,
+   "account": 1,
+   "block": "b5"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u3",
+   "block": "b5"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b6",
+   "votebits": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u3",
+   "block": "b5"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.rollback",
+   "height": 6
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b6b",
+   "votebits": 1
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u3",
+   "block": "b5"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b7"
+  },
+  {
+   "op": "tx.build",
+   "label": "w1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 9
+     },
+     "value": 3000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 11
+     }
+    },
+    {
+     "value": 1500,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 12
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "w1",
+   "block": "b7"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "w1",
+   "index": 0,
+   "account": 0,
+   "block": "b7"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b8"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "w1",
+   "block": "b8"
+  },
+  {
+   "op": "store.rollback",
+   "height": 8
+  },
+  {
+   "op": "store.exists_tx_mined_or_unmined",
+   "tx": "w1"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "w1",
+   "index": 1,
+   "account": 0,
+   "block": "b7"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "w1",
+   "index": 1,
+   "account": 2
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "w1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "w1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.tx_details",
+   "tx": "w1"
+  },
+  {
+   "op": "store.rollback",
+   "height": 3
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "cb1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 0,
+    "tree": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "tk1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u3",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "w1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2",
+   "block": "b2"
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.rollback",
+   "height": 1
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.for_each_unspent_outpoint"
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 2
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u1",
+    "index": 3
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.exists_utxo",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.is_unspent_outpoint",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": true
+  },
+  {
+   "op": "store.unspent_output",
+   "outpoint": {
+    "tx": "raw1",
+    "index": 1
+   },
+   "include_mempool": false
+  },
+  {
+   "op": "store.previous_pk_scripts",
+   "tx": "u2"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  }
+ ]
+}

@@ -30,6 +30,9 @@
 //!   generated transaction store scripts (`tests/support/txgen.rs`,
 //!   `generate_txstore`, on every network, some with the chain sections in
 //!   digest mode).
+//! - `tests/data/txstore_credit_genvectors.txt`: the same for a fixed set
+//!   of generated transaction store scripts that draw the credit slice's
+//!   operations too (`generate_txstore_credits`).
 //!
 //! A Go record of kind `Panic` is matched by any Rust error
 //! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
@@ -55,12 +58,12 @@ use support::generator::{
     ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
     generate_watching_as,
 };
-use support::txgen::generate_txstore;
+use support::txgen::{generate_txstore, generate_txstore_credits};
 use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 1175;
+const ENTRIES: usize = 1945;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
@@ -95,6 +98,13 @@ const TX_SCRIPTS: usize = 24;
 const TX_ENTRIES: usize = 1134;
 /// The seed of the generated transaction store set.
 const TX_SEED: u64 = 0x5eed_f402_0000_0005;
+const TX_CREDIT_VECTORS: &str = "txstore_credit_genvectors.txt";
+/// The pinned number of generated transaction store credit scripts and of
+/// their result lines.
+const TX_CREDIT_SCRIPTS: usize = 16;
+const TX_CREDIT_ENTRIES: usize = 848;
+/// The seed of the generated transaction store credit set.
+const TX_CREDIT_SEED: u64 = 0x5eed_f402_0000_0006;
 
 /// One script's vector.
 struct Vector {
@@ -620,7 +630,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
     for l in [
         format!(
             "# Generated operation-script vectors of purse-udb's {} (records in",
-            if file == TX_VECTORS {
+            if file == TX_VECTORS || file == TX_CREDIT_VECTORS {
                 "transaction store"
             } else {
                 "address manager"
@@ -630,7 +640,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
         "#".to_owned(),
         format!(
             "# The scripts are tests/support/{}'s, from the fixed seed {seed:#x}",
-            if file == TX_VECTORS {
+            if file == TX_VECTORS || file == TX_CREDIT_VECTORS {
                 "txgen.rs"
             } else {
                 "generator.rs"
@@ -658,6 +668,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 WO_VECTORS => "regenerate_watching_only_vectors",
                 PASS_VECTORS => "regenerate_passphrase_vectors",
                 TX_VECTORS => "regenerate_txstore_vectors",
+                TX_CREDIT_VECTORS => "regenerate_txstore_credit_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -721,4 +732,59 @@ fn txstore_vectors_are_the_seeded_set() {
 #[ignore = "regenerates tests/data from the Go oracle"]
 fn regenerate_txstore_vectors() {
     regenerate_generated(TX_VECTORS, &txstore_set(), TX_SEED, "txstore_set");
+}
+
+/// The generated transaction store credit set: scripts 0 to 5 on regnet,
+/// testnet3 and mainnet (two each), the rest on simnet.
+fn txstore_credit_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(TX_CREDIT_SEED);
+    (0..TX_CREDIT_SCRIPTS)
+        .map(|id| {
+            let network = match id {
+                0 | 1 => "regnet",
+                2 | 3 => "testnet3",
+                4 | 5 => "mainnet",
+                _ => "simnet",
+            };
+            (
+                format!("txstore credit generated {id}"),
+                generate_txstore_credits(&mut rng, id, Some(network)),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_txstore_credit_vectors() {
+    replay_generated(TX_CREDIT_VECTORS, TX_CREDIT_ENTRIES, TX_CREDIT_SCRIPTS);
+}
+
+/// The transaction store credit vectors are the set the generator makes
+/// from the fixed seed.
+#[test]
+fn txstore_credit_vectors_are_the_seeded_set() {
+    let vectors = read_vector_file(TX_CREDIT_VECTORS, TX_CREDIT_ENTRIES);
+    let set = txstore_credit_set();
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(&set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// Regenerates the transaction store credit vectors from the oracle,
+/// checking that the Rust runner agrees with every record and export
+/// before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_txstore_credit_vectors() {
+    regenerate_generated(
+        TX_CREDIT_VECTORS,
+        &txstore_credit_set(),
+        TX_CREDIT_SEED,
+        "txstore_credit_set",
+    );
 }

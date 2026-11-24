@@ -91,7 +91,9 @@ the cancel case long before the send arrives.
 Confirmed earlier, by other work: QK-0086 and QK-0733 by the oracle's
 operation-script runner; QK-0729's error text (not its log line) by
 `purse-seed`'s differential (QK-0632); QK-0734 by the store spike's
-cross-check against dcrwallet's own `udb` (ADR-0003, Decision item 5);
+cross-check against dcrwallet's own `udb` (ADR-0003, Decision item 5),
+and on 2026-11-23 by the oracle with QK-0081, QK-0082 and QK-0736
+(`purse-udb`'s transaction store, `tests/oracle.rs`);
 QK-0737's transport buffering, measured with a grpc-go client
 (ADR-0015). Every other
 candidate is read from the source only.
@@ -464,7 +466,7 @@ noted.
 | QK-0303 | dcrwallet | medium | VSP fee transactions can pay below the relay fee (`wallet/wallet.go:4693-4731`) | require input ≥ fee + mining fee |
 | QK-0280 | dcrwallet | low | per-ticket treasury key policies are sent with raw-byte keys, malforming `payfee` (`wallet/vspticket.go:213-234`) | hex-encode as the RPC paths do |
 | QK-0291, QK-0542 | dcrwallet | low | vote-choice RPCs report success when the VSP was not updated (`wallet/vsp.go:297-304`) | return the failure |
-| QK-0734, QK-0081, QK-0082, QK-0735, QK-0736 | dcrwallet | medium | stake invalidation and rollback leave rows inconsistent: an outpoint mined and unmined at once is reported and counted twice (QK-0734, confirmed by the store spike's cross-check), invalidated rows are orphaned, a dangling unspent entry makes balance scans fail | report QK-0734 with its sequence; the others after an oracle run |
+| QK-0734, QK-0081, QK-0082, QK-0735, QK-0736 | dcrwallet | medium | stake invalidation and rollback leave rows inconsistent: an outpoint mined and unmined at once is reported and counted twice (QK-0734, confirmed by the store spike's cross-check), invalidated rows are orphaned, a dangling unspent entry makes balance scans fail (QK-0081, QK-0082 and QK-0736 confirmed by the oracle on 2026-11-23, QK-0734 too; QK-0735's first half is QK-0082 and its second half does not hold for the sequence run) | report QK-0734 with its sequence (`a_revalidated_transaction_also_unmined_is_counted_twice`), QK-0082 with its (`a_same_block_spend_chain_invalidated_leaves_no_dangling_unspent`), QK-0081 and QK-0736 with them |
 | QK-0231 | dcrwallet | medium | in RPC mode a reorg back onto a block without wallet transactions stalls the processed marker until a rescan (`wallet/chainntfns.go:160-166`) | treat a re-attached node as scanned |
 | QK-0447 | dcrwallet | medium | `ReadTimeout` of 10 s cancels POST handlers that run longer, such as `purchaseticket` (`internal/rpc/jsonrpc/server.go:95-110`); from net/http's source, not run | set no read timeout past the body |
 | QK-0178, QK-0220 | dcrwallet | medium | lock-order inversions and nested read transactions that can deadlock against a growing bbolt writer (`wallet/wallet.go:3379-3382`, `:5741-5799`) | one order; no nested views |

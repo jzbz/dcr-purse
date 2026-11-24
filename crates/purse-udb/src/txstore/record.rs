@@ -220,10 +220,37 @@ impl BlockMeta {
     }
 }
 
-/// Details of a recorded transaction (`TxDetails`): the record and its
-/// block. The credit and debit lists dcrwallet adds are always empty in
-/// the first slice, which records no credit and no debit, and are not
-/// represented.
+/// A credit as `TxDetails` lists it (`CreditRecord`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CreditRecord {
+    /// The output index.
+    pub index: u32,
+    /// The output's amount, in atoms.
+    pub amount: i64,
+    /// Spent by a mined transaction, or by an unmined one.
+    pub spent: bool,
+    /// Pays an internal-branch address.
+    pub change: bool,
+    /// The stake opcode tag (`OP_NOP10` for none); 0 for an unmined
+    /// credit, whose iterator Go leaves it unset (QK-0083).
+    pub opcode: u8,
+    /// From a coinbase; false for an unmined credit (QK-0083).
+    pub coinbase: bool,
+    /// The transaction has an expiry.
+    pub expiry: bool,
+}
+
+/// A debit as `TxDetails` lists it (`DebitRecord`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebitRecord {
+    /// The input index.
+    pub index: u32,
+    /// The amount of the credit it spends, in atoms.
+    pub amount: i64,
+}
+
+/// Details of a recorded transaction (`TxDetails`): the record, its block,
+/// its credits and its debits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxDetails {
     /// The record (never marked unpublished: Go's readers leave the flag
@@ -232,6 +259,12 @@ pub struct TxDetails {
     /// Its block: the mined block (with its time, and vote bits 0, as Go
     /// leaves them), or [`BlockMeta::unmined`].
     pub block: BlockMeta,
+    /// The credits, in output order.
+    pub credits: Vec<CreditRecord>,
+    /// The debits, in input order: for a mined record those recorded, for
+    /// an unmined one each input spending an unspent output or an unmined
+    /// credit (Go records no debit for an unmined transaction).
+    pub debits: Vec<DebitRecord>,
 }
 
 impl TxDetails {
@@ -239,6 +272,29 @@ impl TxDetails {
     pub fn height(&self) -> i32 {
         self.block.block.height
     }
+}
+
+/// An output the UTXO queries give (dcrwallet's `Credit`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Credit {
+    /// The output, with the tree Go derives from its stake tag (stake for
+    /// any tag but `opNonstake`).
+    pub outpoint: OutPoint,
+    /// Its block: the mined block's hash and height, with Go's zero time
+    /// and vote bits 0 (Go leaves them unset); for an unmined output,
+    /// [`BlockMeta::unmined`].
+    pub block: BlockMeta,
+    /// The amount, in atoms.
+    pub amount: i64,
+    /// The output's script.
+    pub pk_script: Vec<u8>,
+    /// When the wallet first saw the transaction (Unix seconds).
+    pub received: i64,
+    /// From a coinbase; false for an unmined output, whose credit Go reads
+    /// no coinbase flag from.
+    pub from_coinbase: bool,
+    /// The transaction has an expiry.
+    pub has_expiry: bool,
 }
 
 /// A ticket the store knows, as `TicketIterator.Next` yields it.

@@ -797,25 +797,6 @@ fn rust_setup(path: &Path, w: &Workload, chain: &ChainParams) -> (RustWallet, us
     )
 }
 
-/// `MsgTx.PkScriptLocs`: the offset of each output script in the full
-/// serialization.
-fn pk_script_locs(tx: &MsgTx) -> Vec<usize> {
-    let varint = |n: usize| match n {
-        0..=0xfc => 1,
-        0xfd..=0xffff => 3,
-        0x1_0000..=0xffff_ffff => 5,
-        _ => 9,
-    };
-    let mut off = 4 + varint(tx.tx_in.len()) + tx.tx_in.len() * 41 + varint(tx.tx_out.len());
-    let mut locs = Vec::with_capacity(tx.tx_out.len());
-    for o in &tx.tx_out {
-        off += 10 + varint(o.pk_script.len());
-        locs.push(off);
-        off += o.pk_script.len();
-    }
-    locs
-}
-
 fn bump(old: Option<BalanceRow>, amount: i64, sign: i64) -> Option<BalanceRow> {
     let o = old.unwrap_or_default();
     let row = BalanceRow {
@@ -938,7 +919,9 @@ fn process_tx(
             tx: bytes.to_vec(),
         },
     )?;
-    let locs = pk_script_locs(&msg);
+    // dcroxide's `MsgTx.PkScriptLocs` (the private copy this file kept
+    // before the dcroxide pin had it is gone).
+    let locs = msg.pk_script_locs();
     for (i, out) in msg.tx_out.iter().enumerate() {
         let (class, addrs) = stdscript::extract_addrs(out.version, &out.pk_script, &rw.chain);
         if class == ScriptType::NonStandard || out.value == 0 {

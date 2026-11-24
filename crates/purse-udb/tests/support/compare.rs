@@ -99,11 +99,29 @@ pub fn check_record(what: &str, g: &Value, r: &Value) {
 
 /// The lines of `section` under the masked observable profile, keeping
 /// only `types` when given.
+///
+/// In `[credits]` and `[debits]` the invalidated records of a detached
+/// block (one whose header is a `sideheader`) are left out: dcrwallet's
+/// `Rollback` leaves them in `ic` and `id` (QK-0081), dcr-purse deletes
+/// them (ADR-0003 Decision item 5; PARITY.md, `purse-udb`).
 fn masked_lines(ex: &Export, section: &str, types: Option<&[&str]>) -> Vec<String> {
     let s = ex.section(section).expect("section present");
+    let detached: std::collections::BTreeSet<&str> = if matches!(section, "credits" | "debits") {
+        let h = ex.section("headers").expect("[headers] present");
+        h.records_of("sideheader")
+            .filter_map(|r| h.value(r, "hash"))
+            .collect()
+    } else {
+        std::collections::BTreeSet::new()
+    };
     s.records
         .iter()
         .filter(|r| types.is_none_or(|t| t.contains(&s.types[r.ty].name.as_str())))
+        .filter(|r| {
+            detached.is_empty()
+                || s.value(r, "inv") != Some("1")
+                || s.value(r, "block").is_none_or(|b| !detached.contains(b))
+        })
         .map(|r| render_with(&s.types[r.ty], &r.values, Profile::MASKED.observable()))
         .collect()
 }

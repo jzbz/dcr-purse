@@ -14,9 +14,10 @@ use dcroxide_wire::{MsgTx, NO_EXPIRY_VALUE};
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
     Empty, Hash32, TableId, Tickets, TxMined, TxRecKey, TxUnmined, TxUnminedRow, UnminedInputs,
-    Unpublished, UnpublishedFlag, WriteTx,
+    Unpublished, WriteTx,
 };
 
+use super::credit::{del_ucredit, del_uinput, put_uinput, set_unpublished};
 use super::record::{TxRecord, canonical, display, io};
 use super::store::{TxRead, TxStore, guard, store_err};
 
@@ -31,12 +32,11 @@ pub struct PruneError {
     pub error: AnyError,
 }
 
-/// The tables `RemoveUnconfirmed` reads and changes in Go besides the
-/// unmined ones: the unmined credits of each output, a ticket's
-/// commitments, a vote's or revocation's commitment flags, the multisig
-/// record of each input.
-const REMOVE_TABLES: [TableId; 5] = [
-    TableId::UnminedCredits,
+/// The tables `RemoveUnconfirmed` reads and changes in Go that this crate
+/// does not maintain yet: a ticket's commitments, a vote's or revocation's
+/// commitment flags, the multisig record of each input (crate
+/// documentation, "The next slice").
+const REMOVE_TABLES: [TableId; 4] = [
     TableId::Commitments,
     TableId::CommitmentsUnspent,
     TableId::MultisigOuts,
@@ -185,16 +185,14 @@ impl TxStore {
         )
         .map_err(store_err)?;
         if rec.unpublished() {
-            tx.put::<Unpublished>(&hash, &UnpublishedFlag)
-                .map_err(store_err)?;
+            set_unpublished(tx, &hash, true)?;
         }
         let tx_type = dcroxide_stake::determine_tx_type(rec.msg_tx());
         for (i, input) in rec.msg_tx().tx_in.iter().enumerate() {
             if i == 0 && tx_type == TxType::SSGen {
                 continue;
             }
-            tx.put::<UnminedInputs>(&canonical(&input.previous_out_point), &hash)
-                .map_err(store_err)?;
+            put_uinput(tx, &canonical(&input.previous_out_point), &hash)?;
         }
         if tx_type == TxType::SStx {
             put_ticket(tx, &hash)?;
@@ -214,13 +212,7 @@ impl TxStore {
         hash: &Hash32,
         published: bool,
     ) -> Result<(), AnyError> {
-        if published {
-            tx.delete::<Unpublished>(hash).map_err(store_err)?;
-        } else {
-            tx.put::<Unpublished>(hash, &UnpublishedFlag)
-                .map_err(store_err)?;
-        }
-        Ok(())
+        set_unpublished(tx, hash, !published)
     }
 
     /// `RemoveUnconfirmed`: removes the unmined transaction `msg_tx`
@@ -266,8 +258,16 @@ impl TxStore {
                     }
                     continue;
                 }
-                // The output's unmined credit and a ticket's commitment are
-                // the credit slice's (guarded above).
+                // The output's unmined credit (a ticket's commitment is the
+                // next slice's, guarded above).
+                let k = purse_store::Outpoint {
+                    hash: top.hash,
+                    index: top.out,
+                };
+                del_ucredit(tx, &k)?;
+                let Some(top) = stack.last_mut() else {
+                    break;
+                };
                 top.out = top.out.saturating_add(1);
                 top.spender_done = false;
                 continue;
@@ -276,10 +276,9 @@ impl TxStore {
                 break;
             };
             for input in &done.tx.tx_in {
-                tx.delete::<UnminedInputs>(&canonical(&input.previous_out_point))
-                    .map_err(store_err)?;
+                del_uinput(tx, &canonical(&input.previous_out_point))?;
             }
-            tx.delete::<Unpublished>(&done.hash).map_err(store_err)?;
+            set_unpublished(tx, &done.hash, false)?;
             tx.delete::<TxUnmined>(&done.hash).map_err(store_err)?;
         }
         Ok(())

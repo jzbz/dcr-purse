@@ -41,6 +41,10 @@
   the dedicated-machine run (M2) is still owed before Phase 3's exit, and
   could move the commit rows, which are bound by the machine's sync time,
   not the several-fold ones. Nothing else in this record changes.
+- **Pending owner, 2026-11-23:** Decision item 5 says its divergences
+  show in nothing a client can read; the credit slice found one that does
+  (QUIRKS.md QK-0782), after the same block is connected again. Whether
+  item 5 and Open point 5 stand: the note of that date at item 5.
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -697,7 +701,7 @@ to allow it is Open point 4.
    | `unpublished` | tx hash | flag | `Unpublished`, `SetPublished` |
    | `history` | height BE, position BE | tx hash | `RangeTransactions` over wallet transactions only; the record is `tx_mined` at (hash, height) |
    | `acct_history` | account BE, height BE, position BE | tx hash | history by account (new): records with a live credit to, or debit from, the account |
-   | `credits` | credit key | amount, flags, account, script offset and length, script kind, spender | credits of `TxDetails`, `Spender` (`c`) |
+   | `credits` | credit key | amount, flags, account, script offset and length, script kind, spender *(2026-11-23: the script kind is dcrwallet's script type code, 1 to 8 as `pkScriptType` assigns them, in this row, `unspent` and `unmined_credits` alike, as the credit slice of `purse-udb`'s transaction store writes it; the layout is unchanged)* | credits of `TxDetails`, `Spender` (`c`) |
    | `credits_invalidated` | credit key | as `credits` | `ic` |
    | `unspent` | outpoint | height, account, amount, flags, balance class, script kind, script location | `UnspentOutputs`, `ForEachUnspentOutpoint`, `randomUTXO`, `MakeInputSource` (`u`) |
    | `unmined_credits` | outpoint | amount, flags, account, balance class, script kind and location | `mc` |
@@ -760,7 +764,10 @@ to allow it is Open point 4.
    reports it twice, both times as unmined (outputCreditInfo,
    txmined.go:2244, prefers the unmined credit), and both count in the
    balance; the keys hold that state and the cross-check compares it
-   (Open, "dcrwallet defects"). Two divergences, neither in what a client
+   (Open, "dcrwallet defects"; *2026-11-23, the credit slice:* confirmed
+   by the oracle and reproduced, QUIRKS.md QK-0734, pending owner whether
+   it is fixed under ADR-0012 Rule 7 instead, crate `txstore`, choice 10).
+   Two divergences, neither in what a client
    can read: `Rollback` deletes the invalidated rows of a detached block,
    which dcrwallet leaves under that block's hash where no code reads them
    (the logical export must then skip them, Open); and the spike deletes
@@ -768,6 +775,28 @@ to allow it is Open point 4.
    `getblockheader` returns a detached block's header from dcrwallet's
    `h` bucket, which is never pruned (internal/rpc/jsonrpc/methods.go:1222,
    wallet/wallet.go:821-829).
+   *Note, 2026-11-23 (the credit slice; pending owner):* the first
+   divergence is not invisible to clients in every case. dcrwallet's
+   `stakeValidate` (txmined.go:631-765) reads the invalidated rows of a
+   block by its hash, so when the same block is connected again, its
+   transaction recorded mined in it again and the block disapproved and
+   then approved, the rows `Rollback` left come back as live credits with
+   unspent outputs (QUIRKS.md QK-0782). The oracle confirms it on simnet
+   (`invalidated_credits_of_a_detached_block_do_not_come_back` in
+   `crates/purse-udb/tests/oracle.rs`): Go then answers an unspent output
+   count of 1, an account balance of 900 atoms and the old credit in
+   `TxDetails`, where dcr-purse answers none of them. In the wallet's own
+   flow the re-mined transaction's credits are added again
+   (`processTransactionRecord`, wallet/chainntfns.go:458, :593), under the
+   keys of the rows left, before a disapproval could move them back, so
+   the difference would remain only where the re-mined transaction records
+   fewer rows than before; that is read from the source and not run. The
+   premise "neither in what a client can read" therefore does not hold for
+   this sequence. Whether this item, and Open point 5's answer built on
+   it, stand is the project owner's to decide (crate `txstore`, choice 9;
+   PARITY.md, `purse-udb`, item (11)). Recommended: they stand; keeping
+   the rows would need the block hash in the credit key, which the schema
+   leaves out (Decision item 2).
 6. **Schema versioning, from the first release on.** `meta` carries the
    version. Opening checks it: a missing version or one newer than the
    build is refused with a typed error naming both (`Error::Version`; the
@@ -872,6 +901,14 @@ to allow it is Open point 4.
   3. a regular transaction of a block disapproved and never mined again
      keeps its mined record, so `InsertMemPoolTx` refuses it as already
      mined and the wallet cannot track it in the mempool again.
+
+  *2026-11-23, the credit slice:* all three were run against the oracle.
+  The first is QK-0734, reproduced, its disposition pending owner (crate
+  `txstore`, choice 10); the second is QK-0735, whose first half is
+  QK-0082 (fixed under ADR-0012 Rule 7) and whose second half does not
+  hold for the sequence run; the third is QK-0736, reproduced. The oracle
+  also found QK-0785 (a stake transaction spending a regular credit of its
+  own block: reproduced, pending owner, choice 11).
 - **Scale and platforms.** The largest wallet was 2.4 GiB (the 1m store
   after ingest); Windows and macOS, other file systems and spinning disks
   were not measured; neither was memory use, nor readers running against a
@@ -906,6 +943,9 @@ to allow it is Open point 4.
      decided, not implemented: the filters of detached blocks whose header
      states a height below the wallet's birthday are not to be kept;
      detached headers still are, ADR-0019.)*
+     *(2026-11-23, pending owner: QK-0782 shows a client-visible
+     difference from not keeping those rows; Decision item 5, note of that
+     date.)*
   6. *Compaction policy* **Decided as recommended (project owner, 2026-11-19).** (on backup, which compacts anyway, and on demand).
      Recommended: compact only through backup in 1.0.
   7. *Whether `addr_by_hash` stores public keys* **Decided as recommended (project owner, 2026-11-19).** (33 bytes per address)

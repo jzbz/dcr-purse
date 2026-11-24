@@ -57,6 +57,7 @@ const CHANGING: &[&str] = &[
     "store.set_published",
     "store.remove_unconfirmed",
     "store.prune_unmined",
+    "store.add_credit",
 ];
 
 /// The operations that return an error where Go panics, with the kinds
@@ -65,9 +66,15 @@ const CHANGING: &[&str] = &[
 /// more above the tip or below 0, `GetMainChainBlockHashes` from and
 /// `InsertMinedTx` into a block whose header is above the tip or
 /// detached, and `InsertMinedTx` of an unmined transaction into a
-/// stake-invalidated block (`Invalid`); `MainChainTip` with no tip, and
-/// `InsertMemPoolTx` of a vote or revocation whose double-spent input
-/// names a missing record (`IO`). `IO` is listed for the first three as
+/// stake-invalidated block (`Invalid`); `AddCredit` of a regular
+/// transaction whose block has no header or no block row at the header's
+/// height, or without a block for a transaction not recorded unmined
+/// (`Invalid`); `PreviousPkScripts` without a block, which Go ends by
+/// dereferencing the missing block (`Invalid`); `MainChainTip` with no
+/// tip, `InsertMemPoolTx` of a vote or revocation whose double-spent input
+/// names a missing record, `UnspentOutputs` and `UnspentOutput` with an
+/// output's record missing, and `UnspentTickets` with an unmined-inputs
+/// entry naming a spender with no unmined record (`IO`). `IO` is listed for the first three as
 /// well, for the missing or corrupt stored state at which Go's reads
 /// panic.
 const PANIC_STAND_INS: &[(&str, &[Kind])] = &[
@@ -79,6 +86,11 @@ const PANIC_STAND_INS: &[(&str, &[Kind])] = &[
     ("store.insert_mined_tx", &[Kind::Invalid, Kind::Io]),
     ("store.main_chain_tip", &[Kind::Io]),
     ("store.insert_mem_pool_tx", &[Kind::Io]),
+    ("store.add_credit", &[Kind::Invalid, Kind::Io]),
+    ("store.previous_pk_scripts", &[Kind::Invalid]),
+    ("store.unspent_outputs", &[Kind::Io]),
+    ("store.unspent_output", &[Kind::Io]),
+    ("store.unspent_tickets", &[Kind::Io]),
 ];
 
 /// A script fault when `op` may not tolerate one of `kinds`: a kind of an

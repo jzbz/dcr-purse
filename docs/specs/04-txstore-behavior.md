@@ -1452,7 +1452,7 @@ The store should be a thin struct holding chain parameters and a handle to the a
 
 ## 13. Open questions
 
-1. **D-1: scope of dead code.** `IsUnspentOutpoint`, `PreviousPkScripts`, the debit branch of `moveMinedTx`, the `OP_TADD` branches and the unreachable error paths have no production effect. Recommendation: do not port Q-1 and Q-2; confirm no out-of-tree consumer of the Go package API matters (the Rust project exposes RPC, not the Go API).
+1. **D-1: scope of dead code.** `IsUnspentOutpoint`, `PreviousPkScripts`, the debit branch of `moveMinedTx`, the `OP_TADD` branches and the unreachable error paths have no production effect. Recommendation: do not port Q-1 and Q-2; confirm no out-of-tree consumer of the Go package API matters (the Rust project exposes RPC, not the Go API). *Decided (project owner, 2026-11-24) for `IsUnspentOutpoint` and `PreviousPkScripts`: both stay ported as Go behaves, ported with `purse-udb`'s credit slice, QK-0088 and QK-0089 reproduced; nothing in dcrwallet calls either at the pin, and the question is revisited when a caller exists (crate `txstore` of `purse-udb`, choice 6).*
 2. **D-2: panics.** Whether the port keeps process-aborting behaviour for the 8.3 conditions or returns errors. Returning errors changes observable behaviour only for corrupted databases or caller bugs.
 3. **D-3: stake-invalidation defects (Q-5, Q-12).** Reproduce for byte parity with a Go-written database in the same state, or fix. Both are derived from reading the code; an oracle run (section 11, item 2) must confirm the exact post-state before deciding. If fixed, a database last written by the Go implementation in the broken state still has to be readable.
 4. **D-4: swallowed errors (Q-11, Q-28).** Parity or surface them.

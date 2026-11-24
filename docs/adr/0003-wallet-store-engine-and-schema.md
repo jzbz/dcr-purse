@@ -41,10 +41,18 @@
   the dedicated-machine run (M2) is still owed before Phase 3's exit, and
   could move the commit rows, which are bound by the machine's sync time,
   not the several-fold ones. Nothing else in this record changes.
-- **Pending owner, 2026-11-23:** Decision item 5 says its divergences
-  show in nothing a client can read; the credit slice found one that does
-  (QUIRKS.md QK-0782), after the same block is connected again. Whether
-  item 5 and Open point 5 stand: the note of that date at item 5.
+  *2026-11-24 (project owner): the dedicated-machine run (M2) is to be
+  made after the next transaction-store slice, so that input selection is
+  measured too, and not before (ADR-0014, addendum of that date). It has
+  not been made.*
+- **Raised 2026-11-23, decided 2026-11-24 (project owner):** Decision
+  item 5 says its divergences show in nothing a client can read; the
+  credit slice found one that does (QUIRKS.md QK-0782), after the same
+  block is connected again. Whether item 5 and Open point 5 stand: the
+  note of 2026-11-23 at item 5. *Decided (project owner, 2026-11-24):
+  both stand as recommended; `Rollback` deletes a detached block's
+  invalidated rows, and the client-visible difference QK-0782 records is
+  an accepted, recorded divergence (PARITY.md, `purse-udb`, item (11)).*
 - **Date:** 2026-11-19. Drafted before ADR-0013 and revised the same day
   after it, after the owner's statement that performance is a goal, and
   after an adversarial review of the spike; every measurement below is from
@@ -765,8 +773,9 @@ to allow it is Open point 4.
    txmined.go:2244, prefers the unmined credit), and both count in the
    balance; the keys hold that state and the cross-check compares it
    (Open, "dcrwallet defects"; *2026-11-23, the credit slice:* confirmed
-   by the oracle and reproduced, QUIRKS.md QK-0734, pending owner whether
-   it is fixed under ADR-0012 Rule 7 instead, crate `txstore`, choice 10).
+   by the oracle and reproduced, QUIRKS.md QK-0734; *2026-11-24 (project
+   owner):* to be fixed under ADR-0012 Rule 7 in the next transaction-store
+   slice and reproduced until then, crate `txstore`, choice 10).
    Two divergences, neither in what a client
    can read: `Rollback` deletes the invalidated rows of a detached block,
    which dcrwallet leaves under that block's hash where no code reads them
@@ -775,7 +784,7 @@ to allow it is Open point 4.
    `getblockheader` returns a detached block's header from dcrwallet's
    `h` bucket, which is never pruned (internal/rpc/jsonrpc/methods.go:1222,
    wallet/wallet.go:821-829).
-   *Note, 2026-11-23 (the credit slice; pending owner):* the first
+   *Note, 2026-11-23 (the credit slice; decided 2026-11-24, below):* the first
    divergence is not invisible to clients in every case. dcrwallet's
    `stakeValidate` (txmined.go:631-765) reads the invalidated rows of a
    block by its hash, so when the same block is connected again, its
@@ -796,7 +805,11 @@ to allow it is Open point 4.
    it, stand is the project owner's to decide (crate `txstore`, choice 9;
    PARITY.md, `purse-udb`, item (11)). Recommended: they stand; keeping
    the rows would need the block hash in the credit key, which the schema
-   leaves out (Decision item 2).
+   leaves out (Decision item 2). *Decided (project owner, 2026-11-24):
+   this item and Open point 5's answer stand; `Rollback` deletes a
+   detached block's invalidated rows, and the client-visible difference
+   QK-0782 records is an accepted, recorded divergence (PARITY.md,
+   `purse-udb`, item (11)).*
 6. **Schema versioning, from the first release on.** `meta` carries the
    version. Opening checks it: a missing version or one newer than the
    build is refused with a typed error naming both (`Error::Version`; the
@@ -903,12 +916,16 @@ to allow it is Open point 4.
      mined and the wallet cannot track it in the mempool again.
 
   *2026-11-23, the credit slice:* all three were run against the oracle.
-  The first is QK-0734, reproduced, its disposition pending owner (crate
-  `txstore`, choice 10); the second is QK-0735, whose first half is
+  The first is QK-0734, reproduced (crate `txstore`, choice 10); the
+  second is QK-0735, whose first half is
   QK-0082 (fixed under ADR-0012 Rule 7) and whose second half does not
   hold for the sequence run; the third is QK-0736, reproduced. The oracle
   also found QK-0785 (a stake transaction spending a regular credit of its
-  own block: reproduced, pending owner, choice 11).
+  own block: reproduced, choice 11). *Decided (project owner,
+  2026-11-24): QK-0734 is fixed under ADR-0012 Rule 7 in the next
+  transaction-store slice, with a PARITY.md line and Go's state shown
+  beside dcr-purse's, and is reproduced until then; QK-0785 stays
+  reproduced (Rule 1), since no consensus-valid chain reaches it.*
 - **Scale and platforms.** The largest wallet was 2.4 GiB (the 1m store
   after ingest); Windows and macOS, other file systems and spinning disks
   were not measured; neither was memory use, nor readers running against a
@@ -943,9 +960,11 @@ to allow it is Open point 4.
      decided, not implemented: the filters of detached blocks whose header
      states a height below the wallet's birthday are not to be kept;
      detached headers still are, ADR-0019.)*
-     *(2026-11-23, pending owner: QK-0782 shows a client-visible
-     difference from not keeping those rows; Decision item 5, note of that
-     date.)*
+     *(2026-11-23: QK-0782 shows a client-visible difference from not
+     keeping those rows; Decision item 5, note of that date.)* *(Decided,
+     project owner, 2026-11-24: this answer stands, and the difference is
+     an accepted, recorded divergence; Decision item 5, the note's dated
+     decision.)*
   6. *Compaction policy* **Decided as recommended (project owner, 2026-11-19).** (on backup, which compacts anyway, and on demand).
      Recommended: compact only through backup in 1.0.
   7. *Whether `addr_by_hash` stores public keys* **Decided as recommended (project owner, 2026-11-19).** (33 bytes per address)
@@ -1745,6 +1764,9 @@ the addendum of that date records them.*
   together with the Phase 1 run that is still owed. *Phase 1's was made
   on its own later on 2026-11-21 (ADR-0014, addendum "Phase 1's run of
   record"); this one stays owed (item 2 of the addendum below, M2).*
+  *2026-11-24 (project owner): it is to be made after the next
+  transaction-store slice, so that input selection is measured too, and
+  not before (ADR-0014, addendum of that date); not made.*
   The several-fold rows are far outside the noise seen here. The commit
   rows, which are bound by the machine's sync time, are the ones a
   dedicated run could move.
@@ -1791,7 +1813,10 @@ added to it.
      record is started until the owner says when and where (ADR-0014,
      addendum of 2026-11-21). The run has not been made. *Later on
      2026-11-21 the Phase 1 run was made on its own (ADR-0014, addendum
-     "Phase 1's run of record"); this one stays owed.*
+     "Phase 1's run of record"); this one stays owed.* *On 2026-11-24
+     the owner said when: after the next transaction-store slice, so that
+     input selection is measured too, and not before (ADR-0014, addendum
+     of that date). It has not been made.*
    - M3: the store is measured again when Phase 3 writes the transaction
      store, as part of Phase 3's exit, with the same test calling
      `purse-udb`'s transaction-store functions instead of its own
@@ -1811,7 +1836,8 @@ added to it.
    verify (ADR-0018 BK4, Phase 3); input selection itself, whose draws
    Phase 2 checks only as the set of outputs dcrwallet may choose
    (Phase 3); the dedicated-machine run (M2, before
-   Phase 3's exit, when the owner says); the measurement with the
+   Phase 3's exit, when the owner says; *2026-11-24: after the next
+   transaction-store slice, M2 above*); the measurement with the
    transaction store (M3, Phase 3's exit); the large model run and the
    seed sweep below (the nightly job of item 9, which does not exist); the
    fuzz soaks (before the store's PARITY row moves to pinned, item 9); the

@@ -297,7 +297,10 @@ store measured again with Phase 3's transaction store as part of Phase 3's
 exit. None of these runs has been made.* *Later on 2026-11-21 the
 Phase 1 run was made (ADR-0014, addendum "Phase 1's run of record");
 the store's dedicated-machine run and its measurement with Phase 3's
-transaction store are not made.*
+transaction store are not made.* *On 2026-11-24 the project owner said
+when the store's dedicated-machine run is made: after the next
+transaction-store slice, so that input selection is measured too, and not
+before (ADR-0014, addendum of that date). It has not been made.*
 
 ## What else the Phase 2 section lists
 
@@ -352,7 +355,9 @@ point of items 1 and 2 as recommended and closed Phase 2 on these terms
      Phase 1's, when and where the owner says (ADR-0014, addendum of
      2026-11-21); *Phase 1's was made on its own later on 2026-11-21
      (ADR-0014, addendum "Phase 1's run of record"); this one is not
-     made and stays owed, before Phase 3's exit;*
+     made and stays owed, before Phase 3's exit;* *on 2026-11-24 the
+     owner said when: after the next transaction-store slice, and not
+     before (ADR-0014, addendum of that date); not made;*
    - the measurement with the transaction store's own code (M3): Phase
      3's exit;
    - the large model run and the cursor conformance test's seed sweep:

@@ -112,14 +112,14 @@
 //! | `Store.UnspentOutputCount` | `unspent_output_count` | slice 1 (the length of `unspent`, ADR-0003, addendum "Schema version 1 as built") |
 //! | `Store.UnspentOutputs`, `UnspentOutput`, `ForEachUnspentOutpoint`, `ExistsUTXO` | `unspent_outputs`, `unspent_output`, `for_each_unspent_outpoint` (the callback returns a `Result`), `exists_utxo` | credit slice (`ExistsUTXO` returns a `Result`, ADR-0012 Rule 2(c)) |
 //! | `Store.RandomUTXO` | — | later, with input selection: its random stream and bbolt's cursor walk (spec 23 §5.6, Q-31) |
-//! | `Store.IsUnspentOutpoint` | `is_unspent_outpoint` | credit slice, as Go behaves (QK-0088 reproduced; spec 04 D-1 taken pending owner, [`txstore`] choice 6) |
+//! | `Store.IsUnspentOutpoint` | `is_unspent_outpoint` | credit slice, as Go behaves (QK-0088 reproduced; spec 04 D-1 taken so, decided by the project owner on 2026-11-24, [`txstore`] choice 6) |
 //! | `Store.MakeInputSource`, `InputSource.SelectInputs` | — | later: the random stream and cursor walk of spec 23 §5.6, verified as sets of selectable outputs |
 //! | `Store.AccountBalance`, `AccountBalances` | `account_balance`, `account_balances` (a vector in account order) | credit slice (running sums, ADR-0003 Decision item 4; `LockedByTickets` always 0 until the commitments are ported) |
 //! | `Store.UnspentTickets` | `unspent_tickets` | credit slice |
 //! | `Store.OwnTicket`, `IterateTickets`, `TicketIterator.Next`, `Err`, `Close`, `TicketDetails` | `own_ticket`, `iterate_tickets` (a vector), `ticket_details` | slice 1 (the credit of output 0 in the credit slice) |
 //! | `Store.TxDetails`, `TxDetails.Height`, `UniqueTxDetails`, `Tx`, `ExistsTx`, `ExistsTxMinedOrUnmined`, `TxBlockHeight` | the same names in snake case | slice 1 (the credit and debit lists in the credit slice) |
 //! | `Store.RangeTransactions`, `RangeBlocks` | `range_transactions`, `range_blocks` | slice 1 (no context argument, ADR-0008) |
-//! | `Store.PreviousPkScripts` | `previous_pk_scripts` | credit slice, as Go behaves (QK-0089 reproduced: never answers without a block; spec 04 D-1 taken pending owner, [`txstore`] choice 6) |
+//! | `Store.PreviousPkScripts` | `previous_pk_scripts` | credit slice, as Go behaves (QK-0089 reproduced: never answers without a block; spec 04 D-1 taken so, decided by the project owner on 2026-11-24, [`txstore`] choice 6) |
 //! | `Store.Spender` | — | later, with input selection, whose reservation flows are its natural tests |
 //! | `Store.UnminedTxs`, `UnminedTxHashes` | `unmined_txs`, `unmined_tx_hashes` | slice 1 (ties in the dependency order broken by hash, ADR-0012 Rule 3(a); QK-0092) |
 //!

@@ -2711,7 +2711,8 @@ fn unspent_tickets_follow_ticket_matured_and_refuse_a_dangling_spender() {
         .expect("update");
 }
 
-/// QK-0785 (reproduced, pending owner): a ticket mined in block 1 spends a
+/// QK-0785 (reproduced, decided by the project owner on 2026-11-24): a
+/// ticket mined in block 1 spends a
 /// regular credit of block 1; block 2 disapproves block 1, which moves the
 /// credit, spender kept, to the invalidated table and leaves the ticket's
 /// debit live; `Rollback` over block 1 then fails with `IO` and writes

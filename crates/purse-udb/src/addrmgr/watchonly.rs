@@ -356,7 +356,9 @@ impl Manager {
     /// key an account's own passphrase seals. A file that holds none of
     /// them is a backup of the converted store (`purse_store::Store::backup`,
     /// ADR-0018), which is written from the rows into a new file. Recorded
-    /// under ADR-0012 Rule 6 with QK-0761 and QK-0766.
+    /// under ADR-0012 Rule 6 with QK-0761 and QK-0766, and left as it is
+    /// until Phase 8, when the store file's lifecycle is designed (decided
+    /// by the project owner on 2026-11-24, QK-0761).
     ///
     /// # Errors
     ///

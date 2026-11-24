@@ -706,7 +706,7 @@ impl TxStore {
                     // moved back by its own loop below, deletes the entry
                     // again; the live debit of a stake spender, or of a
                     // spender in another block, leaves it (QK-0785,
-                    // reproduced, pending owner).
+                    // reproduced, decided 2026-11-24).
                     put_unspent(tx, &op, &unspent_row(height, &c))?;
                 }
             }

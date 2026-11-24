@@ -27,8 +27,8 @@
 //! height at or below the tip, or rarely at an `int32` extreme, QK-0784).
 //! It avoids the sequences on which dcr-purse departs from Go, under a
 //! rule or a decision (QK-0082, fixed under ADR-0012 Rule 7; QK-0081 with
-//! QK-0782, ADR-0003 Decision item 5) or pending the project owner's
-//! ruling (QK-0101, QK-0783): a
+//! QK-0782, ADR-0003 Decision item 5; QK-0101 and QK-0783, whose refusals
+//! the project owner kept on 2026-11-24): a
 //! transaction spending a built transaction's output is mined only into
 //! the tip, and never while a transaction it spends may be in that same
 //! block (the same-block spend chain whose disapproval Go records wrongly,

@@ -300,15 +300,15 @@
 //! not (Rule 2(c)). `InsertMinedTx` of an unmined transaction into a block
 //! already stake-invalidated, where Go panics with "unimplemented:
 //! moveMinedTx called on a stake-invalidated tx", returns `Invalid` with
-//! that text and writes nothing; the refusal stays, and whether the credit
-//! slice records the move instead is decided with that slice (choice 2
-//! below, decided by the project owner on 2026-11-22). Each such difference
-//! gets its PARITY.md line, and the comparison accepts any error against
-//! Go's `Panic` record by record (ADR-0002 section 3). Go never tolerates
-//! a panic, so a group member whose operation returns such an error may
-//! not tolerate its kind: the Rust runner refuses that script as a script
-//! fault (`tests/support/runner/groups.rs`), since its group would go on
-//! where Go's stops.
+//! that text and writes nothing; the refusal stays, and whether the move is
+//! recorded instead is decided in Phase 5 with the rescan (choice 2 below,
+//! decided by the project owner on 2026-11-22 and 2026-11-24). Each such
+//! difference gets its PARITY.md line, and the comparison accepts any
+//! error against Go's `Panic` record by record (ADR-0002 section 3). Go
+//! never tolerates a panic, so a group member whose operation returns such
+//! an error may not tolerate its kind: the Rust runner refuses that script
+//! as a script fault (`tests/support/runner/groups.rs`), since its group
+//! would go on where Go's stops.
 //!
 //! Go's log lines (spec 04 §8.4) are not written: the crate has no logger
 //! yet, and the address manager writes none either (choice 5 below).
@@ -524,8 +524,8 @@
 //!   `determine_script_type`. The store's credit key is (hash, height,
 //!   index), without Go's block hash, so a block that is not the main-chain
 //!   block at its height, or that holds no record of the transaction, is
-//!   refused (QK-0783, pending owner), as is a script longer than the
-//!   store's 16-bit script length.
+//!   refused (QK-0783, the refusal kept: choice 7 below), as is a script
+//!   longer than the store's 16-bit script length.
 //! - The credit and debit steps the table of "Credit-dependent steps" lists
 //!   for `InsertMinedTx`, `moveMinedTx` (the expiry flag cleared, QK-0079),
 //!   `Rollback` (the coinbase branch, the debit restoring with QK-0100's
@@ -565,7 +565,7 @@
 //!   reach); and spec 04 D-1's `IsUnspentOutpoint` and `PreviousPkScripts`
 //!   ([`TxStore::is_unspent_outpoint`], [`TxStore::previous_pk_scripts`])
 //!   ported as Go behaves (QK-0088 and QK-0089 reproduced, choice 6 below,
-//!   pending owner): `IsUnspentOutpoint` answers true for any outpoint
+//!   decided 2026-11-24): `IsUnspentOutpoint` answers true for any outpoint
 //!   neither unpublished nor spent by an unmined transaction, and
 //!   `PreviousPkScripts` never answers without a block (`IO` where an input
 //!   spends an unmined credit, else an `Invalid` error where Go
@@ -636,9 +636,9 @@
 //!   `PURSE_UDB_TX_CREDIT_GROUP_SCRIPTS`). They avoid, by construction, the
 //!   sequences on which dcr-purse departs from Go, under a rule or a
 //!   decision (QK-0082, fixed under ADR-0012 Rule 7; QK-0081 with QK-0782,
-//!   ADR-0003 Decision item 5) or pending the project owner's ruling
-//!   (QK-0101, QK-0783; choices 7 and 8 below); the generator's module
-//!   documentation. A fixed set of 16 is frozen
+//!   ADR-0003 Decision item 5; QK-0101 and QK-0783, whose refusals the
+//!   project owner kept on 2026-11-24, choices 7 and 8 below); the
+//!   generator's module documentation. A fixed set of 16 is frozen
 //!   (`tests/data/txstore_credit_genvectors.txt`);
 //! - the pinning tests `a_same_block_spend_chain_invalidated_leaves_no_dangling_unspent`
 //!   (QK-0082), `credits_off_the_main_chain_or_without_a_record_are_refused`
@@ -676,7 +676,9 @@
 //! taken (accepting every recommendation then open) and
 //! accepted 4 by signing the change that made it, after being told what
 //! signing accepts; each is marked. Choice 3 is not decided. Choices 7 to
-//! 11 are the credit slice's, pending owner.
+//! 11 are the credit slice's. On 2026-11-24 the project owner decided, each
+//! as recommended, the points the credit slice put for choices 2 and 6 and
+//! choices 7 to 11; each is marked.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
@@ -693,9 +695,9 @@
 //!    *Decided (project owner, 2026-11-22): it stays a refusal (`Invalid`),
 //!    and whether to move it into the invalidated tables instead is
 //!    decided with the credit slice.*
-//!    *Evidence for that decision, gathered with the credit slice (pending
-//!    owner):* the move would append the record to the block, record
-//!    each input that spends an unspent wallet output as an invalidated
+//!    *Evidence for that decision, gathered with the credit slice (decided
+//!    2026-11-24, below):* the move would append the record to the block,
+//!    record each input that spends an unspent wallet output as an invalidated
 //!    debit (which `InsertMinedTx`'s input loop already does for a
 //!    transaction not recorded unmined), write each unmined credit as an
 //!    invalidated credit with no unspent output (as `AddCredit` does into
@@ -709,6 +711,11 @@
 //!    rescan's transaction is abandoned as Go's would be. Recommendation:
 //!    keep the refusal now and decide the move with the rescan (Phase 5),
 //!    where the case is reachable and a test can show what a wallet needs.
+//!    *Decided (project owner, 2026-11-24): `InsertMinedTx` of an unmined
+//!    regular transaction into a stake-invalidated block stays a refusal
+//!    (`Invalid`, nothing written); whether to move it into the
+//!    invalidated tables is decided in Phase 5 with the rescan, where the
+//!    case can be reached and tested.*
 //! 3. `GetMainChainCFilters` from a detached start block (QK-0751) answers
 //!    as Go's does, with the main chain's filters from the detached
 //!    header's height; the panic QK-0751 describes is in discovery
@@ -731,8 +738,8 @@
 //!    credit slice, where the spec's recommendation, not porting them,
 //!    can be taken. *Decided (project owner, 2026-11-22): D-1 is decided
 //!    with the credit slice.*
-//!    *Taken with the credit slice (pending owner):* both are ported as Go
-//!    behaves (ADR-0012 Rule 1), reproducing QK-0088 (`IsUnspentOutpoint`
+//!    *Taken with the credit slice (decided 2026-11-24, below):* both are
+//!    ported as Go behaves (ADR-0012 Rule 1), reproducing QK-0088 (`IsUnspentOutpoint`
 //!    tests that the unspent table exists instead of looking the outpoint
 //!    up, so it answers true for any outpoint, recorded or not, that is
 //!    neither unpublished nor spent by an unmined transaction) and QK-0089
@@ -748,11 +755,15 @@
 //!    with a decision on their defects) or porting them with the defects
 //!    fixed, a divergence under Rule 7 that no caller needs.
 //!    Recommendation: keep them as ported, unexposed by any RPC, and decide
-//!    on fixing them only if a caller is ever written.
+//!    on fixing them only if a caller is ever written. *Decided (project
+//!    owner, 2026-11-24): both stay ported as Go behaves, QK-0088 and
+//!    QK-0089 reproduced; nothing in dcrwallet calls either at the pin, and
+//!    the question is revisited when a caller exists.*
 //! 7. `AddCredit` under a block that is not the main-chain block at its
 //!    height, or that holds no record of the transaction (QK-0783), where
 //!    Go writes the credit under the block hash it is given: refused with
-//!    `Invalid`, writing nothing. *Pending owner* (ADR-0012 Rule 11). The
+//!    `Invalid`, writing nothing. Brought to the project owner under
+//!    ADR-0012 Rule 11 (decided 2026-11-24, below). The
 //!    store's credit key holds the height and not the block hash, so it
 //!    cannot hold such a credit apart from the main-chain block's at that
 //!    height, and Go cannot be reproduced exactly. Evidence: the wallet
@@ -760,17 +771,20 @@
 //!    it is processing (`processTransactionRecord`); Go's credit then
 //!    makes later queries panic or fail (spec 04 §7). The alternative is
 //!    keeping the block hash in the credit key (ADR-0003's schema).
-//!    Recommendation: keep the refusal.
+//!    Recommendation: keep the refusal. *Decided (project owner,
+//!    2026-11-24): the refusal of a block that is not the main-chain block
+//!    at its height, or that holds no record of the transaction, is kept.*
 //! 8. A credit that is not recorded where Go's `spendCredit` writes a
 //!    zero-amount spent one (QK-0101): stake validation of a block whose
 //!    invalidated debit names such a credit is refused with `IO` before
 //!    anything is written, where Go connects the block and writes the
 //!    credit; `Rollback` gives Go's own `IO` text, but before any write.
-//!    *Pending owner* (ADR-0012 Rule 11: Go does not panic here, so Rule 2
-//!    does not cover it). Go's credit sits under the funding transaction's
+//!    Brought to the project owner under ADR-0012 Rule 11 (Go does not
+//!    panic here, so Rule 2 does not cover it; decided 2026-11-24, below).
+//!    Go's credit sits under the funding transaction's
 //!    detached block, which the store's credit key cannot tell apart from
-//!    the main-chain block at that height, so the code cannot reproduce it
-//!    while the ruling waits and keeps the refusal. Evidence: the state is
+//!    the main-chain block at that height, so the code could not reproduce
+//!    it while the ruling waited and kept the refusal. Evidence: the state is
 //!    reached only through a spender recorded in a block below its funding
 //!    transaction's, which a consensus-valid chain never holds (`Rollback`'s
 //!    "missing credit" is also reached by a stake transaction's live debit
@@ -785,25 +799,33 @@
 //!    credit is missing from `[credits]`), or write a zero-amount spent
 //!    credit under the height, which the funding transaction, mined again
 //!    in a block at that height, would read as its own. Recommendation:
-//!    keep the refusal.
+//!    keep the refusal. *Decided (project owner, 2026-11-24): the refusal
+//!    (`IO`, before any write) where Go fabricates a zero-amount credit is
+//!    kept.*
 //! 9. ADR-0003 Decision item 5 (a detached block's invalidated rows
 //!    deleted, QK-0081) stated that the difference is in nothing a client
 //!    can read; QK-0782 shows that it is after the same block is connected
 //!    again, its transaction mined in it again and the block disapproved
-//!    and approved (ADR-0003, note of 2026-11-23 at item 5). *Pending
-//!    owner*, whether item 5 stands. Recommendation: it stands; the
+//!    and approved (ADR-0003, note of 2026-11-23 at item 5). Whether item 5
+//!    stands was put to the project owner (decided 2026-11-24, below).
+//!    Recommendation: it stands; the
 //!    wallet adds the re-mined transaction's credits again, under the keys
 //!    Go's stale rows hold, before a disapproval could revive them (read
-//!    from the source, not run).
+//!    from the source, not run). *Decided (project owner, 2026-11-24):
+//!    ADR-0003 Decision item 5 stands; `Rollback` deletes a detached
+//!    block's invalidated rows, and the client-visible difference QK-0782
+//!    shows is an accepted, recorded divergence (PARITY.md, `purse-udb`,
+//!    item (11)).*
 //! 10. QK-0734: a transaction of a disapproved block mined again in a later
 //!     block, that block rolled back and the first block approved again, is
 //!     mined and unmined at once, and its outputs are both unspent outputs and
 //!     unmined credits: `UnspentOutputs` lists each twice, as unmined, and
 //!     `AccountBalances` counts each twice. Reproduced, as the code stands
-//!     (ADR-0012 Rule 11: the code reproduces Go until the ruling); *pending
-//!     owner* whether it stays reproduced (Rule 1) or is fixed under Rule 7's
-//!     first half, as ADR-0003 Open point 2 left it to be decided after an
-//!     oracle run. Evidence: the oracle confirms it on simnet with every record
+//!     (ADR-0012 Rule 11: the code reproduces Go until the ruling); whether
+//!     it stays reproduced (Rule 1) or is fixed under Rule 7's first half, as
+//!     ADR-0003 Open point 2 left it to be decided after an oracle run, was
+//!     put to the project owner (decided 2026-11-24, below). Evidence: the
+//!     oracle confirms it on simnet with every record
 //!     and the export equal
 //!     (`a_revalidated_transaction_also_unmined_is_counted_twice`: one 900-atom
 //!     output, a balance of 1,800 at depth 0 and of 900 spendable plus 900
@@ -820,7 +842,13 @@
 //!     after this one, with a PARITY.md line and Go's state shown beside
 //!     dcr-purse's by the same test; it is ADR-0017's upstream-report candidate
 //!     either way. QK-0735 is QK-0082 under another number, fixed with it;
-//!     QK-0736 is reproduced (QUIRKS.md).
+//!     QK-0736 is reproduced (QUIRKS.md). *Decided (project owner,
+//!     2026-11-24): QK-0734 is fixed under ADR-0012 Rule 7 in the next
+//!     transaction-store slice ("The next slice" below), with a PARITY.md
+//!     line and Go's state shown beside dcr-purse's; not in the change that
+//!     records the decision, so until that slice the code still reproduces
+//!     Go. It remains an upstream-report candidate under ADR-0017, whose
+//!     reports the project owner delivers.*
 //! 11. QK-0785: a stake transaction spending a regular credit of its own block,
 //!     a state no consensus-valid chain holds. When the block is disapproved
 //!     the credit moves to the invalidated table, spender kept, and the stake
@@ -832,9 +860,10 @@
 //!     credit comes back with an unspent entry although it is still spent, so
 //!     `UnspentOutputs` lists it and `AccountBalances` counts it as spendable
 //!     while `TxDetails` reports it spent. Reproduced (Rule 11's interim, Go
-//!     reproduced); *pending owner* whether it stays reproduced (Rule 1) or
-//!     Rule 7's first half, which names a spend wrongly recorded in persisted
-//!     state, applies to a state no wallet reaches. Evidence:
+//!     reproduced); whether it stays reproduced (Rule 1) or Rule 7's first
+//!     half, which names a spend wrongly recorded in persisted state, applies
+//!     to a state no wallet reaches was put to the project owner (decided
+//!     2026-11-24, below). Evidence:
 //!     `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again` in
 //!     `tests/oracle.rs` (every record and the export equal) and the test of
 //!     that name in `tests/txstore.rs`; the generated credit scripts never mine
@@ -845,9 +874,11 @@
 //!     validation (no unspent entry for a credit naming a spender).
 //!     Recommendation: keep it reproduced: no wallet reaches it, the
 //!     reproduction costs nothing, and a fix would be dcr-purse's own
-//!     behaviour, checked only by its own test.
+//!     behaviour, checked only by its own test. *Decided (project owner,
+//!     2026-11-24): QK-0785 stays reproduced (ADR-0012 Rule 1); no
+//!     consensus-valid chain reaches it.*
 //!
-//! The owner's answer of that date also decided two more points this
+//! The owner's answer of 2026-11-22 also decided two more points this
 //! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`
 //! writes nothing ("A failed operation writes nothing" above), and
 //! QK-0781 is reproduced (QUIRKS.md). With the same signing as choice 4
@@ -886,6 +917,21 @@
 //!
 //! Until then the commitment and multisig tables keep their guard
 //! ([`LATER_TABLES`]) and the export refuses their rows.
+//!
+//! *Added 2026-11-24 (choice 10, decided by the project owner):*
+//!
+//! - **QK-0734's fix** under ADR-0012 Rule 7: stake validation drops the
+//!   unmined copy of a transaction whose record it revalidates (its unmined
+//!   credits and unmined-input entries), as `moveMinedTx` does when an
+//!   unmined transaction is mined, with a PARITY.md line and Go's state
+//!   shown beside dcr-purse's by
+//!   `a_revalidated_transaction_also_unmined_is_counted_twice`. Until the
+//!   next slice the code reproduces Go.
+//!
+//! The store's dedicated-machine run of record (ADR-0003 Open point M2) is
+//! to be made after the next slice, so that input selection is measured
+//! too, and not before (decided, project owner, 2026-11-24; ADR-0014,
+//! addendum of that date). It has not been made.
 //!
 //! *As first written:* once `pk_script_locs` is at the dcroxide pin (it is
 //! since 2026-11-23, dcroxide `1587ca1`): `AddCredit`, the credit

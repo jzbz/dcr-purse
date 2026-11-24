@@ -48,7 +48,8 @@
 //! (`generate_txstore_credits`, `PURSE_UDB_TX_CREDIT_SCRIPTS`, and in
 //! groups `PURSE_UDB_TX_CREDIT_GROUP_SCRIPTS`), which avoid by construction
 //! the sequences of its divergences (QK-0082 and QK-0081 with QK-0782,
-//! decided; QK-0101 and QK-0783, pending owner), four pinning tests of
+//! decided; QK-0101 and QK-0783, decided by the project owner on
+//! 2026-11-24), four pinning tests of
 //! those divergences,
 //! `a_same_block_spend_chain_invalidated_leaves_no_dangling_unspent`
 //! (QK-0082), `credits_off_the_main_chain_or_without_a_record_are_refused`
@@ -2224,8 +2225,9 @@ fn invalidated_credits_of_a_detached_block_do_not_come_back() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// QK-0101 (PARITY.md, `purse-udb`, item (14); pending owner, crate
-/// `txstore`, choice 8): a spender recorded in a block below
+/// QK-0101 (PARITY.md, `purse-udb`, item (14); the refusal kept, decided by
+/// the project owner on 2026-11-24, crate `txstore`, choice 8): a spender
+/// recorded in a block below
 /// its funding transaction's, the one way to a debit whose credit is not
 /// recorded. Rolling back the funding block leaves the debit naming a
 /// deleted credit; rolling back the spender's block then fails on both
@@ -2362,8 +2364,10 @@ fn a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// QK-0734 and QK-0736 (reproduced; QK-0734's disposition pending owner,
-/// crate `txstore`, choice 10): a transaction mined in block 3, whose block
+/// QK-0734 and QK-0736 (reproduced; QK-0734 to be fixed under ADR-0012
+/// Rule 7 in the next transaction-store slice, decided by the project owner
+/// on 2026-11-24, crate `txstore`, choice 10; until then this test pins Go's
+/// state as reproduced): a transaction mined in block 3, whose block
 /// 4 disapproves block 3, keeps its mined record, so `InsertMemPoolTx`
 /// refuses it as already mined (QK-0736); mined again in block 5 and its
 /// credit added there, then blocks 4 and 5 rolled back and block 3
@@ -2448,7 +2452,8 @@ fn a_revalidated_transaction_also_unmined_is_counted_twice() {
     assert!(exist(&go[19]), "{}", go[19]);
 }
 
-/// QK-0785 (reproduced, pending owner; crate `txstore`, choice 11): a
+/// QK-0785 (reproduced, decided by the project owner on 2026-11-24; crate
+/// `txstore`, choice 11): a
 /// ticket mined in block 3 spends a regular credit of block 3, a state no
 /// consensus-valid chain holds. Block 4 disapproves block 3: the credit,
 /// its spender kept, moves to the invalidated table and the ticket's debit

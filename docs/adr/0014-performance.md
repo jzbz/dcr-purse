@@ -34,7 +34,10 @@
   `dcroxide-wire`'s `pk_script_locs`, called by no dcr-purse code, so no
   measured path changed; no measurement of record was made at that pin,
   and the gate baselines are unchanged (`docs/SKEW.md`, 2026-11-23
-  section).*
+  section).* *On 2026-11-24 the owner said when the store's
+  dedicated-machine run for the row of Phases 2 and 3 is made: after the
+  next transaction-store slice, so that input selection is measured too,
+  and not before; it has not been made: the addendum of that date.*
 - **Date:** 2026-11-19
 
 ## Context
@@ -287,7 +290,10 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   the dedicated-machine run is owed (its Open point M2).* *Decided
   2026-11-21 (project owner): N = 1,000 for a balance query and N = 1.5
   for a range query; the dedicated-machine run before Phase 3's exit,
-  when and where the owner says (addendum of that date).*
+  when and where the owner says (addendum of that date).* *2026-11-24
+  (project owner): that run after the next transaction-store slice, so
+  that input selection is measured too, and not before (addendum of that
+  date); not made.*
 
   *2026-11-21: Phase 1's row met on every clause on the dedicated machine
   (addendum "Phase 1's run of record").*
@@ -441,6 +447,8 @@ shared desktop while other work ran on it (ADR-0003, addendum
 "`purse-store` against dcrwallet on the same workload"); N set from those
 figures on 2026-11-21 (addendum of that date, item 1); the run of record
 on the dedicated machine (item 2 of that addendum) has not been made.*
+*It is to be made after the next transaction-store slice, and not before
+(project owner, 2026-11-24; addendum of that date).*
 
 ## Addendum, 2026-11-19 — The Phase 1 speed row and the first ledger entry
 
@@ -560,7 +568,9 @@ apart from the dated pointers added to it.
    owed; the store is measured again with Phase 3's transaction store as
    part of Phase 3's exit (Open point M3). *Later on 2026-11-21 the
    Phase 1 run was made (addendum "Phase 1's run of record"); the store's
-   is not made and stays owed.*
+   is not made and stays owed.* *2026-11-24: the store's is to be made
+   after the next transaction-store slice, and not before (addendum of
+   that date).*
 2. **What counts as the dedicated machine.** A run on the shared desktop
    on which the measurements so far were taken (the bench ledger's
    machine d1) counts as the dedicated-machine run when nothing else is
@@ -572,6 +582,8 @@ apart from the dated pointers added to it.
      by this addendum. *Later the same day the owner said when and where,
      and the run was made: the addendum below.*
    - The row of Phases 2 and 3 is not yet measured on such a run.
+     *On 2026-11-24 the owner said when: after the next transaction-store
+     slice (addendum of that date).*
 
 This addendum records decisions; it measures nothing.
 
@@ -647,9 +659,44 @@ unchanged, 2.260 against 1.997 in the first entry (13.2%) and 2.16 on
 
 **Not made: the dedicated-machine run for the row of Phases 2 and 3**
 (the store against dcrwallet's udb; ADR-0003 Open point M2, item 1 of the
-addendum above). It stays owed, before Phase 3's exit. Not measured by
+addendum above). It stays owed, before Phase 3's exit. *2026-11-24: to
+be made after the next transaction-store slice, and not before (the
+addendum below).* Not measured by
 this run: other machines and processors, other architectures and
 operating systems, more than 4 threads, and GitHub's runners, on which
 the CI gate runs.
 
 This addendum records a measurement; it decides nothing.
+
+## Addendum, 2026-11-24 — Decision of the project owner: when the store's run of record is made
+
+On 2026-11-24 the project owner decided when the dedicated-machine run
+for the row of Phases 2 and 3 (the store against dcrwallet's udb;
+ADR-0003 Open point M2; item 1 of the addendum of 2026-11-21, "Decisions
+of the project owner") is made: after the next transaction-store slice
+of `purse-udb`, which ports input selection, so that input selection is
+measured too, and not before (crate `txstore`, "The next slice"). The
+text above stays as written, apart from the dated pointers added to it.
+
+- The run is authorised for that point and has not been made; no timing
+  figure is recorded by this addendum, and the row of Phases 2 and 3 is
+  still not measured on a run of record.
+- The decision names when. It does not name the machine; what counts as
+  the dedicated machine stays as item 2 of the addendum of 2026-11-21
+  defines it.
+- The rest is unchanged: the run comes before Phase 3's exit, and the
+  store is measured again with Phase 3's transaction store as part of
+  that exit (ADR-0003 Open point M3).
+
+**Places amended with this addendum:** the Status line, the note under
+item 4 ("Exit criteria", the row of Phases 2 and 3), the note under item
+22, items 1 and 2 of the addendum of 2026-11-21 "Decisions of the project
+owner" and the closing paragraph of the addendum "Phase 1's run of
+record", by dated pointers; ADR-0003 (Status line, Open point M2 and
+items 2 and 4 of its addendum of 2026-11-21); `docs/PHASE2-EXIT.md`;
+`docs/PHASE0-EXIT.md` (the D2 row of its decision table, point 4 of
+"Verdict" and the list of what the close defers); the project brief
+(Phase 2's Status and §9 D2); the ADR index; `purse-udb`'s crate
+`txstore`, "The next slice".
+
+This addendum records a decision; it measures nothing.

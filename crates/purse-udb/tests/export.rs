@@ -176,12 +176,12 @@ fn a_store_with_rows_not_exported_is_refused() {
     );
 }
 
-/// The tables of the transaction store's later slices (credits, debits,
-/// commitments, multisig outputs, balances, account history) are not
-/// exported: a store holding a row in any one of them is refused, naming
-/// that table, rather than exported as if they were empty.
+/// The commitment and multisig tables are exported: a commitment with its
+/// unspent entry folded in (`unminedspent` absent without one), and a
+/// multisig record with its spender only while spent and `utxo` while
+/// unspent, `txhash` repeating the key's hash as Go's value does.
 #[test]
-fn a_store_with_later_slice_rows_is_refused() {
+fn commitments_and_multisig_records_are_exported() {
     let opts = ExportOptions {
         pub_pass: None,
         priv_pass: None,
@@ -190,21 +190,95 @@ fn a_store_with_later_slice_rows_is_refused() {
         limits: Limits::DEFAULT,
         digest: false,
     };
-    for table in purse_udb::txstore::LATER_TABLES {
-        let (store, chain) = wallet();
-        store
-            .update(|tx| tx.put_raw(table, &[0u8; 36], &[0u8; 8]))
-            .expect("commit");
-        let tx = store.read().expect("read");
-        let err = export(&tx, &chain, &opts).expect_err(table.name());
-        assert_eq!(
-            err.to_string(),
-            format!(
-                "invalid operation: logical export: table {} is not exported by this version of purse-udb",
-                table.name()
+    let (store, chain) = wallet();
+    let op = |b: u8, index: u32| purse_store::Outpoint {
+        hash: Hash32([b; 32]),
+        index,
+    };
+    store
+        .update(|tx| {
+            for (o, amount, account, unspent) in [
+                (op(1, 1), 1100, 0, Some(false)),
+                (op(1, 3), 900, 2, Some(true)),
+                (op(2, 1), 500, 1, None),
+            ] {
+                tx.put::<purse_store::Commitments>(
+                    &o,
+                    &purse_store::CommitmentRow { amount, account },
+                )?;
+                if let Some(u) = unspent {
+                    tx.put::<purse_store::CommitmentsUnspent>(
+                        &o,
+                        &purse_store::CommitmentUnspentRow { unmined_spent: u },
+                    )?;
+                }
+            }
+            let row = purse_store::MultisigOutRow {
+                script_hash: purse_store::Hash160([5; 20]),
+                m: 1,
+                n: 2,
+                stake_tree: true,
+                block: purse_store::MultisigBlock::new(Hash32([6; 32]), 7),
+                amount: 4000,
+                spender: None,
+            };
+            tx.put_multisig_out(&op(3, 0), &row)?;
+            tx.put_multisig_out(
+                &op(3, 1),
+                &purse_store::MultisigOutRow {
+                    stake_tree: false,
+                    block: None,
+                    spender: Some(purse_store::MultisigSpender {
+                        hash: Hash32([8; 32]),
+                        input: 2,
+                    }),
+                    ..row
+                },
             )
-        );
-    }
+        })
+        .expect("commit");
+    let tx = store.read().expect("read");
+    let text = export(&tx, &chain, &opts).expect("export");
+    let h = |b: u8| format!("{b:02x}").repeat(32);
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("commitment ") || l.starts_with("multisig "))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            format!(
+                "commitment tx={} index=1 amount=1100 account=0 unspent=1 unminedspent=0",
+                h(1)
+            ),
+            format!(
+                "commitment tx={} index=3 amount=900 account=2 unspent=1 unminedspent=1",
+                h(1)
+            ),
+            format!(
+                "commitment tx={} index=1 amount=500 account=1 unspent=0 unminedspent=-",
+                h(2)
+            ),
+            format!(
+                "multisig tx={} index=0 scripthash={} m=1 n=2 spent=0 stake=1 block={} height=7 \
+                 amount=4000 sptx=- spindex=- txhash={} utxo=1",
+                h(3),
+                "05".repeat(20),
+                h(6),
+                h(3)
+            ),
+            format!(
+                "multisig tx={} index=1 scripthash={} m=1 n=2 spent=1 stake=0 block={} height=0 \
+                 amount=4000 sptx={} spindex=2 txhash={} utxo=0",
+                h(3),
+                "05".repeat(20),
+                h(0),
+                h(8),
+                h(3)
+            ),
+        ]
+    );
+    purse_export_check::parse(&text).expect("the export parses");
 }
 
 #[test]

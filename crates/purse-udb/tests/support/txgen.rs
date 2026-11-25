@@ -39,6 +39,54 @@
 //! a detached block, which dcr-purse deletes, QK-0081, would come back
 //! with it, QK-0782). The draws of `generate_txstore` are unchanged, so
 //! its frozen vectors and recorded campaigns stand.
+//!
+//! `generate_txstore_cms` draws the credit scripts' operations and, with
+//! them, the commitment and multisig slice's ([`CMS_OPS`]): the script
+//! first imports two multisig scripts and `OP_TRUE` as scripts
+//! (`mgr.import_script`, labels `ms1`, `ms2`, `s1`); transactions pay them
+//! by P2SH (one under a stake tag); `cms.mined` is an `update` group of an
+//! `InsertMinedTx` (under the credit scripts' mining rule) followed by the
+//! `AddCredit`s, `AddMultisigOut`s, `AddTicketCommitment`s or
+//! `RedeemTicketCommitments` the wallet's `processTransactionRecord` would
+//! make for it in that block, `cms.unmined` the same without a block; and
+//! the four writing operations and two queries are drawn alone too, at any
+//! index, over any transaction, block or outpoint. Every block such an
+//! operation names is a stored header's, never a meta of the zero hash, so
+//! the one divergence of the slice (PARITY.md, `purse-udb` transaction
+//! store, item (20)) is never reached. The draws of the other two
+//! generators are unchanged.
+//!
+//! Every generator avoids, by construction, the sequence in which
+//! dcr-purse fixes QK-0734 (ADR-0012 Rule 7; PARITY.md, `purse-udb`
+//! transaction store, item (23)): a transaction is mined again only once
+//! no record of an earlier `InsertMinedTx` of it can remain (each record's
+//! height is bounded below by the tip's for a mining into the tip, by 1 for
+//! a labelled block, and a valid `Rollback` to a height at or below that
+//! bound removes it); until then the draw becomes an `InsertMemPoolTx`,
+//! with the records of a mined group made unmined, so the draws are the
+//! same. A transaction mined in a block that is later disapproved, mined
+//! again in a later block that is rolled back, and then approved with the
+//! first block, is mined and unmined at once in Go and mined only in
+//! dcr-purse; the rule keeps a transaction from being mined twice at all
+//! (QK-0781, which has its own oracle test, so no longer arises in
+//! generated scripts). Found by the selection slice's campaigns
+//! (`0x7a3e0301`, `0x7a3e0302`, credit group scripts 17 and others, a
+//! transaction mined into the genesis block and again into a block
+//! disapproving it); before the rule, the scripts of the earlier slices
+//! did reach it.
+//!
+//! `generate_txstore_select` draws the credit scripts' operations and,
+//! with them, input selection ([`SELECT_OPS`]): `RandomUTXO` and
+//! `SelectInputs` (one to three increasing targets, now and then 0, -1 or
+//! `i64::MAX`, an account other than 0 a quarter of the time, an ignore
+//! list of one or two outpoints, a tree of 1 now and then, a quarter of
+//! the time), each with its own `rand` key, which pins the stream on both
+//! sides, or, for `select.again`, continuing the stream of the random
+//! operation drawn just before it; `Spender` over credited and other
+//! outpoints; and more mined credits. Every script ends with three
+//! selections of every output. It avoids the credit scripts' divergences
+//! by the same construction. The draws of the other generators are
+//! unchanged.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -147,6 +195,82 @@ pub const CREDIT_OPS: &[&str] = &[
     "extend.vote0",
 ];
 
+/// The operations a commitment and multisig script
+/// ([`generate_txstore_cms`]) draws besides [`TX_OPS`] and [`CREDIT_OPS`].
+pub const CMS_OPS: &[&str] = &[
+    "build.p2sh",
+    "build.p2sh",
+    "build.p2sh",
+    "build.p2sh",
+    "build.ticket",
+    "build.ticket",
+    "build.vote",
+    "build.vote",
+    "build.revocation",
+    "cms.mined",
+    "cms.mined",
+    "cms.mined",
+    "cms.mined",
+    "cms.mined",
+    "cms.unmined",
+    "cms.unmined",
+    "cms.unmined",
+    "store.add_ticket_commitment",
+    "store.add_ticket_commitment",
+    "store.redeem_ticket_commitments",
+    "store.redeem_ticket_commitments",
+    "store.add_multisig_out",
+    "store.add_multisig_out",
+    "store.add_multisig_out",
+    "store.spend_multisig_out",
+    "store.spend_multisig_out",
+    "store.spend_multisig_out",
+    "store.spend_multisig_out",
+    "store.get_multisig_output",
+    "store.get_multisig_output",
+    "store.unspent_multisig_credits_for_address",
+    "store.unspent_multisig_credits_for_address",
+    "store.remove_unconfirmed",
+    "store.rollback",
+];
+
+/// The operations a selection script ([`generate_txstore_select`]) draws
+/// besides [`TX_OPS`] and [`CREDIT_OPS`]: the random selections, each with
+/// its own `rand` key, `select.again` one continuing the stream of the
+/// random operation just drawn (or a keyed one when the last operation is
+/// not random), `Spender`, and more mined credits to select from.
+pub const SELECT_OPS: &[&str] = &[
+    "store.random_utxo",
+    "store.random_utxo",
+    "store.random_utxo",
+    "store.select_inputs",
+    "store.select_inputs",
+    "store.select_inputs",
+    "store.select_inputs",
+    "select.again",
+    "select.again",
+    "store.spender",
+    "store.spender",
+    "store.spender",
+    "credit.mined",
+    "credit.mined",
+    "credit.mined",
+    "build.regular",
+];
+
+/// The scripts a commitment and multisig script imports: a 1-of-2 and a
+/// 2-of-3 multisig script of fixed keys, and `OP_TRUE`.
+fn cms_scripts() -> [(&'static str, String); 3] {
+    let k1 = format!("02{}", "11".repeat(32));
+    let k2 = format!("03{}", "22".repeat(32));
+    let k3 = format!("02{}", "33".repeat(32));
+    [
+        ("ms1", format!("5121{k1}21{k2}52ae")),
+        ("ms2", format!("5221{k1}21{k2}21{k3}53ae")),
+        ("s1", "51".to_owned()),
+    ]
+}
+
 /// The networks, by how often a script draws them.
 const NETWORKS: [(&str, u64); 4] = [
     ("simnet", 70),
@@ -227,6 +351,21 @@ struct Gen<'r> {
     credited: Vec<(String, u32)>,
     /// The network's `TicketMaturity`.
     ticket_maturity: u64,
+    /// The P2SH outputs of each transaction built by `build.p2sh`
+    /// (commitment and multisig scripts).
+    p2sh: HashMap<String, Vec<u32>>,
+    /// The outputs an `AddMultisigOut` was drawn for.
+    multisig: Vec<(String, u32)>,
+    /// A selection script ([`generate_txstore_select`]).
+    select: bool,
+    /// The built transactions' outputs that later built transactions
+    /// spend, in the order drawn (`Spender`'s outpoints).
+    spent: Vec<(String, u32)>,
+    /// For each transaction an `InsertMinedTx` was drawn for, the lowest
+    /// height a record of it may stand at (the tip's for the tip, 1 for a
+    /// labelled block): while one may remain, it is not mined again
+    /// (QK-0734, module documentation).
+    mined_floor: HashMap<String, u64>,
 }
 
 impl Gen<'_> {
@@ -458,6 +597,39 @@ impl Gen<'_> {
     /// or `None`: a transaction spending no built output anywhere; one
     /// spending a built output only into the tip, and not while a
     /// transaction it spends may be in the tip (module documentation).
+    /// Whether `label` may still have a mined record, so that mining it
+    /// again could leave it mined and unmined at once (QK-0781), the state
+    /// in which a later approval of the first block reaches QK-0734's fix.
+    fn remined(&self, label: &str) -> bool {
+        self.mined_floor.contains_key(label)
+    }
+
+    /// Records an `InsertMinedTx` of `label` into `block` (a label, or the
+    /// tip).
+    fn note_mined(&mut self, label: &str, block: &Value) {
+        let floor = if block == "tip" { self.tip } else { 1 };
+        let f = self.mined_floor.entry(label.to_owned()).or_insert(floor);
+        *f = (*f).min(floor);
+    }
+
+    /// `ops` (an `InsertMinedTx` of `label` into `block` and the records of
+    /// that block) as drawn, or, when `label` may still have a mined
+    /// record, with the `InsertMinedTx` made an `InsertMemPoolTx` and the
+    /// records unmined: the draws are the same either way.
+    fn mined_group(&mut self, label: &str, block: &Value, mut ops: Vec<Value>) -> Value {
+        if self.remined(label) {
+            ops[0] = json!({"op": "store.insert_mem_pool_tx", "tx": label});
+            for o in ops.iter_mut().skip(1) {
+                if let Some(m) = o.as_object_mut() {
+                    m.remove("block");
+                }
+            }
+        } else {
+            self.note_mined(label, block);
+        }
+        json!({"op": "update", "ops": ops})
+    }
+
     fn mined_block(&mut self, label: &str) -> Option<Value> {
         let prevs = self
             .built(label)
@@ -551,6 +723,282 @@ impl Gen<'_> {
         v
     }
 
+    /// A P2SH address reference of an imported script, or now and then a
+    /// derived P2PKH address (refused by `UnspentMultisigCreditsForAddress`).
+    fn ms_addr(&mut self) -> Value {
+        match self.below(8) {
+            0 => self.addr(),
+            1 => json!({"ref": "s1"}),
+            2..=4 => json!({"ref": "ms2"}),
+            _ => json!({"ref": "ms1"}),
+        }
+    }
+
+    fn build_p2sh(&mut self) -> Value {
+        let label = self.new_label("p");
+        let n_in = 1 + self.below(2);
+        let inputs: Vec<Value> = (0..n_in)
+            .map(|_| json!({"prev": self.prev(), "value": 1000 + self.below(9000)}))
+            .collect();
+        let n_out = 1 + self.below(4);
+        let mut outputs = Vec::new();
+        let mut p2sh = Vec::new();
+        for i in 0..n_out {
+            let value = 1 + self.below(5000);
+            let i = u32::try_from(i).expect("small");
+            match self.below(8) {
+                0 => outputs.push(json!({"value": value, "pay": self.addr()})),
+                1 => {
+                    p2sh.push(i);
+                    outputs
+                        .push(json!({"value": value, "pay": {"ref": "ms1"}, "tag": "sstxchange"}));
+                }
+                _ => {
+                    p2sh.push(i);
+                    let a = self.ms_addr();
+                    let a = if a.get("ref").is_some() {
+                        a
+                    } else {
+                        json!({"ref": "ms1"})
+                    };
+                    outputs.push(json!({"value": value, "pay": a}));
+                }
+            }
+        }
+        self.p2sh.insert(label.clone(), p2sh);
+        self.txs.push(Built {
+            label: label.clone(),
+            outputs: u32::try_from(n_out).expect("small"),
+            ticket: false,
+            prevs: Vec::new(),
+        });
+        json!({"op": "tx.build", "label": label, "inputs": inputs, "outputs": outputs})
+    }
+
+    /// A transaction label: one of `prefix`'s kind (by label) two times in
+    /// three when there is one, else any.
+    fn label_like(&mut self, prefixes: &[&str]) -> Option<String> {
+        let like: Vec<String> = self
+            .txs
+            .iter()
+            .filter(|b| prefixes.iter().any(|p| b.label.starts_with(p)))
+            .map(|b| b.label.clone())
+            .collect();
+        if !like.is_empty() && self.below(3) != 0 {
+            return pick(self.rng, &like).cloned();
+        }
+        self.tx_label()
+    }
+
+    fn add_multisig(&mut self, label: &str, index: u32, block: Option<&Value>) -> Value {
+        let mut v = json!({"op": "store.add_multisig_out", "tx": label, "index": index});
+        if let Some(b) = block {
+            v["block"] = b.clone();
+        }
+        self.multisig.push((label.to_owned(), index));
+        v
+    }
+
+    /// What `processTransactionRecord` records for `label` beyond the
+    /// transaction (`block` given for a mined one): its credits, the
+    /// multisig records of its P2SH outputs, a ticket's commitment, a vote's
+    /// or revocation's redemption.
+    fn records_of(&mut self, label: &str, block: Option<&Value>) -> Vec<Value> {
+        let mut ops = self.credits_of(label, block);
+        for i in self.p2sh.get(label).cloned().unwrap_or_default() {
+            if self.below(4) != 0 {
+                ops.push(self.add_multisig(label, i, block));
+            }
+        }
+        if self.built(label).is_some_and(|b| b.ticket) {
+            ops.push(json!({"op": "store.add_ticket_commitment", "tx": label, "index": 1, "account": self.below(3)}));
+        }
+        if label.starts_with('v') || label.starts_with('r') {
+            let mut v = json!({"op": "store.redeem_ticket_commitments", "tx": label});
+            if let Some(b) = block {
+                v["block"] = b.clone();
+            }
+            ops.push(v);
+        }
+        ops
+    }
+
+    /// A multisig outpoint argument: one an `AddMultisigOut` was drawn for
+    /// (often), or any outpoint.
+    fn ms_outpoint(&mut self) -> Value {
+        if self.below(4) != 0
+            && let Some((label, index)) = pick(self.rng, &self.multisig).cloned()
+        {
+            return json!({"tx": label, "index": index});
+        }
+        self.outpoint()
+    }
+
+    /// An operation of [`CMS_OPS`].
+    fn cms_op(&mut self, name: &str) -> Value {
+        match name {
+            "build.p2sh" => self.build_p2sh(),
+            "cms.mined" => {
+                let Some(l) = self.label_like(&["p", "tk", "v", "r"]) else {
+                    return self.build_p2sh();
+                };
+                let Some(block) = self.mined_block(&l) else {
+                    return json!({"op": "store.insert_mem_pool_tx", "tx": l});
+                };
+                let mut ops = vec![json!({"op": "store.insert_mined_tx", "tx": l, "block": block})];
+                ops.extend(self.records_of(&l, Some(&block)));
+                self.mined_group(&l, &block, ops)
+            }
+            "cms.unmined" => {
+                let Some(l) = self.label_like(&["p", "tk", "v", "r"]) else {
+                    return self.build_p2sh();
+                };
+                let mut ops = Vec::new();
+                if self.below(4) != 0 {
+                    ops.push(json!({"op": "store.insert_mem_pool_tx", "tx": l}));
+                }
+                ops.extend(self.records_of(&l, None));
+                json!({"op": "update", "ops": ops})
+            }
+            "store.add_ticket_commitment" => match self.label_like(&["tk"]) {
+                Some(l) => {
+                    let n = self.built(&l).map_or(1, |b| b.outputs);
+                    let index = if self.below(2) == 0 {
+                        1
+                    } else {
+                        self.below(u64::from(n) + 1)
+                    };
+                    json!({"op": name, "tx": l, "index": index, "account": self.below(3)})
+                }
+                None => self.build_ticket(),
+            },
+            "store.redeem_ticket_commitments" => match self.label_like(&["v", "r"]) {
+                Some(l) => {
+                    let mut v = json!({"op": name, "tx": l});
+                    if self.below(2) == 0 {
+                        v["block"] = self.block_ref();
+                    }
+                    v
+                }
+                None => self.build_vote(),
+            },
+            "store.add_multisig_out" => match self.label_like(&["p"]) {
+                Some(l) => {
+                    let n = self.built(&l).map_or(1, |b| b.outputs);
+                    let index = u32::try_from(self.below(u64::from(n) + 1)).expect("small");
+                    let block = (self.below(2) == 0).then(|| self.block_ref());
+                    self.add_multisig(&l, index, block.as_ref())
+                }
+                None => self.build_p2sh(),
+            },
+            "store.spend_multisig_out" => {
+                let op = self.ms_outpoint();
+                let spender = self.hash_ref();
+                json!({"op": name, "outpoint": op, "spender": spender, "index": self.below(2)})
+            }
+            "store.get_multisig_output" => {
+                let op = self.ms_outpoint();
+                json!({"op": name, "outpoint": op})
+            }
+            "store.unspent_multisig_credits_for_address" => {
+                let a = self.ms_addr();
+                json!({"op": name, "addr": a})
+            }
+            // The others are the first slice's, drawn more often here.
+            other => self.op(other),
+        }
+    }
+
+    /// A random store operation with a fresh `rand` key.
+    fn random_op(&mut self, name: &str) -> Value {
+        let mut v = if name == "store.random_utxo" {
+            let m = self.minconf();
+            let sh = self.sync_height();
+            json!({"op": name, "minconf": m, "syncheight": sh})
+        } else {
+            let m = self.minconf();
+            let sh = self.sync_height();
+            let n = 1 + self.below(3);
+            let mut t = 0i64;
+            let mut targets = Vec::new();
+            for _ in 0..n {
+                match self.below(10) {
+                    0 => targets.push(json!(0)),
+                    1 => targets.push(json!(-1)),
+                    2 => targets.push(json!(i64::MAX)),
+                    _ => {
+                        t += i64::try_from(1 + self.below(9000)).expect("small");
+                        targets.push(json!(t));
+                    }
+                }
+            }
+            let acct = if self.below(4) == 0 { self.below(3) } else { 0 };
+            let mut v = json!({"op": name, "account": acct, "minconf": m, "syncheight": sh, "targets": targets});
+            if self.below(4) == 0 {
+                let k = 1 + self.below(2);
+                let ignore: Vec<Value> = (0..k)
+                    .map(|_| {
+                        let mut op = self.outpoint();
+                        if self.below(3) == 0 {
+                            op["tree"] = json!(1);
+                        }
+                        op
+                    })
+                    .collect();
+                v["ignore"] = json!(ignore);
+            }
+            v
+        };
+        v["rand"] = json!(hex(&self.rng.bytes(32)));
+        v
+    }
+
+    /// An operation of [`SELECT_OPS`].
+    fn select_op(&mut self, name: &str) -> Value {
+        match name {
+            "store.random_utxo" | "store.select_inputs" => self.random_op(name),
+            "select.again" => {
+                let last = self.ops.last().and_then(|v| v["op"].as_str()).unwrap_or("");
+                if last != "store.random_utxo" && last != "store.select_inputs" {
+                    return self.random_op("store.random_utxo");
+                }
+                let kind = if self.below(2) == 0 {
+                    "store.random_utxo"
+                } else {
+                    "store.select_inputs"
+                };
+                let mut v = self.random_op(kind);
+                if let Some(m) = v.as_object_mut() {
+                    m.remove("rand");
+                }
+                v
+            }
+            "store.spender" => {
+                // An output a built transaction spends, credited when one
+                // is, two times in three.
+                let credited: Vec<(String, u32)> = self
+                    .spent
+                    .iter()
+                    .filter(|o| self.credited.contains(o))
+                    .cloned()
+                    .collect();
+                let from = if credited.is_empty() {
+                    self.spent.clone()
+                } else {
+                    credited
+                };
+                if self.below(3) != 0
+                    && let Some((label, index)) = pick(self.rng, &from).cloned()
+                {
+                    return json!({"op": name, "outpoint": {"tx": label, "index": index}});
+                }
+                let op = self.outpoint();
+                json!({"op": name, "outpoint": op})
+            }
+            other => self.op(other),
+        }
+    }
+
     /// An operation of [`CREDIT_OPS`].
     fn credit_op(&mut self, name: &str) -> Value {
         match name {
@@ -563,7 +1011,7 @@ impl Gen<'_> {
                 };
                 let mut ops = vec![json!({"op": "store.insert_mined_tx", "tx": l, "block": block})];
                 ops.extend(self.credits_of(&l, Some(&block)));
-                json!({"op": "update", "ops": ops})
+                self.mined_group(&l, &block, ops)
             }
             "credit.unmined" => {
                 let Some(l) = self.tx_label() else {
@@ -619,8 +1067,14 @@ impl Gen<'_> {
     }
 
     fn op(&mut self, name: &str) -> Value {
-        if self.credits && !TX_OPS.contains(&name) {
+        if self.credits && !TX_OPS.contains(&name) && CREDIT_OPS.contains(&name) {
             return self.credit_op(name);
+        }
+        if self.select && !TX_OPS.contains(&name) && SELECT_OPS.contains(&name) {
+            return self.select_op(name);
+        }
+        if self.credits && !TX_OPS.contains(&name) {
+            return self.cms_op(name);
         }
         match name {
             "store.extend_main_chain" | "extend.vote0" | "extend.odd" | "extend.again" => {
@@ -655,12 +1109,20 @@ impl Gen<'_> {
             },
             "store.insert_mined_tx" => match self.tx_label() {
                 Some(l) if self.credits => match self.mined_block(&l) {
-                    Some(b) => json!({"op": name, "tx": l, "block": b}),
-                    None => json!({"op": "store.insert_mem_pool_tx", "tx": l}),
+                    Some(b) if !self.remined(&l) => {
+                        self.note_mined(&l, &b);
+                        json!({"op": name, "tx": l, "block": b})
+                    }
+                    _ => json!({"op": "store.insert_mem_pool_tx", "tx": l}),
                 },
                 Some(l) => {
                     let b = self.block_ref();
-                    json!({"op": name, "tx": l, "block": b})
+                    if self.remined(&l) {
+                        json!({"op": "store.insert_mem_pool_tx", "tx": l})
+                    } else {
+                        self.note_mined(&l, &b);
+                        json!({"op": name, "tx": l, "block": b})
+                    }
                 }
                 None => self.build_regular(),
             },
@@ -682,6 +1144,8 @@ impl Gen<'_> {
                 } else {
                     let h = 1 + self.below(self.tip + 1);
                     self.tip = h - 1;
+                    // Every record at or above h is gone.
+                    self.mined_floor.retain(|_, f| *f < h);
                     i64::try_from(h).expect("small")
                 };
                 json!({"op": name, "height": h})
@@ -776,7 +1240,7 @@ pub fn generate_txstore(
     id: usize,
     network_override: Option<&'static str>,
 ) -> Value {
-    generate(rng, id, network_override, false)
+    generate(rng, id, network_override, false, false)
 }
 
 /// A generated transaction store script drawing the credit slice's
@@ -786,7 +1250,28 @@ pub fn generate_txstore_credits(
     id: usize,
     network_override: Option<&'static str>,
 ) -> Value {
-    generate(rng, id, network_override, true)
+    generate(rng, id, network_override, true, false)
+}
+
+/// A generated transaction store script drawing the credit slice's and the
+/// commitment and multisig slice's operations too (module documentation).
+pub fn generate_txstore_cms(
+    rng: &mut SplitMix64,
+    id: usize,
+    network_override: Option<&'static str>,
+) -> Value {
+    generate(rng, id, network_override, true, true)
+}
+
+/// A generated transaction store script drawing the credit slice's
+/// operations and input selection, `RandomUTXO` and `Spender` (module
+/// documentation).
+pub fn generate_txstore_select(
+    rng: &mut SplitMix64,
+    id: usize,
+    network_override: Option<&'static str>,
+) -> Value {
+    generate_kind(rng, id, network_override, true, false, true)
 }
 
 fn generate(
@@ -794,6 +1279,18 @@ fn generate(
     id: usize,
     network_override: Option<&'static str>,
     credits: bool,
+    cms: bool,
+) -> Value {
+    generate_kind(rng, id, network_override, credits, cms, false)
+}
+
+fn generate_kind(
+    rng: &mut SplitMix64,
+    id: usize,
+    network_override: Option<&'static str>,
+    credits: bool,
+    cms: bool,
+    select: bool,
 ) -> Value {
     let network = network_override.unwrap_or_else(|| network(rng));
     let seed = rng.bytes(32);
@@ -813,19 +1310,50 @@ fn generate(
         rolled_back: false,
         credited: Vec::new(),
         ticket_maturity: ticket_maturity(network),
+        p2sh: HashMap::new(),
+        multisig: Vec::new(),
+        select,
+        spent: Vec::new(),
+        mined_floor: HashMap::new(),
     };
-    let draws = if credits {
-        TX_OPS.len() + CREDIT_OPS.len()
-    } else {
-        TX_OPS.len()
-    };
+    if cms {
+        for (label, script) in cms_scripts() {
+            g.ops
+                .push(json!({"op": "mgr.import_script", "script": script, "label": label}));
+        }
+    }
+    let mut lists: Vec<&[&str]> = vec![TX_OPS];
+    if credits {
+        lists.push(CREDIT_OPS);
+    }
+    if cms {
+        lists.push(CMS_OPS);
+    }
+    if select {
+        lists.push(SELECT_OPS);
+    }
+    let draws: usize = lists.iter().map(|l| l.len()).sum();
     for _ in 0..n {
-        let i = usize::try_from(g.below(draws as u64)).expect("small");
-        let name = TX_OPS
-            .get(i)
-            .copied()
-            .unwrap_or_else(|| CREDIT_OPS[i - TX_OPS.len()]);
+        let mut i = usize::try_from(g.below(draws as u64)).expect("small");
+        let mut name = "";
+        for l in &lists {
+            if i < l.len() {
+                name = l[i];
+                break;
+            }
+            i -= l.len();
+        }
         let v = g.op(name);
+        if v["op"] == "tx.build" {
+            for i in v["inputs"].as_array().into_iter().flatten() {
+                if let (Some(t), Some(x)) = (i["prev"]["tx"].as_str(), i["prev"]["index"].as_u64())
+                    && t.len() != 64
+                {
+                    g.spent
+                        .push((t.to_owned(), u32::try_from(x).expect("small")));
+                }
+            }
+        }
         if v["op"] == "tx.build"
             && let Some(last) = g.txs.last_mut()
         {
@@ -861,10 +1389,38 @@ fn generate(
             g.ops.push(v);
         }
     }
+    if select {
+        for (minconf, account) in [(0, 0), (1, 0), (1, 1)] {
+            let rand = hex(&g.rng.bytes(32));
+            g.ops.push(
+                json!({"op": "store.select_inputs", "account": account, "minconf": minconf,
+                "syncheight": g.tip, "targets": [0], "rand": rand}),
+            );
+        }
+    }
+    if cms {
+        for a in ["ms1", "ms2"] {
+            g.ops.push(
+                json!({"op": "store.unspent_multisig_credits_for_address", "addr": {"ref": a}}),
+            );
+        }
+        let recorded = g.multisig.clone();
+        for (label, index) in recorded.iter().take(6) {
+            g.ops.push(json!({"op": "store.get_multisig_output", "outpoint": {"tx": label, "index": index}}));
+        }
+    }
     let rand = hex(&g.rng.bytes(32));
     let mut script = json!({
         "format": "purse-opscript 1",
-        "name": format!("txstore {}generated {id}", if credits { "credit " } else { "" }),
+        "name": format!(
+            "txstore {}generated {id}",
+            match (credits, cms, select) {
+                (_, _, true) => "selection ",
+                (_, true, false) => "commitment and multisig ",
+                (true, false, false) => "credit ",
+                (false, false, false) => "",
+            }
+        ),
         "setup": {
             "network": network,
             "seed": hex(&seed),
@@ -896,6 +1452,10 @@ const CHANGING: &[&str] = &[
     "store.remove_unconfirmed",
     "store.prune_unmined",
     "store.add_credit",
+    "store.add_ticket_commitment",
+    "store.redeem_ticket_commitments",
+    "store.add_multisig_out",
+    "store.spend_multisig_out",
 ];
 
 /// The kinds a generated group member tolerates: never `Invalid` or `IO`,

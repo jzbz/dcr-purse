@@ -820,6 +820,8 @@ dependencies = [
  "purse-hdkeychain",
  "purse-snacl",
  "purse-store",
+ "purse-txauthor",
+ "purse-txrules",
  "sha2",
  "subtle",
  "zeroize",

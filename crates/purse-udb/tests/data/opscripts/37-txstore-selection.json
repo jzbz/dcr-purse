@@ -1,0 +1,1152 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-selection",
+ "setup": {
+  "network": "simnet",
+  "seed": "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3737373737373737373737373737373737373737373737373737373737373737",
+  "clock": 1795700000
+ },
+ "ops": [
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 0,
+   "rand": "5321dfd2b14bd007774dba4fb53613b3787086fee13b0370c4eba7ed792a13be"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 0,
+   "syncheight": 0,
+   "rand": "8fc3ed76b090ac8d5ace7a23fa048078e85e4f52c4558622987b7374cf2eefef"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 0,
+   "targets": [
+    1000,
+    0
+   ],
+   "rand": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 0,
+   "targets": [
+    0
+   ]
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "tx.build",
+   "label": "o1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 0
+     },
+     "value": 6000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 5000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "o1",
+   "block": "b2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "o1",
+   "index": 0,
+   "account": 0,
+   "block": "b2"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 2,
+   "rand": "eede4308970066952b23c573a4a7998521231ff0965cb040ecb0e9c793afcf1f"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 2,
+   "rand": "5499297746c1ea5604276cbd93bf06e9d36234743ad014d0805f52cf985a407d"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 2,
+   "rand": "5364b52ab3e5c0307570b60e6c4d3ba2d15e788be6397e58ba10ed7ef4dbbc32"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 2,
+   "rand": "991f7278274320fc365b08cd12588f4cb957c392bcb6c564dadfc162af83a45d"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 2
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 2,
+   "syncheight": 2,
+   "rand": "08ae229a571b377461093090aff7d1fa5be938bd1f439e2c56116ad99c95e4df"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 1,
+   "rand": "b1c31005e31e180fd65d1cf4d6da558c1f75336bdbccd9248622324f25dc122d"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 2,
+   "targets": [
+    1000
+   ],
+   "rand": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "o1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "m1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 0
+     },
+     "value": 20000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 3000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 1
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     }
+    },
+    {
+     "value": 2000,
+     "script": "21021111111111111111111111111111111111111111111111111111111111111111ac"
+    },
+    {
+     "value": 1500,
+     "script": "a914222222222222222222222222222222222222222287"
+    },
+    {
+     "value": 2500,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     }
+    },
+    {
+     "value": 1200,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "m1",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 0,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 1,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 2,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 3,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 4,
+   "account": 1,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m1",
+   "index": 5,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "m2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "3333333333333333333333333333333333333333333333333333333333333333",
+      "index": 0
+     },
+     "value": 20000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 4000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     }
+    },
+    {
+     "value": 4100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 6
+     }
+    },
+    {
+     "value": 4200,
+     "pay": {
+      "acct": 0,
+      "branch": 1,
+      "index": 7
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "m2",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m2",
+   "index": 0,
+   "account": 0,
+   "block": "b3",
+   "change": false
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m2",
+   "index": 1,
+   "account": 0,
+   "block": "b3",
+   "change": false
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m2",
+   "index": 2,
+   "account": 0,
+   "block": "b3",
+   "change": true
+  },
+  {
+   "op": "tx.build",
+   "label": "cb",
+   "inputs": [
+    {
+     "prev": "coinbase",
+     "value": 6000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 6000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 8
+     }
+    },
+    {
+     "value": 0,
+     "opreturn": "0300000000000000"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "cb",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "cb",
+   "index": 0,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "tk",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "4444444444444444444444444444444444444444444444444444444444444444",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 9
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 10
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 50,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 11
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "tk",
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk",
+   "index": 0,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk",
+   "index": 2,
+   "account": 0,
+   "block": "b3"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "tx.build",
+   "label": "m3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "5555555555555555555555555555555555555555555555555555555555555555",
+      "index": 0
+     },
+     "value": 2000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 700,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 12
+     }
+    },
+    {
+     "value": 800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 13
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "m3",
+   "block": "b4"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m3",
+   "index": 0,
+   "account": 0,
+   "block": "b4"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "m3",
+   "index": 1,
+   "account": 0,
+   "block": "b4"
+  },
+  {
+   "op": "tx.build",
+   "label": "m4",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "6666666666666666666666666666666666666666666666666666666666666666",
+      "index": 0
+     },
+     "value": 900
+    },
+    {
+     "prev": {
+      "tx": "m1",
+      "index": 5
+     },
+     "value": 1200
+    }
+   ],
+   "outputs": [
+    {
+     "value": 2000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 14
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "m4",
+   "block": "b4"
+  },
+  {
+   "op": "tx.build",
+   "label": "v1",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "tk",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b3"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 15
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "v1",
+   "block": "b4"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "v1",
+   "index": 2,
+   "account": 0,
+   "block": "b4"
+  },
+  {
+   "op": "tx.build",
+   "label": "u1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "m2",
+      "index": 1
+     },
+     "value": 4100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 900,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 16
+     }
+    },
+    {
+     "value": 3100,
+     "pay": {
+      "acct": 0,
+      "branch": 1,
+      "index": 17
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 23
+     }
+    },
+    {
+     "value": 60,
+     "script": "a914222222222222222222222222222222222222222287"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "u1"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 1,
+   "account": 0,
+   "change": true
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 2,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u1",
+   "index": 3,
+   "account": 0
+  },
+  {
+   "op": "tx.build",
+   "label": "u2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "7777777777777777777777777777777777777777777777777777777777777777",
+      "index": 0
+     },
+     "value": 1200
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 18
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "u2"
+  },
+  {
+   "op": "store.set_published",
+   "tx": "u2",
+   "published": false
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "u2",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "tx.build",
+   "label": "u3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "u1",
+      "index": 0
+     },
+     "value": 900
+    }
+   ],
+   "outputs": [
+    {
+     "value": 850,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 19
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "u3"
+  },
+  {
+   "op": "tx.build",
+   "label": "tk2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "8888888888888888888888888888888888888888888888888888888888888888",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 20
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 21
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 50,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 22
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "tk2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk2",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "tk2",
+   "index": 2,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_output_count"
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "f9b2adff6555c75cf2dd17385ec315a703333618232bde1d1b6b52d9aac55309"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "45bd6f4119077c3d408e7a24605c0e083237f06641342c6307f53254d638c9f8"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "e80c390bea382935418032059adaa9bb33615c67e7c2a31911830e18a28c2204"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "470de5ccfc59780e9dcf75e16a2da5a5dacc1df48b4e005baaa540173fab4778"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "d74db717d7a36596b307a59aa2b3698ad4e0fce872b63a27afbda085a5e4212e"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "02c4f0325adb43c0d0b1740e597e30510d15196a7f5f4e62db0909808f45c23f"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 2,
+   "syncheight": 4,
+   "rand": "2ec5ba6bc4da9a9f9f5b175f4efbed96a0282257b09410d5c73717e0a77bef46"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 2,
+   "syncheight": 4,
+   "rand": "102cd89500484ed03df7674864a557b6f32342988e40dab422119dd497bc9d73"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4,
+   "rand": "26a843fe69b16b06ffa1d2e8da5aeef1c5b47c62f81df43236de3dea3cb134e2"
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 4
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 5,
+   "syncheight": 4,
+   "rand": "6d19f2007de4f84494d23eefce9dd90ded37bce87f45d9616c1194570be83a1f"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    5000,
+    12000,
+    20000,
+    0
+   ],
+   "rand": "ffda579c4a5a58c9cf61995ea1774c3f9bb4b4b12295012e18a93dd42307a029"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 4,
+   "targets": [
+    100000
+   ],
+   "rand": "7452fe9edd0c22db4969c3409f30a113fe918c55fecccacca599d2d8689ecc9b"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 20,
+   "targets": [
+    0
+   ],
+   "rand": "34b1dfae50c47b4cd83be0f48532cc510e2aa40d771c5f01bcd8144f47b39fdc"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 1,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    1,
+    0
+   ],
+   "rand": "6ddb4907b6c496a691c1763a470102c8987e93fe5ee384c77f0a51b31f9f1551"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    3000
+   ],
+   "rand": "ed9b97474dd4e8f7c98f50cd904659c6d0fa0d9ebaec43115a8542961bf33be1",
+   "ignore": [
+    {
+     "tx": "m1",
+     "index": 0
+    },
+    {
+     "tx": "m2",
+     "index": 0,
+     "tree": 1
+    },
+    {
+     "tx": "m3",
+     "index": 1
+    }
+   ]
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 2,
+   "syncheight": 4,
+   "targets": [
+    100000
+   ],
+   "rand": "2b4b58dfd7a949683caa326779d9f99e975407ad953bff4e91c858380fae28a0"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    0,
+    7000
+   ],
+   "rand": "b1af4d1a51cd0a76f52288adbde5c4764c7b577069919e395ff87ea00f5e210d"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 3,
+   "targets": [
+    0
+   ],
+   "rand": "9d5d41b491661b7c3e354b638ddc82cd0ff859d082da2d655b5c68e5ba953dda"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    0,
+    1000000000
+   ],
+   "rand": "f2457a837c9208c83cbd6fad61e1045be64fa4e50f24faeb9f4cd65f9a49aa16"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 19,
+   "targets": [
+    1000
+   ]
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "store.select_inputs",
+     "account": 0,
+     "minconf": 1,
+     "syncheight": 4,
+     "targets": [
+      8000
+     ],
+     "rand": "c48a1610452f09fa258f1a5d8457000ecd78a9e6c0baa9706eb69a8051dcc379"
+    },
+    {
+     "op": "store.random_utxo",
+     "minconf": 1,
+     "syncheight": 4
+    },
+    {
+     "op": "store.select_inputs",
+     "account": 0,
+     "minconf": 1,
+     "syncheight": 18,
+     "targets": [
+      1,
+      30000
+     ]
+    },
+    {
+     "op": "store.spender",
+     "outpoint": {
+      "tx": "m2",
+      "index": 1
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m1",
+    "index": 5
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m2",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m2",
+    "index": 1,
+    "tree": 1
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "u1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "u1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m1",
+    "index": 9
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "tk",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "tk",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "u2",
+    "index": 0
+   }
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 4,
+   "targets": [
+    6000
+   ],
+   "rand": "556fd61edb3440195fc15f0ed199aa41cf4403bd8fe5de093864c2fa95777065"
+  },
+  {
+   "op": "store.rollback",
+   "height": 4
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m1",
+    "index": 5
+   }
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "v1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.random_utxo",
+   "minconf": 1,
+   "syncheight": 3,
+   "rand": "9636e71678f37e1179f7380504d36fbce05b909030300c52d22ab0bd4f22b10d"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 3,
+   "targets": [
+    0
+   ],
+   "rand": "8ec098b27bb680bd4702c1fcaef34eb92ed2e8a90c9aca92acdf11f2cb212f5c"
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 1,
+   "syncheight": 3,
+   "targets": [
+    100000
+   ]
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "u1"
+  },
+  {
+   "op": "store.spender",
+   "outpoint": {
+    "tx": "m2",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.select_inputs",
+   "account": 0,
+   "minconf": 0,
+   "syncheight": 3,
+   "targets": [
+    0
+   ],
+   "rand": "c5b52c1d15a1b280e3d2c9c1c80142e57e9a860a20bb94e5d00e190d5655680d"
+  }
+ ]
+}

@@ -26,15 +26,17 @@
 //! `[txs]`, `[unpublished]`, `[uinputs]`, `[tickets]`, the records of
 //! `[derived]` that read it (`tipheight`, `missingcf`, `utxocount`); the
 //! credit slice's: `[credits]`, `[debits]`, `[ucredits]` and `[derived]`'s
-//! `balance` (minconf 0 and 1) and `unspentticket`; and the sections of the
-//! next slice's tables (`[commitments]`, `[multisig]`), which are empty
-//! because the export refuses a store in which those tables hold a row
+//! `balance` (minconf 0 and 1) and `unspentticket`; and the commitment and
+//! multisig slice's: `[commitments]` (each commitment with its unspent
+//! entry folded in) and `[multisig]` (each record, `utxo` folding its
+//! `multisig_unspent` entry, which the store keeps for exactly the unspent
+//! records; `txhash` the key's hash, which Go's value repeats)
 //! ([`COVERED`]). `[agendas]`, `[treasury]` and `[vsp]` are written empty.
 //!
 //! The producer never omits state silently (ADR-0001 principle P1): if the
-//! store holds a row this slice does not export (a commitment, a multisig
-//! output, an aux record, an `addr_by_path` entry), [`export`] fails and
-//! names the table, rather than writing an export that looks complete.
+//! store holds a row this slice does not export (an aux record, an
+//! `addr_by_path` entry), [`export`] fails and names the table, rather than
+//! writing an export that looks complete.
 //! The balance sums and `acct_history` are derived from the exported rows
 //! (ADR-0003 Decision item 4) and are not exported themselves.
 //!
@@ -62,9 +64,9 @@ use std::ops::Bound;
 
 use purse_store::{
     AccountKey, AccountNames, Accounts, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrRow,
-    CFiltersDetached, CoinTypeKeys, Credits, CreditsInvalidated, Debits, DebitsInvalidated, Hash32,
-    HeadersDetached, History, HistoryKey, ReadTx, TableId, Tickets, TxMined, TxUnmined,
-    UnminedCredits, UnminedInputs, Unpublished, Unspent,
+    CFiltersDetached, CoinTypeKeys, Commitments, CommitmentsUnspent, Credits, CreditsInvalidated,
+    Debits, DebitsInvalidated, Hash32, HeadersDetached, History, HistoryKey, MultisigOuts, ReadTx,
+    TableId, Tickets, TxMined, TxUnmined, UnminedCredits, UnminedInputs, Unpublished, Unspent,
 };
 use sha2::{Digest, Sha256};
 
@@ -540,7 +542,7 @@ fn store_err(err: purse_store::Error) -> AnyError {
 }
 
 /// The tables whose rows this slice exports or reads.
-const EXPORTED_TABLES: [TableId; 27] = [
+const EXPORTED_TABLES: [TableId; 31] = [
     TableId::Meta,
     TableId::Wallet,
     TableId::Accounts,
@@ -568,6 +570,10 @@ const EXPORTED_TABLES: [TableId; 27] = [
     TableId::Balances,
     TableId::BalanceHeights,
     TableId::AcctHistory,
+    TableId::Commitments,
+    TableId::CommitmentsUnspent,
+    TableId::MultisigOuts,
+    TableId::MultisigUnspent,
 ];
 
 /// Writes the logical export of the wallet in `tx` (one snapshot,
@@ -678,9 +684,8 @@ pub fn export(
                 None => Vec::new(),
             },
             name @ ("chain" | "blocks" | "headers" | "cfilters" | "txs" | "unpublished"
-            | "credits" | "debits" | "ucredits" | "uinputs" | "tickets") => {
-                txstore.remove(name).unwrap_or_default()
-            }
+            | "credits" | "debits" | "ucredits" | "uinputs" | "tickets" | "commitments"
+            | "multisig") => txstore.remove(name).unwrap_or_default(),
             "privcheck" => match (&mgr, opts.priv_pass) {
                 (Some(m), Some(pass)) if privcheck => {
                     privcheck_records(&mut r, m, pass, opts.acct_pass, &accounts, &addrs.priv_keys)?
@@ -1453,6 +1458,76 @@ fn txstore_records(
         tickets
             .into_iter()
             .map(|h| (0, vec![h, "-1".to_owned()]))
+            .collect(),
+    );
+
+    // [commitments]: by outpoint (display hash, then index), the unspent
+    // entry folded in (`unminedspent` absent without one).
+    let mut commitments = Vec::new();
+    for r in tx.iter::<Commitments>().map_err(store_err)? {
+        let (op, c) = r.map_err(store_err)?;
+        let (unspent, ums) = match tx.get::<CommitmentsUnspent>(&op).map_err(store_err)? {
+            Some(u) => (true, vb(u.unmined_spent)),
+            None => (false, ABSENT.to_owned()),
+        };
+        commitments.push((
+            (vh(&op.hash), op.index),
+            vec![c.amount.to_string(), vu(c.account), vb(unspent), ums],
+        ));
+    }
+    commitments.sort();
+    out.insert(
+        "commitments",
+        commitments
+            .into_iter()
+            .map(|((h, i), rest)| {
+                let mut v = vec![h, vu(i)];
+                v.extend(rest);
+                (0, v)
+            })
+            .collect(),
+    );
+
+    // [multisig]: by outpoint; the spender only while spent, as Go's
+    // exporter writes it; the stored transaction hash is the key's.
+    let mut multisig = Vec::new();
+    for r in tx.iter::<MultisigOuts>().map_err(store_err)? {
+        let (op, m) = r.map_err(store_err)?;
+        let (block, height) = m
+            .block
+            .map_or((Hash32::default(), 0), |b| (b.hash(), b.height()));
+        let (sptx, spindex) = match m.spender {
+            Some(s) => (vh(&s.hash), vu(s.input)),
+            None => (ABSENT.to_owned(), ABSENT.to_owned()),
+        };
+        multisig.push((
+            (vh(&op.hash), op.index),
+            vec![
+                vx(&m.script_hash.0),
+                vu(m.m),
+                vu(m.n),
+                vb(m.spender.is_some()),
+                vb(m.stake_tree),
+                vh(&block),
+                vu(height),
+                m.amount.to_string(),
+                sptx,
+                spindex,
+                vh(&op.hash),
+                vb(m.spender.is_none()),
+            ],
+        ));
+    }
+    multisig.sort();
+    out.insert(
+        "multisig",
+        multisig
+            .into_iter()
+            .map(|((h, i), rest)| {
+                let mut v = vec![h, vu(i)];
+                v.extend(rest);
+                (0, v)
+            })
             .collect(),
     );
     Ok(out)

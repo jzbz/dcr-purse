@@ -227,8 +227,8 @@ arguments (`?` optional). Results are in section 4.
 | `store.spend_multisig_out` | outpoint, spender, index |
 | `store.set_published` | tx, published |
 | `store.prune_unmined` | sdiff |
-| `store.random_utxo` | minconf, syncheight |
-| `store.select_inputs` | account, minconf, syncheight, targets, ignore? |
+| `store.random_utxo` | minconf, syncheight, rand? |
+| `store.select_inputs` | account, minconf, syncheight, targets, ignore?, rand? |
 | `store.unspent_output` | outpoint, include_mempool |
 | `store.is_unspent_outpoint`, `exists_utxo`, `get_multisig_output`, `spender` | outpoint |
 | `store.unspent_tickets` | syncheight, include_immature |
@@ -507,7 +507,7 @@ Per operation (`—` is `null`):
 | `store.unspent_output` | Credit |
 | `store.for_each_unspent_outpoint` | list of Outpoint, in Go's order |
 | `store.iterate_tickets` | list of TxRecord plus `block` (Block), `spender` (hash) |
-| `store.get_multisig_output` | `{outpoint, tree, scripthash, m, n, tx, block, height, amount, spent, spentby, spentbyindex}` |
+| `store.get_multisig_output` | `{outpoint, tree, scripthash, m, n, tx, block, height, amount, spent, spentby?, spentbyindex?}`; `spentby` and `spentbyindex` only while `spent` is true, as `wallet/multisig.go` reads them (an unspent record's spender bytes, stale after an unspend, QK-0055, reach no reader; 2026-11-24) |
 | `store.unspent_multisig_credits_for_address` | list of `{outpoint, scripthash, script, m, n, amount}` |
 | `store.select_inputs` | `{selections~r}`: one `{target, amount, inputs}` per target, each input `{outpoint, value, script, redeemsize}` |
 | `store.account_balance` | Balances |
@@ -650,7 +650,10 @@ The differential is then:
    the wallet package and need either a copy of it under the same seams or
    a decision that those paths compare masked only.
 2. Whether the Rust store commits to Go's draw order (`drawn` equality and
-   exact exports), or only to masked equality (spec 23 §13).
+   exact exports), or only to masked equality (spec 23 §13). *For the
+   transaction store's random selections it does (addendum of
+   2026-11-24): their results, `~r` values included, and their `drawn`
+   are compared exactly; the address manager's draws stay masked.*
 3. Whether `rt.reopen` should also be exercised after every write in a
    generated mode (crash-consistency against Go's in-memory state).
 4. Chain-backend states (revocations of real chains, tspends, a
@@ -700,3 +703,34 @@ Two later oracle commands apply the same cut, citing this record:
 (QK-0748), so that their frozen vectors hold no architecture-dependent
 indices. The project owner kept the cut in both (2026-11-19). As here,
 nothing compares the indices: dcr-purse returns an error where Go panics.
+
+## Addendum, 2026-11-24 — A stream key for the random store operations
+
+`store.random_utxo` and `store.select_inputs` take an optional `rand`
+argument, a 32-byte key (hex). The runner restarts its injected stream
+under that key (`rand.Reseed` in `tools/oracle/cmd/oprunner/internal/rand`,
+which, unlike `Seed`, keeps the count of bytes drawn, so `drawn` stays a
+per-operation count) after every other argument is read and right before
+the store draws, so the operation draws from the start of the stream the
+key names whatever the script drew before it. Without `rand` the
+operation continues the stream where it stands, as before; `setup.rand`
+and every other operation are unchanged, and a script without `rand`
+gives the same results as before the argument existed.
+
+Why: the Rust runner's address manager draws from a stream of its own
+(section 6; open item 2), so after setup the Rust runner cannot know
+where Go's stream stands, and before this argument the random selections
+could be compared only masked. With the key, the Rust runner keys dcrd's
+generator (dcroxide's `Prng::from_seed`, the ChaCha20 stream of spec 23
+§5.6.2) with it and draws what Go draws: the selections, the credits
+`RandomUTXO` picks and `drawn` are compared exactly
+(`crates/purse-udb/tests/support/compare.rs`, `RANDOM_OPS`). A random
+operation without `rand` is accepted by the Rust runner only right after
+another random store operation, with no operation in between that may
+draw (an address manager, `rt.*` or wallet operation), and is refused as
+a script fault otherwise, since the runner cannot know where Go's stream
+stands. Group members carry `drawn` on both sides.
+
+The keys are test inputs, never sent and never persisted; dcrwallet's
+behaviour is not changed by them, only the stream the copied `crypto/rand`
+yields at that point.

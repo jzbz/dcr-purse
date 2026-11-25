@@ -1340,7 +1340,7 @@ Each item states what the Go does, with a citation, and what a port must decide.
 
 **Q-30. Time values.** `time.Unix(sec, 0)` yields local-zone times with second resolution; a zero `time.Time` round-trips through the birthday state as year-1 UTC seconds reinterpreted in the local zone (equal instant, different representation). `received` times of the zero `time.Time` are stored as `0xFFFFFFF1886E0900`.
 
-**Q-31. Random selection depends on bbolt cursor edge behaviour** (5.1 item 3): `Seek` past the end followed by `Prev` yields the last key. A storage layer where that returns nothing would bias selection.
+**Q-31. Random selection depends on bbolt cursor edge behaviour** (5.1 item 3): `Seek` past the end followed by `Prev` yields the last key. A storage layer where that returns nothing would bias selection. *2026-11-24 (`purse-udb`, the selection slice): kept. `randomUTXO`'s forward walk is every key at or above the seek key and its backward walk every key below it, read as ranges of the outpoint keys; the walk equals Go's `randomUTXO` written out over `purse-store`'s bbolt cursor at seek keys before the first key, past the last, equal to a transaction's hash and next to it (`random_utxo_walks_as_bbolt_s_cursor_does`), and Go's own answers on seeded streams (corpus script `37-txstore-selection`).*
 
 **Q-32. Go-runtime dependencies in results:** `AccountBalances` and `Rollback` return Go maps (unordered); `UnminedTxs` uses map iteration (Q-18). Callers that need an order sort themselves.
 

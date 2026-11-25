@@ -82,8 +82,10 @@
 //	Argon2id thread count                  kdf/kdf.go:31 runtime.NumCPU()      seam.NumCPU (setup.ncpu)
 //	secretbox nonce, crypto keys,          wallet/internal/snacl/snacl.go:38,  seeded stream
 //	  scrypt salt                          77, 237
-//	random UTXO seek and pick              txmined.go:2362, 2386, 2410         seeded stream
-//	shuffle of remaining keys              txmined.go:3169                     seeded stream
+//	random UTXO seek and pick              txmined.go:2362, 2386, 2410         seeded stream, restarted
+//	                                                                           under the operation's
+//	                                                                           "rand" key when given
+//	shuffle of remaining keys              txmined.go:3169                     the same
 //	address add time, manager creation     addressdb.go:1360, 1375, 1390, 1683 seam.Now (setup.clock)
 //	transaction store creation date        txdb.go:2181                        seam.Now
 //	address add time written in a wallet   addressdb.go:1360 of the unmodified the session's interposer

@@ -58,9 +58,23 @@
 //! `a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit`
 //! (QK-0101), and two of Go defects it reproduces, every record and the
 //! export equal: `a_revalidated_transaction_also_unmined_is_counted_twice`
-//! (QK-0734, QK-0736) and
+//! (QK-0734, QK-0736; since the selection slice
+//! `a_revalidated_transaction_drops_its_unmined_copy`, which shows Go's
+//! state beside dcr-purse's, QK-0734 being fixed) and
 //! `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
-//! (QK-0785).
+//! (QK-0785). The commitment and multisig slice adds the hand-written
+//! scripts `35` and `36`, generated scripts drawing its operations too
+//! (`generate_txstore_cms`, `PURSE_UDB_TX_CMS_SCRIPTS`, and in groups
+//! `PURSE_UDB_TX_CMS_GROUP_SCRIPTS`), and the pinning test of its one
+//! divergence, `a_multisig_block_of_the_zero_hash_is_refused`. The
+//! selection slice adds the hand-written script `37`, generated scripts
+//! drawing the selections (`generate_txstore_select`), and
+//! `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`,
+//! which shows Go's state beside dcr-purse's for the rows QK-0734's fix
+//! merges that only the unmined copy holds (and pins QK-0789), and
+//! `a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`,
+//! which pins QK-0781's doubled output in the UTXO queries and selection
+//! on both sides (reproduced; QK-0734's fix does not reach it).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -83,7 +97,8 @@ use support::generator::{
 use support::runner::{self, SUPPORTED};
 use support::scratch;
 use support::txgen::{
-    CREDIT_OPS, TX_OPS, generate_txstore, generate_txstore_credits, group_txstore,
+    CMS_OPS, CREDIT_OPS, SELECT_OPS, TX_OPS, generate_txstore, generate_txstore_cms,
+    generate_txstore_credits, generate_txstore_select, group_txstore,
 };
 
 #[test]
@@ -1565,6 +1580,38 @@ fn generated_txstore_credit_scripts_match_go() {
     );
 }
 
+/// Generated transaction store scripts that draw the commitment and
+/// multisig slice's operations too (`generate_txstore_cms`: imported
+/// multisig scripts paid by P2SH, `AddMultisigOut`, `SpendMultisigOut`,
+/// `AddTicketCommitment`, `RedeemTicketCommitments` in the groups
+/// `processTransactionRecord` would make and alone, and the two multisig
+/// queries), on all four networks (`PURSE_UDB_TX_CMS_SCRIPTS` sets how
+/// many).
+#[test]
+fn generated_txstore_cms_scripts_match_go() {
+    generated_campaign(
+        "PURSE_UDB_TX_CMS_SCRIPTS",
+        4,
+        "purse-udb-txstore-cms",
+        generate_txstore_cms,
+    );
+}
+
+/// Generated transaction store scripts that draw input selection too
+/// (`generate_txstore_select`: `RandomUTXO` and `SelectInputs` on keyed
+/// streams and continuing ones, compared exactly with the bytes drawn,
+/// and `Spender`), on all four networks (`PURSE_UDB_TX_SELECT_SCRIPTS`
+/// sets how many).
+#[test]
+fn generated_txstore_select_scripts_match_go() {
+    generated_campaign(
+        "PURSE_UDB_TX_SELECT_SCRIPTS",
+        2,
+        "purse-udb-txstore-select",
+        generate_txstore_select,
+    );
+}
+
 /// Runs `count` (from `var`, else `default`) scripts of `generate` through
 /// both runners, every record and the final exports equal.
 fn generated_campaign(
@@ -1655,6 +1702,30 @@ fn generated_txstore_credit_group_scripts_match_go() {
     );
 }
 
+/// The same with the commitment and multisig scripts
+/// (`PURSE_UDB_TX_CMS_GROUP_SCRIPTS`).
+#[test]
+fn generated_txstore_cms_group_scripts_match_go() {
+    group_campaign(
+        "PURSE_UDB_TX_CMS_GROUP_SCRIPTS",
+        2,
+        "purse-udb-txstore-cms-groups",
+        generate_txstore_cms,
+    );
+}
+
+/// The same with the selection scripts
+/// (`PURSE_UDB_TX_SELECT_GROUP_SCRIPTS`).
+#[test]
+fn generated_txstore_select_group_scripts_match_go() {
+    group_campaign(
+        "PURSE_UDB_TX_SELECT_GROUP_SCRIPTS",
+        1,
+        "purse-udb-txstore-select-groups",
+        generate_txstore_select,
+    );
+}
+
 fn group_campaign(
     var: &str,
     default: usize,
@@ -1702,12 +1773,19 @@ fn group_campaign(
 /// `store.extend_main_chain` and `tx.build`.
 #[test]
 fn txstore_generator_draws_only_ported_operations() {
-    for op in TX_OPS.iter().chain(CREDIT_OPS) {
+    for op in TX_OPS
+        .iter()
+        .chain(CREDIT_OPS)
+        .chain(CMS_OPS)
+        .chain(SELECT_OPS)
+    {
         assert!(
             SUPPORTED.contains(op)
                 || op.starts_with("extend.")
                 || op.starts_with("build.")
-                || op.starts_with("credit."),
+                || op.starts_with("credit.")
+                || op.starts_with("cms.")
+                || op.starts_with("select."),
             "{op}"
         );
     }
@@ -1935,6 +2013,144 @@ fn a_transaction_mined_twice_and_rolled_back_is_mined_and_unmined() {
         );
         assert_eq!(go[11]["err"]["kind"], "Exist", "{net}: {}", go[11]);
     }
+}
+
+/// QK-0781's state seen by the UTXO queries and input selection
+/// (reproduced): a transaction paying the wallet 5,000 atoms, recorded
+/// mined in blocks 1 and 2 with its credit at block 1, block 2 rolled
+/// back, and then an unmined credit of the same output. The outpoint is
+/// then an unspent output (block 1's credit) and an unmined credit at
+/// once, the rows QK-0734's fix removes after a revalidation, which this
+/// sequence does not pass through: `UnspentOutputs` lists it twice, both
+/// times as unmined, `AccountBalances` counts 10,000 atoms, and
+/// `SelectInputs` at depth 0 selects it twice (also for a 6,000-atom
+/// target), on both sides. With the credit added at block 2 before the
+/// rollback instead, the output is listed, counted and selected once.
+/// Every record and the final exports are equal; Go's results are
+/// pinned.
+#[test]
+fn a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0781: listed, counted and selected twice",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "3737373737373737373737373737373737373737373737373737373737373737",
+                  "clock": 1_795_300_000},
+        "ops": [
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "tx.build", "label": "t",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 6000}],
+             "outputs": [{"value": 5000, "pay": {"acct": 0, "branch": 0, "index": 0}}]},
+            {"op": "store.insert_mined_tx", "tx": "t", "block": "b1"},
+            {"op": "store.add_credit", "tx": "t", "index": 0, "account": 0, "block": "b1"},
+            {"op": "store.insert_mined_tx", "tx": "t", "block": "b2"},
+            {"op": "store.rollback", "height": 2},
+            // 7, 8: mined and unmined, the output listed once from block 1.
+            {"op": "store.exists_tx_mined_or_unmined", "tx": "t"},
+            {"op": "store.unspent_outputs"},
+            // 9: the unmined credit; 10 to 13: the doubled output.
+            {"op": "store.add_credit", "tx": "t", "index": 0, "account": 0},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.select_inputs", "account": 0, "minconf": 0, "syncheight": 1,
+             "targets": [0],
+             "rand": "0000000000000000000000000000000000000000000000000000000000000000"},
+            {"op": "store.select_inputs", "account": 0, "minconf": 0, "syncheight": 1,
+             "targets": [6000],
+             "rand": "0000000000000000000000000000000000000000000000000000000000000000"},
+            {"op": "store.select_inputs", "account": 0, "minconf": 1, "syncheight": 1,
+             "targets": [0],
+             "rand": "0000000000000000000000000000000000000000000000000000000000000000"},
+        ],
+    });
+    let go = differential(
+        &mut o,
+        "QK-0781: listed, counted and selected twice",
+        &script,
+    );
+    let t = go[2]["ok"]["hash"].as_str().expect("t's hash").to_owned();
+    let listed = |r: &Value| {
+        r["ok"]
+            .as_array()
+            .expect("UnspentOutputs")
+            .iter()
+            .map(|c| {
+                (
+                    c["outpoint"]["hash"].as_str().expect("hash").to_owned(),
+                    c["block"]["height"].clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let selected = |r: &Value| {
+        let sel = &r["ok"]["selections~r"][0];
+        (
+            sel["amount"].clone(),
+            sel["inputs"]
+                .as_array()
+                .expect("inputs")
+                .iter()
+                .map(|i| i["outpoint"]["hash"].as_str().expect("hash").to_owned())
+                .collect::<Vec<_>>(),
+        )
+    };
+    let bal = |r: &Value| (r["ok"][0]["spendable"].clone(), r["ok"][0]["total"].clone());
+    assert_eq!(
+        go[7]["ok"],
+        json!({"mined": false, "unmined": true}),
+        "{}",
+        go[7]
+    );
+    assert_eq!(listed(&go[8]), vec![(t.clone(), json!(1))], "{}", go[8]);
+    // The unmined credit doubles the output.
+    assert_eq!(
+        listed(&go[10]),
+        vec![(t.clone(), json!(-1)), (t.clone(), json!(-1))],
+        "{}",
+        go[10]
+    );
+    assert_eq!(bal(&go[11]), (json!(10000), json!(10000)), "{}", go[11]);
+    let twice = (json!(10000), vec![t.clone(), t.clone()]);
+    assert_eq!(selected(&go[12]), twice, "target 0: {}", go[12]);
+    // A 6,000-atom target met by one 5,000-atom output.
+    assert_eq!(selected(&go[13]), twice, "target 6000: {}", go[13]);
+    // At depth 1 the unmined credit is not walked: once.
+    assert_eq!(
+        selected(&go[14]),
+        (json!(5000), vec![t.clone()]),
+        "minconf 1: {}",
+        go[14]
+    );
+
+    // The wallet's own path does not double it: block 2's credit, added
+    // when the block is processed, rewrites the outpoint's unspent row to
+    // name block 2, and the rollback moves that credit to the unmined set
+    // and deletes the row, so block 1's credit is left without one. (The
+    // unmined credit above needs an `AddCredit` without a block after the
+    // rollback, which the wallet makes only after `InsertMemPoolTx`, which
+    // refuses the transaction, QK-0781.)
+    let mut alt = script.clone();
+    let ops = alt["ops"].as_array_mut().expect("ops");
+    ops[9] = json!({"op": "store.unspent_output_count"});
+    ops.insert(
+        6,
+        json!({"op": "store.add_credit", "tx": "t", "index": 0, "account": 0, "block": "b2"}),
+    );
+    let go = differential(&mut o, "QK-0781: block 2's credit rolled back", &alt);
+    assert_eq!(go[10]["ok"], json!(0), "no unspent row: {}", go[10]);
+    assert_eq!(listed(&go[11]), vec![(t.clone(), json!(-1))], "{}", go[11]);
+    assert_eq!(bal(&go[12]), (json!(5000), json!(5000)), "{}", go[12]);
+    assert_eq!(
+        selected(&go[13]),
+        (json!(5000), vec![t.clone()]),
+        "{}",
+        go[13]
+    );
 }
 
 /// A group member whose operation returns an error where Go panics may
@@ -2364,20 +2580,23 @@ fn a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// QK-0734 and QK-0736 (reproduced; QK-0734 to be fixed under ADR-0012
-/// Rule 7 in the next transaction-store slice, decided by the project owner
-/// on 2026-11-24, crate `txstore`, choice 10; until then this test pins Go's
-/// state as reproduced): a transaction mined in block 3, whose block
-/// 4 disapproves block 3, keeps its mined record, so `InsertMemPoolTx`
-/// refuses it as already mined (QK-0736); mined again in block 5 and its
-/// credit added there, then blocks 4 and 5 rolled back and block 3
-/// approved by another block 4, it is unmined (from block 5) and mined
-/// (block 3's revalidated record) at once. Its one output is then an
-/// unspent output and an unmined credit: `UnspentOutputs` lists it twice,
-/// both times as unmined, and `AccountBalances` counts it twice (QK-0734).
-/// Every record and the final exports are equal; Go's answers are pinned.
+/// QK-0734 (fixed under ADR-0012 Rule 7, decided by the project owner on
+/// 2026-11-24, crate `txstore`, choice 10) and QK-0736 (reproduced): a
+/// transaction mined in block 3, whose block 4 disapproves block 3, keeps
+/// its mined record, so `InsertMemPoolTx` refuses it as already mined on
+/// both sides (QK-0736); mined again in block 5 and its credit added
+/// there, then blocks 4 and 5 rolled back and block 3 approved by another
+/// block 4. Go keeps the transaction unmined (from block 5) and mined
+/// (block 3's revalidated record) at once: its one output is an unspent
+/// output and an unmined credit, `UnspentOutputs` lists it twice, both
+/// times as unmined, `AccountBalances` counts it twice, and
+/// `SelectInputs` selects it twice, one 900-atom output reported as 1,800.
+/// dcr-purse's stake validation drops the unmined copy (PARITY.md,
+/// `purse-udb`): the output is listed, counted and selected once, from
+/// block 3, and the transaction is mined only. Every record up to the
+/// approval is equal; after it, Go's state is pinned beside dcr-purse's.
 #[test]
-fn a_revalidated_transaction_also_unmined_is_counted_twice() {
+fn a_revalidated_transaction_drops_its_unmined_copy() {
     let Some(mut o) = oracle_or_skip("oprunner") else {
         return;
     };
@@ -2414,42 +2633,574 @@ fn a_revalidated_transaction_also_unmined_is_counted_twice() {
             {"op": "store.account_balances", "minconf": 1},
             {"op": "store.exists_tx_mined_or_unmined", "tx": "a"},
             {"op": "store.insert_mem_pool_tx", "tx": "a"},
+            {"op": "store.select_inputs", "account": 0, "minconf": 0, "syncheight": 4,
+             "targets": [0],
+             "rand": "3434343434343434343434343434343434343434343434343434343434343434"},
+            {"op": "store.unmined_tx_hashes"},
+            {"op": "store.spender", "outpoint": {"tx": "a", "index": 0}},
         ],
     });
-    let go = differential(&mut o, "QK-0734", &script);
+    let dir = scratch("qk0734");
+    let (go, _) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    let rs = &rust.results;
+    assert_eq!(go.len(), rs.len());
+    for (g, r) in go.iter().zip(rs).take(14) {
+        support::compare::check_record("QK-0734", g, r);
+    }
+    let a = go[3]["ok"]["hash"].as_str().expect("a's hash").to_owned();
     let exist = |r: &Value| {
         r["err"]["kind"] == "Exist"
             && r["err"]["text"]
                 .as_str()
                 .is_some_and(|t| t.ends_with("transaction already exists mined"))
     };
+    // QK-0736, both sides, before and after the approval.
     assert!(exist(&go[7]), "QK-0736: {}", go[7]);
-    assert_eq!(go[14]["ok"], json!(1), "one unspent row: {}", go[14]);
+    assert!(exist(&go[19]) && exist(&rs[19]), "{} {}", go[19], rs[19]);
+    // One unspent row on both sides.
+    assert_eq!((&go[14]["ok"], &rs[14]["ok"]), (&json!(1), &json!(1)));
+    // Go: the outpoint twice, as unmined; dcr-purse: once, from block 3.
     let outs = go[15]["ok"].as_array().expect("UnspentOutputs");
-    assert_eq!(outs.len(), 2, "the outpoint twice: {}", go[15]);
+    assert_eq!(outs.len(), 2, "Go: the outpoint twice: {}", go[15]);
     for out in outs {
         assert_eq!(out["outpoint"], outs[0]["outpoint"], "{}", go[15]);
         assert_eq!(out["block"]["height"], json!(-1), "as unmined: {}", go[15]);
     }
-    let bal = |i: usize, field: &str| go[i]["ok"][0][field].clone();
+    let routs = rs[15]["ok"].as_array().expect("UnspentOutputs");
+    assert_eq!(routs.len(), 1, "Rust: once: {}", rs[15]);
+    assert_eq!(routs[0]["outpoint"], outs[0]["outpoint"]);
+    assert_eq!(routs[0]["block"]["height"], json!(3), "Rust: {}", rs[15]);
+    let bal = |v: &Vec<Value>, i: usize, field: &str| v[i]["ok"][0][field].clone();
     assert_eq!(
-        (bal(16, "spendable"), bal(16, "total")),
+        (bal(&go, 16, "spendable"), bal(&go, 16, "total")),
         (json!(1800), json!(1800)),
-        "minconf 0: {}",
+        "Go, minconf 0: {}",
         go[16]
     );
     assert_eq!(
+        (bal(rs, 16, "spendable"), bal(rs, 16, "total")),
+        (json!(900), json!(900)),
+        "Rust, minconf 0: {}",
+        rs[16]
+    );
+    assert_eq!(
         (
-            bal(17, "spendable"),
-            bal(17, "unconfirmed"),
-            bal(17, "total")
+            bal(&go, 17, "spendable"),
+            bal(&go, 17, "unconfirmed"),
+            bal(&go, 17, "total")
         ),
         (json!(900), json!(900), json!(1800)),
-        "minconf 1: {}",
+        "Go, minconf 1: {}",
         go[17]
     );
+    assert_eq!(
+        (
+            bal(rs, 17, "spendable"),
+            bal(rs, 17, "unconfirmed"),
+            bal(rs, 17, "total")
+        ),
+        (json!(900), json!(0), json!(900)),
+        "Rust, minconf 1: {}",
+        rs[17]
+    );
     assert_eq!(go[18]["ok"], json!({"mined": false, "unmined": true}));
-    assert!(exist(&go[19]), "{}", go[19]);
+    assert_eq!(rs[18]["ok"], json!({"mined": true, "unmined": false}));
+    // Go selects the one output twice; dcr-purse once.
+    let selected = |v: &Value| {
+        let sel = &v["ok"]["selections~r"][0];
+        (
+            sel["amount"].clone(),
+            sel["inputs"]
+                .as_array()
+                .expect("inputs")
+                .iter()
+                .map(|i| i["outpoint"]["hash"].as_str().expect("hash").to_owned())
+                .collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(
+        selected(&go[20]),
+        (json!(1800), vec![a.clone(), a.clone()]),
+        "Go: {}",
+        go[20]
+    );
+    assert_eq!(
+        selected(&rs[20]),
+        (json!(900), vec![a.clone()]),
+        "Rust: {}",
+        rs[20]
+    );
+    assert_eq!(go[21]["ok"], json!([a]), "Go: unmined: {}", go[21]);
+    assert_eq!(rs[21]["ok"], json!([]), "Rust: {}", rs[21]);
+    // The output is unspent on both sides.
+    for r in [&go[22], &rs[22]] {
+        assert_eq!(r["err"]["kind"], "NotExist", "{r}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The export records of `pe` whose line starts with `prefix`, in order.
+fn export_lines(pe: &str, prefix: &str) -> Vec<String> {
+    pe.lines()
+        .filter(|l| l.starts_with(prefix))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Runs `script` on both sides, compares the records whose indices are in
+/// `equal` and returns Go's records and export with dcr-purse's.
+fn qk0734_run(
+    o: &mut purse_testutil::Oracle,
+    what: &str,
+    script: &Value,
+    equal: impl IntoIterator<Item = usize>,
+) -> (Vec<Value>, String, Vec<Value>, String) {
+    let dir = scratch("qk0734fix");
+    let (go, go_pe) = go_run(o, script, &dir.join("go"));
+    let rust = runner::run(script, &dir.join("rust")).expect("Rust runner");
+    assert_eq!(go.len(), rust.results.len(), "{what}: record count");
+    for i in equal {
+        support::compare::check_record(&format!("{what}, record {i}"), &go[i], &rust.results[i]);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    (go, go_pe, rust.results, rust.export)
+}
+
+/// QK-0734's fix (ADR-0012 Rule 7; PARITY.md, `purse-udb`, item (23))
+/// merges the unmined copy into the revalidated record as `moveMinedTx`
+/// merges an unmined transaction into its block, including the rows only
+/// the copy holds. Five sequences, each with every record up to the
+/// approval equal and Go's state pinned beside dcr-purse's after it:
+///
+/// 1. The input's output becomes a wallet credit only after the first
+///    mining (`AddCredit` while block 3 is disapproved), so only the second
+///    mining debits it. Go keeps the unmined-inputs entry, so the output is
+///    neither listed nor selected while the doubled output is; dcr-purse
+///    debits it at block 3 (without that, it would list and select it as
+///    unspent while the mined record spends it). Once block 3 is detached
+///    again, both sides hold the same records.
+/// 2. An output credited only by the second mining: Go keeps it as an
+///    unmined credit; dcr-purse moves it into a mined credit at block 3.
+/// 3. A multisig output of the transaction: `Rollback` of block 5 clears
+///    the record naming block 3, which it does not detach, on both sides
+///    (QK-0789); dcr-purse marks it mined in block 3 again at the approval
+///    (pending owner, crate `txstore`, choice 13), Go leaves it unmined.
+/// 4. A multisig output the transaction spends: `Rollback` restores the
+///    second mining's debit and marks the record unspent on both sides
+///    (QK-0786); dcr-purse marks it spent again at the approval, Go lists it
+///    as unspent while it holds the transaction as unmined.
+/// 5. The unmined copy marked unpublished, and two inputs, one of which an
+///    unmined double spend recorded after the copy names in the
+///    unmined-inputs index: dcr-purse deletes the mark and the entry naming
+///    the transaction and keeps the other transaction's (the narrow reading
+///    of `moveMinedTx`, which deletes the entry whichever transaction it
+///    names), Go keeps both entries and the mark.
+#[test]
+fn a_revalidated_transaction_merges_what_only_its_unmined_copy_holds() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let setup = json!({"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                       "pubpass": "public", "privpass": "private",
+                       "rand": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+                       "clock": 1_795_300_000});
+    let pay = |i: u32| json!({"acct": 0, "branch": 0, "index": i});
+    let bal = |v: &Value, field: &str| v["ok"][0][field].clone();
+    let hashes = |v: &Value| -> Vec<(String, i64)> {
+        v["ok"]
+            .as_array()
+            .expect("outputs")
+            .iter()
+            .map(|o| {
+                (
+                    o["outpoint"]["hash"].as_str().expect("hash").to_owned(),
+                    o["block"]["height"].as_i64().expect("height"),
+                )
+            })
+            .collect()
+    };
+    let selected = |v: &Value| {
+        let sel = &v["ok"]["selections~r"][0];
+        (
+            sel["amount"].clone(),
+            sel["inputs"]
+                .as_array()
+                .expect("inputs")
+                .iter()
+                .map(|i| i["outpoint"]["hash"].as_str().expect("hash").to_owned())
+                .collect::<BTreeSet<_>>(),
+        )
+    };
+
+    // 1. An input debited only by the second mining.
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0734 fix: an input debited only by the second mining",
+        "setup": setup,
+        "ops": [
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "store.extend_main_chain", "label": "b3"},
+            {"op": "tx.build", "label": "p",
+             "inputs": [{"prev": {"tx": "2222222222222222222222222222222222222222222222222222222222222222", "index": 0}, "value": 3000}],
+             "outputs": [{"value": 2500, "pay": pay(2)}]},
+            {"op": "tx.build", "label": "a",
+             "inputs": [{"prev": {"tx": "p", "index": 0}, "value": 2500}],
+             "outputs": [{"value": 900, "pay": pay(0)}]},
+            {"op": "store.insert_mined_tx", "tx": "p", "block": "b2"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b3"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b3"},
+            // 8: b3 disapproved; 9: p:0 credited only now.
+            {"op": "store.extend_main_chain", "label": "b4", "votebits": 0},
+            {"op": "store.add_credit", "tx": "p", "index": 0, "account": 0, "block": "b2"},
+            {"op": "store.extend_main_chain", "label": "b5"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b5"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b5"},
+            // 13: b4 and b5 detached; 16: b3 approved.
+            {"op": "store.rollback", "height": 4},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.extend_main_chain", "label": "b4x", "votebits": 1},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.select_inputs", "account": 0, "minconf": 1, "syncheight": 4,
+             "targets": [0],
+             "rand": "3434343434343434343434343434343434343434343434343434343434343434"},
+            {"op": "store.spender", "outpoint": {"tx": "p", "index": 0}},
+            {"op": "store.tx_details", "tx": "p"},
+            // 22: b3 detached again: both sides alike from here.
+            {"op": "store.rollback", "height": 3},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.spender", "outpoint": {"tx": "p", "index": 0}},
+            {"op": "store.unmined_tx_hashes"},
+        ],
+    });
+    let n = script["ops"].as_array().map_or(0, Vec::len);
+    let (go, go_pe, rs, rs_pe) =
+        qk0734_run(&mut o, "QK-0734 fix, input", &script, (0..17).chain(21..n));
+    let a = go[4]["ok"]["hash"].as_str().expect("a").to_owned();
+    assert_eq!(hashes(&go[17]), vec![(a.clone(), -1), (a.clone(), -1)]);
+    assert_eq!(hashes(&rs[17]), vec![(a.clone(), 3)], "Rust: {}", rs[17]);
+    assert_eq!(bal(&go[18], "spendable"), json!(1800), "Go: {}", go[18]);
+    assert_eq!(bal(&rs[18], "spendable"), json!(900), "Rust: {}", rs[18]);
+    for r in [&go[19], &rs[19]] {
+        assert_eq!(
+            selected(r),
+            (json!(900), BTreeSet::from([a.clone()])),
+            "{r}"
+        );
+    }
+    // p:0 is spent by input 0 of a: unmined in Go, mined in block 3 here.
+    for r in [&go[20], &rs[20]] {
+        assert_eq!(r["ok"]["tx"], json!(a), "{r}");
+        assert_eq!(r["ok"]["index"], json!(0), "{r}");
+    }
+    // `TxDetails` of p reports its credit spent on both sides (Go's
+    // `Rollback` leaves the credit's spent flag; record 21 is compared).
+    assert_eq!(
+        rs[21]["ok"]["credits"][0]["spent"],
+        json!(true),
+        "{}",
+        rs[21]
+    );
+    // After the second rollback both stores hold the same records.
+    support::compare::compare_exports("QK-0734 fix, input", &go_pe, &rs_pe);
+    assert_eq!(hashes(&rs[23]), vec![(a.clone(), -1)], "{}", rs[23]);
+
+    // 2. An output credited only by the second mining.
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0734 fix: an output credited only by the second mining",
+        "setup": setup,
+        "ops": [
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "store.extend_main_chain", "label": "b3"},
+            {"op": "tx.build", "label": "a",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 2000}],
+             "outputs": [{"value": 900, "pay": pay(0)}, {"value": 500, "pay": pay(1)}]},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b3"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b3"},
+            {"op": "store.extend_main_chain", "label": "b4", "votebits": 0},
+            {"op": "store.extend_main_chain", "label": "b5"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b5"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b5"},
+            {"op": "store.add_credit", "tx": "a", "index": 1, "account": 0, "block": "b5"},
+            // 11: b4 and b5 detached; 13: b3 approved.
+            {"op": "store.rollback", "height": 4},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.extend_main_chain", "label": "b4x", "votebits": 1},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.exists_tx_mined_or_unmined", "tx": "a"},
+            {"op": "store.insert_mem_pool_tx", "tx": "a"},
+            {"op": "store.add_credit", "tx": "a", "index": 1, "account": 0},
+            {"op": "store.tx_details", "tx": "a"},
+            {"op": "store.extend_main_chain", "label": "b5x"},
+            {"op": "store.account_balances", "minconf": 1},
+            // 22: b3 and above detached: both sides alike from here.
+            {"op": "store.rollback", "height": 3},
+            {"op": "store.unspent_outputs"},
+            {"op": "store.account_balances", "minconf": 0},
+        ],
+    });
+    let n = script["ops"].as_array().map_or(0, Vec::len);
+    let (go, go_pe, rs, rs_pe) = qk0734_run(
+        &mut o,
+        "QK-0734 fix, output",
+        &script,
+        (0..14).chain([17]).chain(22..n),
+    );
+    let a = go[3]["ok"]["hash"].as_str().expect("a").to_owned();
+    assert_eq!(
+        hashes(&go[14]),
+        vec![(a.clone(), -1), (a.clone(), -1), (a.clone(), -1)],
+        "Go: a:0 twice and a:1: {}",
+        go[14]
+    );
+    assert_eq!(
+        hashes(&rs[14]),
+        vec![(a.clone(), 3), (a.clone(), 3)],
+        "Rust: a:0 and a:1 from block 3: {}",
+        rs[14]
+    );
+    assert_eq!(bal(&go[15], "spendable"), json!(2300), "Go: {}", go[15]);
+    assert_eq!(bal(&rs[15], "spendable"), json!(1400), "Rust: {}", rs[15]);
+    assert_eq!(go[16]["ok"], json!({"mined": false, "unmined": true}));
+    assert_eq!(rs[16]["ok"], json!({"mined": true, "unmined": false}));
+    // Go adds the unmined credit again; here there is no unmined copy.
+    assert!(go[18].get("err").is_none(), "Go: {}", go[18]);
+    assert_eq!(rs[18]["err"]["kind"], "Invalid", "Rust: {}", rs[18]);
+    let credits = |v: &Value| {
+        v["ok"]["credits"]
+            .as_array()
+            .expect("credits")
+            .iter()
+            .map(|c| c["index"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        credits(&rs[19]),
+        vec![json!(0), json!(1)],
+        "Rust: {}",
+        rs[19]
+    );
+    assert_eq!(bal(&rs[21], "spendable"), json!(1400), "Rust: {}", rs[21]);
+    support::compare::compare_exports("QK-0734 fix, output", &go_pe, &rs_pe);
+
+    // 3. and 4. Multisig records.
+    let ms1 = format!(
+        "5121{}21{}52ae",
+        "02".to_owned() + &"11".repeat(32),
+        "03".to_owned() + &"22".repeat(32)
+    );
+    let zero = "0".repeat(64);
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0734 fix: the transaction's multisig output",
+        "setup": setup,
+        "ops": [
+            {"op": "mgr.import_script", "script": ms1, "label": "ms1"},
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "store.extend_main_chain", "label": "b3"},
+            {"op": "tx.build", "label": "a",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1000}],
+             "outputs": [{"value": 900, "pay": {"ref": "ms1"}}]},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b3"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 2_147_483_647, "block": "b3"},
+            {"op": "store.add_multisig_out", "tx": "a", "index": 0, "block": "b3"},
+            {"op": "store.extend_main_chain", "label": "b4", "votebits": 0},
+            {"op": "store.extend_main_chain", "label": "b5"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b5"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 2_147_483_647, "block": "b5"},
+            // 12: refused on both sides, the record being mined.
+            {"op": "store.add_multisig_out", "tx": "a", "index": 0, "block": "b5"},
+            // 13: b5 alone has records; b3's record is cleared (QK-0789).
+            {"op": "store.rollback", "height": 4},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "a", "index": 0}},
+            {"op": "store.main_chain_tip"},
+            // 16: b3 approved.
+            {"op": "store.extend_main_chain", "label": "b4x", "votebits": 1},
+            {"op": "store.tx_block_height", "tx": "a"},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "a", "index": 0}},
+            {"op": "store.unspent_multisig_credits_for_address", "addr": {"ref": "ms1"}},
+            // 20: b3 detached: both sides alike from here.
+            {"op": "store.rollback", "height": 3},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "a", "index": 0}},
+        ],
+    });
+    let (go, go_pe, rs, rs_pe) = qk0734_run(
+        &mut o,
+        "QK-0734 fix, multisig output",
+        &script,
+        (0..17).chain([19, 20, 21]),
+    );
+    let b3 = go[3]["ok"]["hash"].as_str().expect("b3").to_owned();
+    assert_eq!(go[12]["err"]["kind"], "Invalid", "{}", go[12]);
+    assert_eq!(go[13]["ok"].as_array().map(Vec::len), Some(1), "{}", go[13]);
+    assert_eq!(
+        (&go[14]["ok"]["block"], &go[14]["ok"]["height"]),
+        (&json!(zero), &json!(0)),
+        "{}",
+        go[14]
+    );
+    assert_eq!(go[15]["ok"]["height"], json!(3), "{}", go[15]);
+    assert_eq!(go[17]["ok"], json!(-1), "Go: {}", go[17]);
+    assert_eq!(rs[17]["ok"], json!(3), "Rust: {}", rs[17]);
+    assert_eq!(
+        (&go[18]["ok"]["block"], &go[18]["ok"]["height"]),
+        (&json!(zero), &json!(0)),
+        "Go: {}",
+        go[18]
+    );
+    assert_eq!(
+        (&rs[18]["ok"]["block"], &rs[18]["ok"]["height"]),
+        (&json!(b3), &json!(3)),
+        "Rust: {}",
+        rs[18]
+    );
+    support::compare::compare_exports("QK-0734 fix, multisig output", &go_pe, &rs_pe);
+
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0734 fix: a multisig output the transaction spends",
+        "setup": setup,
+        "ops": [
+            {"op": "mgr.import_script", "script": ms1, "label": "ms1"},
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "tx.build", "label": "f",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1000}],
+             "outputs": [{"value": 900, "pay": {"ref": "ms1"}}]},
+            {"op": "store.insert_mined_tx", "tx": "f", "block": "b1"},
+            {"op": "store.add_credit", "tx": "f", "index": 0, "account": 2_147_483_647, "block": "b1"},
+            {"op": "store.add_multisig_out", "tx": "f", "index": 0, "block": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "store.extend_main_chain", "label": "b3"},
+            {"op": "tx.build", "label": "a",
+             "inputs": [{"prev": {"tx": "f", "index": 0}, "value": 900}],
+             "outputs": [{"value": 800, "pay": pay(0)}]},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b3"},
+            {"op": "store.spend_multisig_out", "outpoint": {"tx": "f", "index": 0}, "spender": "a", "index": 0},
+            {"op": "store.extend_main_chain", "label": "b4", "votebits": 0},
+            {"op": "store.extend_main_chain", "label": "b5"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b5"},
+            {"op": "store.spend_multisig_out", "outpoint": {"tx": "f", "index": 0}, "spender": "a", "index": 0},
+            // 15: the record unspent on both sides (QK-0786).
+            {"op": "store.rollback", "height": 4},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "f", "index": 0}},
+            // 17: b3 approved.
+            {"op": "store.extend_main_chain", "label": "b4x", "votebits": 1},
+            {"op": "store.exists_tx_mined_or_unmined", "tx": "a"},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "f", "index": 0}},
+            {"op": "store.unspent_multisig_credits_for_address", "addr": {"ref": "ms1"}},
+            {"op": "store.unspent_outputs"},
+            // 22: b3 detached: both sides alike from here.
+            {"op": "store.rollback", "height": 3},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "f", "index": 0}},
+            {"op": "store.unspent_multisig_credits_for_address", "addr": {"ref": "ms1"}},
+        ],
+    });
+    let n = script["ops"].as_array().map_or(0, Vec::len);
+    let (go, go_pe, rs, rs_pe) = qk0734_run(
+        &mut o,
+        "QK-0734 fix, multisig input",
+        &script,
+        (0..18).chain([21]).chain(22..n),
+    );
+    let a = go[8]["ok"]["hash"].as_str().expect("a").to_owned();
+    assert_eq!(go[16]["ok"]["spent"], json!(false), "{}", go[16]);
+    assert_eq!(go[18]["ok"], json!({"mined": false, "unmined": true}));
+    assert_eq!(rs[18]["ok"], json!({"mined": true, "unmined": false}));
+    assert_eq!(go[19]["ok"]["spent"], json!(false), "Go: {}", go[19]);
+    assert_eq!(
+        (
+            &rs[19]["ok"]["spent"],
+            &rs[19]["ok"]["spentby"],
+            &rs[19]["ok"]["spentbyindex"]
+        ),
+        (&json!(true), &json!(a), &json!(0)),
+        "Rust: {}",
+        rs[19]
+    );
+    assert_eq!(
+        go[20]["ok"].as_array().map(Vec::len),
+        Some(1),
+        "Go: {}",
+        go[20]
+    );
+    assert_eq!(rs[20]["ok"], json!([]), "Rust: {}", rs[20]);
+    support::compare::compare_exports("QK-0734 fix, multisig input", &go_pe, &rs_pe);
+
+    // 5. The unpublished mark and the unmined-inputs entries.
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0734 fix: the unpublished mark and the unmined-inputs entries",
+        "setup": setup,
+        "ops": [
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "store.extend_main_chain", "label": "b3"},
+            {"op": "tx.build", "label": "a",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1000},
+                        {"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 1}, "value": 1000}],
+             "outputs": [{"value": 900, "pay": pay(0)}]},
+            {"op": "tx.build", "label": "x",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 1000}],
+             "outputs": [{"value": 800, "pay": pay(1)}]},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b3"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b3"},
+            {"op": "store.extend_main_chain", "label": "b4", "votebits": 0},
+            {"op": "store.extend_main_chain", "label": "b5"},
+            {"op": "store.insert_mined_tx", "tx": "a", "block": "b5"},
+            {"op": "store.add_credit", "tx": "a", "index": 0, "account": 0, "block": "b5"},
+            // x, recorded after a in b5, spends a's first input.
+            {"op": "store.insert_mined_tx", "tx": "x", "block": "b5"},
+            // 12: a and x unmined, x named for 1111…:0.
+            {"op": "store.rollback", "height": 4},
+            {"op": "store.set_published", "tx": "a", "published": false},
+            {"op": "store.account_balances", "minconf": 0},
+            // 15: b3 approved.
+            {"op": "store.extend_main_chain", "label": "b4x", "votebits": 1},
+            {"op": "store.unmined_tx_hashes"},
+            {"op": "store.account_balances", "minconf": 0},
+        ],
+    });
+    let (go, go_pe, rs, rs_pe) = qk0734_run(&mut o, "QK-0734 fix, unpublished", &script, 0..16);
+    let a = go[3]["ok"]["hash"].as_str().expect("a").to_owned();
+    let x = go[4]["ok"]["hash"].as_str().expect("x").to_owned();
+    let mut both = vec![a.clone(), x.clone()];
+    both.sort();
+    let mut go_unmined: Vec<String> = go[16]["ok"]
+        .as_array()
+        .expect("hashes")
+        .iter()
+        .map(|h| h.as_str().expect("hash").to_owned())
+        .collect();
+    go_unmined.sort();
+    assert_eq!(go_unmined, both, "Go: {}", go[16]);
+    assert_eq!(rs[16]["ok"], json!([x]), "Rust: {}", rs[16]);
+    let foreign = "1".repeat(64);
+    let uinput =
+        |index: u32, spender: &str| format!("uinput tx={foreign} index={index} spender={spender}");
+    assert_eq!(
+        export_lines(&go_pe, "uinput "),
+        vec![uinput(0, &x), uinput(1, &a)],
+        "Go keeps both entries"
+    );
+    assert_eq!(
+        export_lines(&rs_pe, "uinput "),
+        vec![uinput(0, &x)],
+        "dcr-purse keeps x's entry and deletes a's"
+    );
+    assert_eq!(
+        export_lines(&go_pe, "unpublished "),
+        vec![format!("unpublished hash={a}")],
+        "Go keeps the mark"
+    );
+    assert_eq!(export_lines(&rs_pe, "unpublished "), Vec::<String>::new());
 }
 
 /// QK-0785 (reproduced, decided by the project owner on 2026-11-24; crate
@@ -2612,4 +3363,65 @@ fn a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again() {
         "{}",
         go[15]
     );
+}
+
+/// A multisig record of a block of the zero hash at a height other than 0
+/// (PARITY.md, `purse-udb`; ADR-0012 Rule 4): Go writes the zero hash with
+/// the height, a record its own readers take as unmined while
+/// `GetMultisigOutput` gives the height; the store keeps no height beside
+/// the zero hash, and dcr-purse refuses the block, writing nothing. Every
+/// record before is equal; at the refusal both sides are shown, and the
+/// block of the zero hash at height 0, which is no block in either, is
+/// equal again.
+#[test]
+fn a_multisig_block_of_the_zero_hash_is_refused() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let ms1 = format!(
+        "5121{}21{}52ae",
+        "02".to_owned() + &"11".repeat(32),
+        "03".to_owned() + &"22".repeat(32)
+    );
+    let zero = "0".repeat(64);
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "multisig block of the zero hash",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "3636363636363636363636363636363636363636363636363636363636363636",
+                  "clock": 1_795_600_000},
+        "ops": [
+            {"op": "mgr.import_script", "script": ms1, "label": "ms1"},
+            {"op": "tx.build", "label": "f",
+             "inputs": [{"prev": {"tx": "1111111111111111111111111111111111111111111111111111111111111111", "index": 0}, "value": 9000}],
+             "outputs": [{"value": 5000, "pay": {"ref": "ms1"}}, {"value": 3000, "pay": {"ref": "ms1"}}]},
+            {"op": "store.add_multisig_out", "tx": "f", "index": 0,
+             "block": {"hash": zero, "height": 5, "time": 0, "votebits": 1}},
+            {"op": "store.add_multisig_out", "tx": "f", "index": 1,
+             "block": {"hash": zero, "height": 0, "time": 0, "votebits": 1}},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "f", "index": 1}},
+            {"op": "store.get_multisig_output", "outpoint": {"tx": "f", "index": 0}},
+        ],
+    });
+    let dir = scratch("mszero");
+    let (go, _) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    for i in [0, 1, 3, 4] {
+        support::compare::check_record("zero-hash block", &go[i], &rust.results[i]);
+    }
+    assert_eq!(go[2]["ok"], Value::Null, "Go writes it: {}", go[2]);
+    assert_eq!(
+        rust.results[2]["err"]["kind"], "Invalid",
+        "Rust: {}",
+        rust.results[2]
+    );
+    assert_eq!(go[5]["ok"]["block"], zero.as_str(), "Go: {}", go[5]);
+    assert_eq!(go[5]["ok"]["height"], 5, "Go: {}", go[5]);
+    assert_eq!(
+        rust.results[5]["err"]["kind"], "NotExist",
+        "Rust: {}",
+        rust.results[5]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

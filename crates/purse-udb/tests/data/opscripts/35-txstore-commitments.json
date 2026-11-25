@@ -1,0 +1,1021 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-commitments",
+ "setup": {
+  "network": "simnet",
+  "seed": "2d2a292827262524232221201f1e1d1c1b1a191817161514131211100f0e0d0c",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3535353535353535353535353535353535353535353535353535353535353535",
+  "clock": 1795500000
+ },
+ "ops": [
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "t1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 0
+     },
+     "value": 1100
+    },
+    {
+     "prev": {
+      "tx": "2222222222222222222222222222222222222222222222222222222222222222",
+      "index": 0
+     },
+     "value": 900
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1900,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 1
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     },
+     "tag": "sstxchange"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 3
+      },
+      "amount": 900
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "t2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "3333333333333333333333333333333333333333333333333333333333333333",
+      "index": 0
+     },
+     "value": 2100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 2000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 6
+      },
+      "amount": 2100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 7
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "tx.build",
+   "label": "a1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "4444444444444444444444444444444444444444444444444444444444444444",
+      "index": 0
+     },
+     "value": 600
+    }
+   ],
+   "outputs": [
+    {
+     "value": 300,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 8
+     }
+    },
+    {
+     "value": 200,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 9
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "t1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 5,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 0,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 2,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "a1",
+   "index": 1,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "a1",
+   "index": 2,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t2",
+   "index": 3,
+   "account": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 1,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 3,
+   "account": 1
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 1,
+   "account": 7
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 0,
+   "account": 0
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 0,
+   "account": 1
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 0,
+   "account": 7
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t2",
+   "index": 1,
+   "account": 2
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "t1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 1,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t1",
+   "index": 3,
+   "account": 1
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t1",
+   "block": "b2"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t2",
+   "block": "b2"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "t1"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "a1",
+   "block": "b3"
+  },
+  {
+   "op": "tx.build",
+   "label": "v1",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t1",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1900
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b3"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1400,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 10
+     },
+     "tag": "ssgen"
+    },
+    {
+     "value": 800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 11
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v1"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "v1",
+   "block": "b4"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1",
+   "block": "tip"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1",
+   "block": "tip"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.rollback",
+   "height": 4
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b4b"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "v1",
+   "block": "b4b"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v1",
+   "block": "tip"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "v1"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "tx.build",
+   "label": "t4",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "5555555555555555555555555555555555555555555555555555555555555555",
+      "index": 0
+     },
+     "value": 700
+    },
+    {
+     "prev": {
+      "tx": "6666666666666666666666666666666666666666666666666666666666666666",
+      "index": 0
+     },
+     "value": 800
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1500,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 12
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 13
+      },
+      "amount": 700
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 14
+     },
+     "tag": "sstxchange"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 15
+      },
+      "amount": 800
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 16
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t4",
+   "block": "b4b"
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t4",
+   "index": 1,
+   "account": 0
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t4",
+   "index": 3,
+   "account": 0
+  },
+  {
+   "op": "tx.build",
+   "label": "v4",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t4",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1500
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b3"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 1800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 17
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v4"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v4"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "tx.build",
+   "label": "v2",
+   "version": 1,
+   "inputs": [
+    {
+     "prev": "stakebase",
+     "value": 300,
+     "tree": 0
+    },
+    {
+     "prev": {
+      "tx": "t2",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 2000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "voteblock": "b4b"
+    },
+    {
+     "value": 0,
+     "votebits": "0100"
+    },
+    {
+     "value": 2000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 18
+     },
+     "tag": "ssgen"
+    },
+    {
+     "value": 200,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 27
+     },
+     "tag": "ssgen"
+    },
+    {
+     "value": 100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 28
+     },
+     "tag": "ssgen"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "v2"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "v2"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.prune_unmined",
+   "sdiff": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "tx.build",
+   "label": "t3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "7777777777777777777777777777777777777777777777777777777777777777",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 19
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 20
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 21
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "t3",
+   "block": "tip"
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t3",
+   "index": 1,
+   "account": 3
+  },
+  {
+   "op": "tx.build",
+   "label": "r3",
+   "version": 2,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "t3",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 22
+     },
+     "tag": "ssrtx"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "r3"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "r3",
+   "block": null
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b5"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "r3",
+   "block": "b5"
+  },
+  {
+   "op": "store.redeem_ticket_commitments",
+   "tx": "r3",
+   "block": "b5"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.rollback",
+   "height": 5
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "tx.build",
+   "label": "t5",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "8888888888888888888888888888888888888888888888888888888888888888",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 23
+     },
+     "tag": "sstx"
+    },
+    {
+     "value": 0,
+     "commitment": {
+      "pay": {
+       "acct": 0,
+       "branch": 0,
+       "index": 24
+      },
+      "amount": 1100
+     }
+    },
+    {
+     "value": 0,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 25
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "t5"
+  },
+  {
+   "op": "store.add_ticket_commitment",
+   "tx": "t5",
+   "index": 1,
+   "account": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "tx.build",
+   "label": "d5",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "8888888888888888888888888888888888888888888888888888888888888888",
+      "index": 0
+     },
+     "value": 1100
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1000,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 26
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "d5",
+   "block": "tip"
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 0
+  },
+  {
+   "op": "store.account_balances",
+   "minconf": 1
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.unspent_tickets",
+   "syncheight": 5,
+   "include_immature": true
+  }
+ ]
+}

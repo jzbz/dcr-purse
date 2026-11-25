@@ -5,15 +5,20 @@
 //! The transaction store's operations of the Rust runner, with Go's
 //! arguments and result shapes (`tools/oracle/cmd/oprunner/ops_store.go`,
 //! `build.go`, `refs.go`): the fixtures `tx.build` and `tx.raw`, the header
-//! and filter builder of `store.extend_main_chain`, and every operation of
-//! the first slice.
+//! and filter builder of `store.extend_main_chain`, and every transaction
+//! store operation ported so far.
 
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "test code: counts of output kinds"
 )]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use dcroxide_crypto::rand::Prng;
+use purse_dcrutil::Amount;
+use purse_snacl::{RandomSource, RandomSourceError};
 
 use dcroxide_gcs::{FilterV2, blockcf2};
 use dcroxide_stake::TxType;
@@ -26,7 +31,9 @@ use purse_errors::AnyError;
 use purse_store::{BirthState, Hash32, HeaderBytes};
 use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{hex, unhex};
-use purse_udb::txstore::{Balances, Block, BlockMeta, Credit, TxDetails, TxRead, TxRecord};
+use purse_udb::txstore::{
+    Balances, Block, BlockMeta, Credit, MultisigOut, TxDetails, TxRead, TxRecord,
+};
 use sha2::{Digest, Sha256};
 
 use super::{Args, OpResult, Runner, fault, resolve_err};
@@ -121,6 +128,24 @@ fn details_value(d: &TxDetails) -> Value {
     v
 }
 
+/// The transaction store's random stream: dcrd's generator, every byte it
+/// hands out added to the runner's `drawn`, as Go counts its stream's.
+struct Stream<'s> {
+    prng: &'s mut Prng,
+    drawn: &'s AtomicU64,
+}
+
+impl RandomSource for Stream<'_> {
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), RandomSourceError> {
+        self.prng.read(buf);
+        self.drawn.fetch_add(
+            u64::try_from(buf.len()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+        Ok(())
+    }
+}
+
 /// Go's `outpointValue`.
 fn outpoint_value(op: &OutPoint) -> Value {
     json!({"hash": op.hash.to_string(), "index": op.index, "tree": op.tree})
@@ -137,6 +162,23 @@ fn credit_value(c: &Credit) -> Value {
         "coinbase": c.from_coinbase,
         "expiry": c.has_expiry,
     })
+}
+
+/// Go's `get_multisig_output` result: the spender only while the output is
+/// spent, as `wallet/multisig.go` reads it (QK-0055's stale byte is not
+/// kept; ADR-0002 section 4).
+fn multisig_value(m: &MultisigOut) -> Value {
+    let mut v = json!({
+        "outpoint": outpoint_value(&m.outpoint), "tree": m.tree,
+        "scripthash": hex(&m.script_hash.0), "m": m.m, "n": m.n,
+        "tx": hs(&m.tx_hash), "block": hs(&m.block_hash),
+        "height": m.block_height, "amount": m.amount, "spent": m.spender.is_some(),
+    });
+    if let Some(s) = m.spender {
+        v["spentby"] = json!(hs(&s.hash));
+        v["spentbyindex"] = json!(s.input);
+    }
+    v
 }
 
 /// Go's `balancesValue`.
@@ -290,8 +332,14 @@ impl Runner {
     /// Go's `argOutpoint`: `{tx, index, tree?}`, `tx` a hash reference.
     fn arg_outpoint(&self, a: &Args<'_>, key: &str) -> Result<OutPoint, String> {
         let what = format!("{} {key}", a.op);
+        self.outpoint_ref(a.value(key)?, &what)
+    }
+
+    /// Go's `outpoint`: an outpoint reference `{tx, index, tree?}`.
+    fn outpoint_ref(&self, v: &Value, what: &str) -> Result<OutPoint, String> {
+        let what = what.to_owned();
         let bad = || fault(format!("{what}: an outpoint is {{tx, index, tree?}}"));
-        let o = a.value(key)?.as_object().ok_or_else(bad)?;
+        let o = v.as_object().ok_or_else(bad)?;
         if o.keys()
             .any(|k| !["tx", "index", "tree"].contains(&k.as_str()))
         {
@@ -317,6 +365,35 @@ impl Runner {
             index,
             tree,
         })
+    }
+
+    /// The stream a random store operation draws from: dcrd's generator
+    /// keyed by its `rand` argument (Go's `streamKey`, which restarts the
+    /// injected stream under the key), or, without one, the stream the last
+    /// random store operation left, when nothing has drawn since.
+    fn take_stream(&mut self, a: &Args<'_>) -> Result<Prng, String> {
+        if a.has("rand") {
+            let k: [u8; 32] = a
+                .hex("rand")?
+                .try_into()
+                .map_err(|_| fault(format!("{}: rand must be 32 bytes of hex", a.op)))?;
+            self.stream = None;
+            return Ok(Prng::from_seed(k));
+        }
+        match self.stream.take() {
+            Some(p) if self.drawn.load(Ordering::Relaxed) == self.stream_mark => Ok(p),
+            _ => Err(fault(format!(
+                "{}: without rand, the Rust runner draws what Go draws only right after \
+                 another random store operation, with nothing drawn in between",
+                a.op
+            ))),
+        }
+    }
+
+    /// Keeps the stream a random store operation leaves for the next.
+    fn put_stream(&mut self, p: Prng) {
+        self.stream = Some(p);
+        self.stream_mark = self.drawn.load(Ordering::Relaxed);
     }
 
     fn arg_tx(&self, a: &Args<'_>, key: &str) -> Result<TxRecord, String> {
@@ -884,6 +961,170 @@ impl Runner {
                 a.check(&[])?;
                 self.view(|r| st.unmined_tx_hashes(r))?
                     .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
+            }
+            "store.add_ticket_commitment" => {
+                a.check(&["tx", "index", "account"])?;
+                let rec = self.arg_tx(a, "tx")?;
+                let index = a.u32("index")?;
+                let account = a.u32("account")?;
+                ok_null(self.update(|tx| st.add_ticket_commitment(tx, &rec, index, account))?)
+            }
+            "store.redeem_ticket_commitments" => {
+                a.check(&["tx", "block"])?;
+                let rec = self.arg_tx(a, "tx")?;
+                let m = self.arg_meta(a, "block")?;
+                let what = format!("{} block", a.op);
+                ok_null(self.update(|tx| {
+                    let block = self.resolve_meta(tx, &m, &what)?;
+                    st.redeem_ticket_commitments(tx, &rec, block.as_ref())
+                })?)
+            }
+            "store.add_multisig_out" => {
+                a.check(&["tx", "index", "block"])?;
+                let rec = self.arg_tx(a, "tx")?;
+                let index = a.u32("index")?;
+                let m = self.arg_meta(a, "block")?;
+                let what = format!("{} block", a.op);
+                ok_null(self.update(|tx| {
+                    let block = self.resolve_meta(tx, &m, &what)?;
+                    st.add_multisig_out(tx, &rec, block.as_ref(), index)
+                })?)
+            }
+            "store.spend_multisig_out" => {
+                a.check(&["outpoint", "spender", "index"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                let spender = self.arg_hash(a, "spender")?;
+                let index = a.u32("index")?;
+                ok_null(self.update(|tx| st.spend_multisig_out(tx, &op, &spender, index))?)
+            }
+            "store.get_multisig_output" => {
+                a.check(&["outpoint"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                self.view(|r| st.get_multisig_output(r, &op))?
+                    .map(|m| multisig_value(&m))
+            }
+            "store.unspent_multisig_credits_for_address" => {
+                a.check(&["addr"])?;
+                let aref = self.addr_ref(a, "addr")?;
+                let what = format!("{} addr", a.op);
+                self.view(|r| {
+                    let addr = self.resolve(r, aref, &what)?;
+                    st.unspent_multisig_credits_for_address(r, &addr)
+                })?
+                .map(|ms| {
+                    Value::Array(
+                        ms.iter()
+                            .map(|m| {
+                                json!({
+                                    "outpoint": outpoint_value(&m.outpoint),
+                                    "scripthash": hex(&m.script_hash.0),
+                                    "script": hex(&m.ms_script),
+                                    "m": m.m, "n": m.n, "amount": m.amount,
+                                })
+                            })
+                            .collect(),
+                    )
+                })
+            }
+            "store.random_utxo" => {
+                a.check(&["minconf", "syncheight", "rand"])?;
+                let min_conf = Self::i32_arg(a, "minconf")?;
+                let sync = Self::i32_arg(a, "syncheight")?;
+                let mut prng = self.take_stream(a)?;
+                let drawn = std::sync::Arc::clone(&self.drawn);
+                let r = self.view(|r| {
+                    let mut s = Stream {
+                        prng: &mut prng,
+                        drawn: &drawn,
+                    };
+                    st.random_utxo(r, &mut s, min_conf, sync)
+                });
+                self.put_stream(prng);
+                r?.map(|c| json!({"credit~r": c.as_ref().map(credit_value)}))
+            }
+            "store.select_inputs" => {
+                a.check(&[
+                    "account",
+                    "minconf",
+                    "syncheight",
+                    "targets",
+                    "ignore",
+                    "rand",
+                ])?;
+                let account = a.u32("account")?;
+                let min_conf = Self::i32_arg(a, "minconf")?;
+                let sync = Self::i32_arg(a, "syncheight")?;
+                let targets: Vec<i64> = a
+                    .value("targets")?
+                    .as_array()
+                    .ok_or_else(|| fault(format!("{}: targets must be a list", a.op)))?
+                    .iter()
+                    .map(|v| {
+                        v.as_i64()
+                            .ok_or_else(|| fault(format!("{}: a target is an integer", a.op)))
+                    })
+                    .collect::<Result<_, _>>()?;
+                // Go's set is keyed by the whole wire outpoint, tree included.
+                let ignore: Option<HashSet<(Hash32, u32, i8)>> = if a.has("ignore") {
+                    let what = format!("{} ignore", a.op);
+                    let list = a
+                        .value("ignore")?
+                        .as_array()
+                        .ok_or_else(|| fault(format!("{what}: must be a list")))?;
+                    let mut set = HashSet::new();
+                    for v in list {
+                        let op = self.outpoint_ref(v, &what)?;
+                        set.insert((Hash32(op.hash.0), op.index, op.tree));
+                    }
+                    Some(set)
+                } else {
+                    None
+                };
+                let mut prng = self.take_stream(a)?;
+                let drawn = std::sync::Arc::clone(&self.drawn);
+                let r = self.view(|r| {
+                    let skip = |op: &OutPoint| {
+                        ignore
+                            .as_ref()
+                            .is_some_and(|s| s.contains(&(Hash32(op.hash.0), op.index, op.tree)))
+                    };
+                    let ignore_fn: Option<&dyn Fn(&OutPoint) -> bool> =
+                        if ignore.is_some() { Some(&skip) } else { None };
+                    let mut s = Stream {
+                        prng: &mut prng,
+                        drawn: &drawn,
+                    };
+                    let mut src =
+                        st.make_input_source(r, &mut s, account, min_conf, sync, ignore_fn)?;
+                    let mut out = Vec::with_capacity(targets.len());
+                    for t in &targets {
+                        let d = src.select_inputs(Amount(*t))?;
+                        let inputs: Vec<Value> = d
+                            .inputs
+                            .iter()
+                            .zip(&d.scripts)
+                            .zip(&d.redeem_script_sizes)
+                            .map(|((input, script), size)| {
+                                json!({
+                                    "outpoint": outpoint_value(&input.previous_out_point),
+                                    "value": input.value_in,
+                                    "script": hex(script),
+                                    "redeemsize": size,
+                                })
+                            })
+                            .collect();
+                        out.push(json!({"target": t, "amount": d.amount.0, "inputs": inputs}));
+                    }
+                    Ok(out)
+                });
+                self.put_stream(prng);
+                r?.map(|out| json!({"selections~r": out}))
+            }
+            "store.spender" => {
+                a.check(&["outpoint"])?;
+                let op = self.arg_outpoint(a, "outpoint")?;
+                self.view(|r| st.spender(r, &op))?
+                    .map(|(tx, index)| json!({"tx": tx.tx_hash().to_string(), "index": index}))
             }
             other => return Err(fault(format!("txops: {other} is not handled"))),
         })

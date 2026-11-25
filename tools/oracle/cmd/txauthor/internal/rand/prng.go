@@ -20,7 +20,7 @@
 // It is the same file as cmd/oprunner/internal/rand/prng.go: a package under
 // another command's internal/ cannot be imported from here.
 //
-// The exported API is upstream's plus Seed and Drawn. Until Seed is called
+// The exported API is upstream's plus Seed, Reseed and Drawn. Until Seed is called
 // the stream runs under the all-zero key.
 
 package rand
@@ -84,6 +84,20 @@ func Seed(key [32]byte) {
 	defer globalRand.Unlock()
 
 	globalRand.PRNG = newPRNG(&key)
+}
+
+// Reseed restarts the global stream under key, as Seed does, but keeps
+// the count of bytes drawn, so the per-operation counts a runner takes
+// around an operation (Drawn before and after) stay right across it.
+// cmd/oprunner's random store operations call it for their "rand"
+// argument.
+func Reseed(key [32]byte) {
+	globalRand.Lock()
+	defer globalRand.Unlock()
+
+	drawn := globalRand.PRNG.drawn
+	globalRand.PRNG = newPRNG(&key)
+	globalRand.PRNG.drawn = drawn
 }
 
 // Drawn returns the number of bytes read from the global stream since the

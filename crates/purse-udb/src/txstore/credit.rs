@@ -202,7 +202,7 @@ pub(crate) fn unspent_row(height: u32, credit: &CreditRow) -> UnspentRow {
 /// (`account`, `class`), and of (`account`, `class`, `height`) for a mined
 /// class. A sum whose count reaches zero is deleted; a nonzero sum with no
 /// output left can only come from a mutator bypassed, and is an error.
-fn bump(
+pub(crate) fn bump(
     tx: &mut WriteTx<'_>,
     account: u32,
     class: BalanceClass,

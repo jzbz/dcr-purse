@@ -61,6 +61,14 @@ dcroxide-gcs.workspace = true
 dcroxide-standalone.workspace = true
 # The transaction store: block and transaction hashes.
 dcroxide-chainhash.workspace = true
+# The transaction store's input source answers with txauthor's
+# `InputDetail` and implements its `InputSource`, so a store's selection
+# feeds the authoring loop directly; txrules gives the signature-script
+# sizes and `StakeSubScriptType` dcrwallet's `MakeInputSource` uses. Both
+# are workspace crates already in the shipped graph (their dependencies
+# are too), so the graph gains no crate.
+purse-txauthor = { path = "../purse-txauthor" }
+purse-txrules.workspace = true
 # Constant-time comparison of passphrase hashes (Go's
 # `subtle.ConstantTimeCompare`). The release purse-snacl links.
 subtle = { version = "2.6.1", default-features = false }
@@ -79,6 +87,13 @@ serde_json.workspace = true
 # the seed differential (tests/wallet_diff.rs) creates two wallets per seed,
 # each on its own store in memory.
 redb.workspace = true
+# dcrd's `crypto/rand` generator keyed directly (`Prng::from_seed`): the
+# operation-script runner draws the transaction store's random selections
+# from the ChaCha20 stream the Go oracle's seeded generator yields
+# (docs/specs/23 §5.6.2), and the unit tests compare the store's `Uint64N`
+# and `ShuffleSlice` with dcroxide's port. Already in the shipped graph
+# through purse-txauthor, with the same feature.
+dcroxide-crypto = { workspace = true, features = ["rand"] }
 
 [lints]
 workspace = true

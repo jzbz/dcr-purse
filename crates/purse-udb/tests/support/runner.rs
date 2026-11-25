@@ -25,12 +25,22 @@
 //! the two sides are not aligned yet, ADR-0002 open item 2), so the
 //! differential compares exports under the masked profile.
 //!
+//! The transaction store's random operations (`store.random_utxo`,
+//! `store.select_inputs`) are the exception: they draw from dcrd's
+//! generator keyed by their `rand` argument, which restarts Go's stream
+//! under the same key (ADR-0002 section 2), so their `~r` results and
+//! their `drawn` are Go's exactly. Without `rand` such an operation
+//! continues the stream of the last one, which the runner allows only when
+//! nothing has drawn since (no address manager, `rt.*` or wallet operation
+//! in between); otherwise the script is refused as a script fault, since
+//! the runner cannot know where Go's stream stands.
+//!
 //! A top-level record carries `drawn`, as Go's do, when the operation read
 //! bytes from the stream: the bytes every source the runner gave the
 //! manager handed out while it ran. The general comparison removes it
 //! (`compare::comparable`), as it does Go's; tests read it where a draw, or
 //! its absence, is the point (a refusal that must come before any draw).
-//! Group members carry none.
+//! Group members carry it as Go's do.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -165,6 +175,15 @@ pub const SUPPORTED: &[&str] = &[
     "store.range_blocks",
     "store.unmined_txs",
     "store.unmined_tx_hashes",
+    "store.add_ticket_commitment",
+    "store.redeem_ticket_commitments",
+    "store.add_multisig_out",
+    "store.spend_multisig_out",
+    "store.get_multisig_output",
+    "store.unspent_multisig_credits_for_address",
+    "store.random_utxo",
+    "store.select_inputs",
+    "store.spender",
 ];
 
 /// The `@exporter` meta of this runner's exports.
@@ -256,6 +275,14 @@ struct Runner {
     digest: bool,
     /// The members' records of the group the last operation was.
     group_ops: Option<Vec<Value>>,
+    /// The stream the transaction store's random selections draw from:
+    /// dcrd's generator keyed by the last `rand` argument, as Go's
+    /// injected stream restarts under it, with the value of `drawn` after
+    /// the last random store operation (`stream_mark`). The address
+    /// manager draws from a stream of its own, so the runner continues
+    /// this one only while nothing else has drawn (`txops.rs`).
+    stream: Option<dcroxide_crypto::rand::Prng>,
+    stream_mark: u64,
     /// Whether an `update` group's member is running.
     in_group: bool,
 }
@@ -583,6 +610,15 @@ impl Runner {
             .ok_or_else(|| fault("an operation needs an op name"))?
             .to_owned();
         let a = Args { op: &name, map };
+        // Go's address manager, runtime and wallet operations may draw from
+        // the injected stream; the runner's draw from another, so the store's
+        // stream no longer stands where Go's does.
+        if ["mgr.", "rt.", "wallet."]
+            .iter()
+            .any(|p| name.starts_with(p))
+        {
+            self.stream = None;
+        }
         let account_arg = |a: &Args<'_>| -> Result<u32, String> {
             a.check(&["account"])?;
             a.u32("account")
@@ -1246,6 +1282,8 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         digest,
         group_ops: None,
         in_group: false,
+        stream: None,
+        stream_mark: 0,
     };
     match runner.reopen()? {
         Ok(_) => {}

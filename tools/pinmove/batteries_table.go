@@ -181,6 +181,18 @@ var RepoTable = Table{
 			Note:       "the transaction store's generated scripts that draw the credit slice's operations; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
 		},
 		{
+			Crate: "purse-udb", Files: []string{"txstore_cms_genvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_txstore_cms_vectors",
+			Note:       "the transaction store's generated scripts that draw the commitment and multisig slice's operations; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
+			Crate: "purse-udb", Files: []string{"txstore_select_genvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_txstore_select_vectors",
+			Note:       "the transaction store's generated scripts that draw input selection and Spender, their random selections keyed per operation (ADR-0002 rand); the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",

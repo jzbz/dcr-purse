@@ -44,7 +44,11 @@
   *2026-11-24 (project owner): the dedicated-machine run (M2) is to be
   made after the next transaction-store slice, so that input selection is
   measured too, and not before (ADR-0014, addendum of that date). It has
-  not been made.*
+  not been made.* *2026-11-24 (the selection slice): input selection,
+  `RandomUTXO` and `Spender` are ported, and `crates/purse-udb/tests/measure.rs`
+  times `SelectInputs` and `RandomUTXO` on both sides with the transaction
+  store's own code on the Rust side, so the run can be made; it has not
+  been. The schema is unchanged.*
 - **Raised 2026-11-23, decided 2026-11-24 (project owner):** Decision
   item 5 says its divergences show in nothing a client can read; the
   credit slice found one that does (QUIRKS.md QK-0782), after the same
@@ -775,7 +779,11 @@ to allow it is Open point 4.
    (Open, "dcrwallet defects"; *2026-11-23, the credit slice:* confirmed
    by the oracle and reproduced, QUIRKS.md QK-0734; *2026-11-24 (project
    owner):* to be fixed under ADR-0012 Rule 7 in the next transaction-store
-   slice and reproduced until then, crate `txstore`, choice 10).
+   slice and reproduced until then, crate `txstore`, choice 10; *fixed
+   by the selection slice, 2026-11-24:* stake validation drops the
+   unmined copy, so the outpoint stays in `unspent` alone, PARITY.md,
+   `purse-udb`, item (23); QK-0781's path to the same rows, which passes
+   through no revalidation, stays reproduced).
    Two divergences, neither in what a client
    can read: `Rollback` deletes the invalidated rows of a detached block,
    which dcrwallet leaves under that block's hash where no code reads them
@@ -1766,7 +1774,9 @@ the addendum of that date records them.*
   record"); this one stays owed (item 2 of the addendum below, M2).*
   *2026-11-24 (project owner): it is to be made after the next
   transaction-store slice, so that input selection is measured too, and
-  not before (ADR-0014, addendum of that date); not made.*
+  not before (ADR-0014, addendum of that date); not made.* *2026-11-24:
+  that slice, the selection slice, has ported input selection and added
+  its timings to the harness; the run is not made.*
   The several-fold rows are far outside the noise seen here. The commit
   rows, which are bound by the machine's sync time, are the ones a
   dedicated run could move.
@@ -1799,7 +1809,15 @@ added to it.
    - R4: the multisig stake-tree flag after a spend and unspend
      (QK-0054) is decided in Phase 3 with an oracle run of
      `redeemmultisigouts`, under ADR-0012 Rule 1. QK-0054's disposition
-     stays open until that run.
+     stays open until that run. *(2026-11-24, the transaction store's
+     commitment and multisig slice: the store's writers reproduce Go,
+     clearing the flag on a spend and an unspend, and the store-level
+     oracle run (`36-txstore-multisig`) shows the cleared flag in
+     `GetMultisigOutput` and `UnspentMultisigCreditsForAddress` with every
+     record equal; the run of `redeemmultisigouts` itself waits for the
+     RPC layer, so the disposition is still open, pending owner (crate
+     `txstore`, choice 12). No table, key or value changes: the row holds
+     either outcome.)*
 2. **The measurement, M1 to M3.**
    - M1: ADR-0014's row for Phases 2 and 3 reads N = 1,000 for a balance
      query and N = 1.5 for a range query (ADR-0014, addendum of

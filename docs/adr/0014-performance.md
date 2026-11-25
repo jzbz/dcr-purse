@@ -700,3 +700,14 @@ items 2 and 4 of its addendum of 2026-11-21); `docs/PHASE2-EXIT.md`;
 `txstore`, "The next slice".
 
 This addendum records a decision; it measures nothing.
+
+*Note, 2026-11-24 (the selection slice):* that slice is the one this
+decision names. It ports input selection, `RandomUTXO` and `Spender`, and
+`crates/purse-udb/tests/measure.rs` now times `MakeInputSource` with
+`SelectInputs` (every output of one account, one coin from two accounts,
+50 coins at depth 0) and 1,000 `RandomUTXO` calls on both sides, the
+transaction store's own code on the Rust side, its answers checked
+against Go's in every round (the selection of everything as a set; the
+others, whose random choices follow each side's operating-system-seeded
+stream, for covering their target). The run of record is not made; no
+timing of these figures is recorded.

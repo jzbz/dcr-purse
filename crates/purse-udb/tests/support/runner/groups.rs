@@ -37,6 +37,8 @@
 //! the genuine `Invalid` of `Rollback` to height 0 too: the runner cannot
 //! tell before the member runs which of the two it will meet.
 
+use std::sync::atomic::Ordering;
+
 use purse_errors::{AnyError, Kind};
 use purse_store::Store;
 use purse_testutil::serde_json::{Map, Value, json};
@@ -58,6 +60,10 @@ const CHANGING: &[&str] = &[
     "store.remove_unconfirmed",
     "store.prune_unmined",
     "store.add_credit",
+    "store.add_ticket_commitment",
+    "store.redeem_ticket_commitments",
+    "store.add_multisig_out",
+    "store.spend_multisig_out",
 ];
 
 /// The operations that return an error where Go panics, with the kinds
@@ -72,9 +78,10 @@ const CHANGING: &[&str] = &[
 /// (`Invalid`); `PreviousPkScripts` without a block, which Go ends by
 /// dereferencing the missing block (`Invalid`); `MainChainTip` with no
 /// tip, `InsertMemPoolTx` of a vote or revocation whose double-spent input
-/// names a missing record, `UnspentOutputs` and `UnspentOutput` with an
-/// output's record missing, and `UnspentTickets` with an unmined-inputs
-/// entry naming a spender with no unmined record (`IO`). `IO` is listed for the first three as
+/// names a missing record, `UnspentOutputs`, `UnspentOutput` and
+/// `RandomUTXO` with an output's record missing, `SelectInputs` with an
+/// unmined credit's record missing, and `UnspentTickets` with an
+/// unmined-inputs entry naming a spender with no unmined record (`IO`). `IO` is listed for the first three as
 /// well, for the missing or corrupt stored state at which Go's reads
 /// panic.
 const PANIC_STAND_INS: &[(&str, &[Kind])] = &[
@@ -91,6 +98,8 @@ const PANIC_STAND_INS: &[(&str, &[Kind])] = &[
     ("store.unspent_outputs", &[Kind::Io]),
     ("store.unspent_output", &[Kind::Io]),
     ("store.unspent_tickets", &[Kind::Io]),
+    ("store.random_utxo", &[Kind::Io]),
+    ("store.select_inputs", &[Kind::Io]),
 ];
 
 /// A script fault when `op` may not tolerate one of `kinds`: a kind of an
@@ -195,12 +204,19 @@ impl Runner {
             let mut member = m.clone();
             member.remove("tolerate");
             self.in_group = !view;
+            let before = self.drawn.load(Ordering::Relaxed);
             let ran = self.op(&Value::Object(member));
             self.in_group = false;
+            let drawn = self.drawn.load(Ordering::Relaxed).saturating_sub(before);
             let (name, r) = ran?;
             let mut rec = Map::new();
             rec.insert("i".to_owned(), json!(j));
             rec.insert("op".to_owned(), json!(name));
+            // Go's members carry `drawn` too; only the store's random
+            // operations draw among the members this runner takes.
+            if drawn != 0 {
+                rec.insert("drawn".to_owned(), json!(drawn));
+            }
             match r {
                 Ok(v) => {
                     rec.insert("ok".to_owned(), v);

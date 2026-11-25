@@ -33,6 +33,12 @@
 //! - `tests/data/txstore_credit_genvectors.txt`: the same for a fixed set
 //!   of generated transaction store scripts that draw the credit slice's
 //!   operations too (`generate_txstore_credits`).
+//! - `tests/data/txstore_cms_genvectors.txt` and
+//!   `tests/data/txstore_select_genvectors.txt`: the same for the
+//!   generated scripts that draw the commitment and multisig slice's
+//!   operations (`generate_txstore_cms`) and input selection with `Spender`
+//!   (`generate_txstore_select`, whose random selections compare exactly,
+//!   the bytes drawn included).
 //!
 //! A Go record of kind `Panic` is matched by any Rust error
 //! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
@@ -58,12 +64,14 @@ use support::generator::{
     ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
     generate_watching_as,
 };
-use support::txgen::{generate_txstore, generate_txstore_credits};
+use support::txgen::{
+    generate_txstore, generate_txstore_cms, generate_txstore_credits, generate_txstore_select,
+};
 use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 1945;
+const ENTRIES: usize = 2323;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
@@ -105,6 +113,20 @@ const TX_CREDIT_SCRIPTS: usize = 16;
 const TX_CREDIT_ENTRIES: usize = 848;
 /// The seed of the generated transaction store credit set.
 const TX_CREDIT_SEED: u64 = 0x5eed_f402_0000_0006;
+const TX_CMS_VECTORS: &str = "txstore_cms_genvectors.txt";
+/// The pinned number of generated commitment and multisig scripts and of
+/// their result lines.
+const TX_CMS_SCRIPTS: usize = 8;
+const TX_CMS_ENTRIES: usize = 474;
+/// The seed of the generated commitment and multisig set.
+const TX_CMS_SEED: u64 = 0x5eed_f402_0000_0007;
+const TX_SELECT_VECTORS: &str = "txstore_select_genvectors.txt";
+/// The pinned number of generated selection scripts and of their result
+/// lines.
+const TX_SELECT_SCRIPTS: usize = 8;
+const TX_SELECT_ENTRIES: usize = 428;
+/// The seed of the generated selection set.
+const TX_SELECT_SEED: u64 = 0x5eed_f402_0000_0008;
 
 /// One script's vector.
 struct Vector {
@@ -630,7 +652,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
     for l in [
         format!(
             "# Generated operation-script vectors of purse-udb's {} (records in",
-            if file == TX_VECTORS || file == TX_CREDIT_VECTORS {
+            if TX_FILES.contains(&file) {
                 "transaction store"
             } else {
                 "address manager"
@@ -640,7 +662,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
         "#".to_owned(),
         format!(
             "# The scripts are tests/support/{}'s, from the fixed seed {seed:#x}",
-            if file == TX_VECTORS || file == TX_CREDIT_VECTORS {
+            if TX_FILES.contains(&file) {
                 "txgen.rs"
             } else {
                 "generator.rs"
@@ -669,6 +691,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 PASS_VECTORS => "regenerate_passphrase_vectors",
                 TX_VECTORS => "regenerate_txstore_vectors",
                 TX_CREDIT_VECTORS => "regenerate_txstore_credit_vectors",
+                TX_CMS_VECTORS => "regenerate_txstore_cms_vectors",
+                TX_SELECT_VECTORS => "regenerate_txstore_select_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -786,5 +810,125 @@ fn regenerate_txstore_credit_vectors() {
         &txstore_credit_set(),
         TX_CREDIT_SEED,
         "txstore_credit_set",
+    );
+}
+
+/// The transaction store's generated vector files.
+const TX_FILES: [&str; 4] = [
+    TX_VECTORS,
+    TX_CREDIT_VECTORS,
+    TX_CMS_VECTORS,
+    TX_SELECT_VECTORS,
+];
+
+/// A generated transaction store set of `n` scripts of `generate` from
+/// `seed`, named `prefix` and the index: scripts 0 to 5 on regnet,
+/// testnet3 and mainnet (two each), the rest on simnet.
+fn txstore_kind_set(
+    seed: u64,
+    n: usize,
+    prefix: &str,
+    generate: fn(&mut SplitMix64, usize, Option<&'static str>) -> Value,
+) -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(seed);
+    (0..n)
+        .map(|id| {
+            let network = match id {
+                0 | 1 => "regnet",
+                2 | 3 => "testnet3",
+                4 | 5 => "mainnet",
+                _ => "simnet",
+            };
+            (
+                format!("{prefix} {id}"),
+                generate(&mut rng, id, Some(network)),
+            )
+        })
+        .collect()
+}
+
+/// Checks that a generated vector file holds the set the generator makes.
+fn assert_seeded_set(file: &str, entries: usize, set: &[(String, Value)]) {
+    let vectors = read_vector_file(file, entries);
+    assert_eq!(vectors.len(), set.len());
+    for (v, (name, script)) in vectors.iter().zip(set) {
+        assert_eq!(&v.name, name);
+        assert_eq!(
+            &v.script, script,
+            "{name}: the generator changed; regenerate"
+        );
+    }
+}
+
+/// The generated commitment and multisig set (`generate_txstore_cms`).
+fn txstore_cms_set() -> Vec<(String, Value)> {
+    txstore_kind_set(
+        TX_CMS_SEED,
+        TX_CMS_SCRIPTS,
+        "txstore commitment and multisig generated",
+        generate_txstore_cms,
+    )
+}
+
+#[test]
+fn replay_txstore_cms_vectors() {
+    replay_generated(TX_CMS_VECTORS, TX_CMS_ENTRIES, TX_CMS_SCRIPTS);
+}
+
+/// The commitment and multisig vectors are the set the generator makes
+/// from the fixed seed.
+#[test]
+fn txstore_cms_vectors_are_the_seeded_set() {
+    assert_seeded_set(TX_CMS_VECTORS, TX_CMS_ENTRIES, &txstore_cms_set());
+}
+
+/// Regenerates the commitment and multisig vectors from the oracle,
+/// checking that the Rust runner agrees with every record and export
+/// before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_txstore_cms_vectors() {
+    regenerate_generated(
+        TX_CMS_VECTORS,
+        &txstore_cms_set(),
+        TX_CMS_SEED,
+        "txstore_cms_set",
+    );
+}
+
+/// The generated selection set (`generate_txstore_select`): the random
+/// selections' records, `~r` values and bytes drawn included, are Go's
+/// exactly.
+fn txstore_select_set() -> Vec<(String, Value)> {
+    txstore_kind_set(
+        TX_SELECT_SEED,
+        TX_SELECT_SCRIPTS,
+        "txstore selection generated",
+        generate_txstore_select,
+    )
+}
+
+#[test]
+fn replay_txstore_select_vectors() {
+    replay_generated(TX_SELECT_VECTORS, TX_SELECT_ENTRIES, TX_SELECT_SCRIPTS);
+}
+
+/// The selection vectors are the set the generator makes from the fixed
+/// seed.
+#[test]
+fn txstore_select_vectors_are_the_seeded_set() {
+    assert_seeded_set(TX_SELECT_VECTORS, TX_SELECT_ENTRIES, &txstore_select_set());
+}
+
+/// Regenerates the selection vectors from the oracle, checking that the
+/// Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_txstore_select_vectors() {
+    regenerate_generated(
+        TX_SELECT_VECTORS,
+        &txstore_select_set(),
+        TX_SELECT_SEED,
+        "txstore_select_set",
     );
 }

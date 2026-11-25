@@ -13,13 +13,15 @@ use dcroxide_stake::TxType;
 use dcroxide_wire::{MsgTx, NO_EXPIRY_VALUE};
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
-    Empty, Hash32, TableId, Tickets, TxMined, TxRecKey, TxUnmined, TxUnminedRow, UnminedInputs,
-    Unpublished, WriteTx,
+    Empty, Hash32, Tickets, TxMined, TxRecKey, TxUnmined, TxUnminedRow, UnminedInputs, Unpublished,
+    WriteTx,
 };
 
+use super::commitment::{delete_commitment, replace_unmined_spent};
 use super::credit::{del_ucredit, del_uinput, put_uinput, set_unpublished};
+use super::multisig::{any_multisig, mark_unspent};
 use super::record::{TxRecord, canonical, display, io};
-use super::store::{TxRead, TxStore, guard, store_err};
+use super::store::{TxRead, TxStore, store_err};
 
 /// What `PruneUnmined` returns with its error: the hashes removed before
 /// the failure, whose removals stay in the caller's transaction (Go's
@@ -31,17 +33,6 @@ pub struct PruneError {
     /// The failure.
     pub error: AnyError,
 }
-
-/// The tables `RemoveUnconfirmed` reads and changes in Go that this crate
-/// does not maintain yet: a ticket's commitments, a vote's or revocation's
-/// commitment flags, the multisig record of each input (crate
-/// documentation, "The next slice").
-const REMOVE_TABLES: [TableId; 4] = [
-    TableId::Commitments,
-    TableId::CommitmentsUnspent,
-    TableId::MultisigOuts,
-    TableId::MultisigUnspent,
-];
 
 /// The bounds of the mined records of `hash`: every height.
 fn mined_bounds(hash: &Hash32) -> (TxRecKey, TxRecKey) {
@@ -104,8 +95,22 @@ pub(crate) fn read_unmined(
 struct Frame {
     tx: MsgTx,
     hash: Hash32,
+    /// `stake.DetermineTxType` of `tx`, as Go computes it on entry.
+    tx_type: TxType,
     out: u32,
     spender_done: bool,
+}
+
+impl Frame {
+    fn new(tx: MsgTx, hash: Hash32) -> Frame {
+        Frame {
+            tx_type: dcroxide_stake::determine_tx_type(&tx),
+            tx,
+            hash,
+            out: 0,
+            spender_done: false,
+        }
+    }
 }
 
 impl TxStore {
@@ -119,7 +124,7 @@ impl TxStore {
     /// unmined transaction spends: `DoubleSpend` (a vote or revocation
     /// double spending an unmined vote on a block other than the tip
     /// removes that vote instead, and one double spending a vote on the tip
-    /// is `DoubleSpend` with Go's text). The guard. The store's.
+    /// is `DoubleSpend` with Go's text). The store's.
     pub fn insert_mem_pool_tx(&self, tx: &mut WriteTx<'_>, rec: &TxRecord) -> Result<(), AnyError> {
         let hash = *rec.hash();
         if latest_mined_height(tx, &hash)?.is_some() {
@@ -217,27 +222,32 @@ impl TxStore {
 
     /// `RemoveUnconfirmed`: removes the unmined transaction `msg_tx`
     /// (`hash`) and every unmined transaction spending its outputs, the
-    /// spenders of each output first, in Go's order; the unmined-inputs
-    /// rows of each removed transaction's inputs go whichever transaction
-    /// they name (QK-0060).
+    /// spenders of each output first, in Go's order: each output's unmined
+    /// credit and, for a ticket, the commitment the wallet tracks at an odd
+    /// index with its unspent entry; a vote's or revocation's redeemed
+    /// commitments marked not spent by an unmined transaction, their
+    /// unspent entries re-created where a mined spender had deleted them
+    /// (QK-0060); then the unmined-inputs rows of each removed
+    /// transaction's inputs, whichever transaction they name (QK-0060),
+    /// and the multisig record of each input marked unspent, whichever
+    /// transaction spent it, with its stake-tree flag cleared (QK-0054,
+    /// QK-0786). The multisig records of the removed transaction's own
+    /// outputs stay (QK-0787).
     ///
     /// # Errors
     ///
     /// A spender named by the unmined-inputs index without its record:
-    /// `IO`, Go's text. The guard. The store's.
+    /// `IO`, Go's text. The store's.
     pub fn remove_unconfirmed(
         &self,
         tx: &mut WriteTx<'_>,
         msg_tx: &MsgTx,
         hash: &Hash32,
     ) -> Result<(), AnyError> {
-        guard(tx, "RemoveUnconfirmed", &REMOVE_TABLES)?;
-        let mut stack = vec![Frame {
-            tx: msg_tx.clone(),
-            hash: *hash,
-            out: 0,
-            spender_done: false,
-        }];
+        // One emptiness test of the multisig records instead of one lookup
+        // per input of every removed transaction.
+        let ms = any_multisig(tx)?;
+        let mut stack = vec![Frame::new(msg_tx.clone(), *hash)];
         while let Some(top) = stack.last_mut() {
             let n_outs = u32::try_from(top.tx.tx_out.len()).unwrap_or(u32::MAX);
             if top.out < n_outs {
@@ -249,22 +259,22 @@ impl TxStore {
                     };
                     if let Some(spender) = tx.get::<UnminedInputs>(&k).map_err(store_err)? {
                         let rec = read_unmined(tx, &spender)?;
-                        stack.push(Frame {
-                            tx: rec.into_msg_tx(),
-                            hash: spender,
-                            out: 0,
-                            spender_done: false,
-                        });
+                        stack.push(Frame::new(rec.into_msg_tx(), spender));
                     }
                     continue;
                 }
-                // The output's unmined credit (a ticket's commitment is the
-                // next slice's, guarded above).
+                // The output's unmined credit and, for a ticket's odd
+                // output, the commitment (Go relies on the commitment key
+                // being the canonical outpoint, `txunmined.go:217-220`).
                 let k = purse_store::Outpoint {
                     hash: top.hash,
                     index: top.out,
                 };
+                let ticket_commitment = top.tx_type == TxType::SStx && top.out % 2 == 1;
                 del_ucredit(tx, &k)?;
+                if ticket_commitment {
+                    delete_commitment(tx, &k)?;
+                }
                 let Some(top) = stack.last_mut() else {
                     break;
                 };
@@ -275,8 +285,15 @@ impl TxStore {
             let Some(done) = stack.pop() else {
                 break;
             };
+            if matches!(done.tx_type, TxType::SSGen | TxType::SSRtx) {
+                replace_unmined_spent(tx, done.tx_type, &done.tx, false)?;
+            }
             for input in &done.tx.tx_in {
-                del_uinput(tx, &canonical(&input.previous_out_point))?;
+                let k = canonical(&input.previous_out_point);
+                del_uinput(tx, &k)?;
+                if ms {
+                    mark_unspent(tx, &k)?;
+                }
             }
             set_unpublished(tx, &done.hash, false)?;
             tx.delete::<TxUnmined>(&done.hash).map_err(store_err)?;

@@ -1,0 +1,1042 @@
+{
+ "format": "purse-opscript 1",
+ "name": "txstore-multisig",
+ "setup": {
+  "network": "simnet",
+  "seed": "2d2a292827262524232221201f1e1d1c1b1a191817161514131211100f0e0d0c",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3636363636363636363636363636363636363636363636363636363636363636",
+  "clock": 1795600000
+ },
+ "ops": [
+  {
+   "op": "mgr.import_script",
+   "script": "51210211111111111111111111111111111111111111111111111111111111111111112103222222222222222222222222222222222222222222222222222222222222222252ae",
+   "label": "ms1"
+  },
+  {
+   "op": "mgr.import_script",
+   "script": "5221021111111111111111111111111111111111111111111111111111111111111111210322222222222222222222222222222222222222222222222222222222222222222102333333333333333333333333333333333333333333333333333333333333333353ae",
+   "label": "ms2"
+  },
+  {
+   "op": "mgr.import_script",
+   "script": "51",
+   "label": "s1"
+  },
+  {
+   "op": "mgr.unlock",
+   "pass": "private"
+  },
+  {
+   "op": "mgr.import_private_key",
+   "key": "0101010101010101010101010101010101010101010101010101010101010101",
+   "label": "k1"
+  },
+  {
+   "op": "mgr.lock"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b1"
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b2"
+  },
+  {
+   "op": "tx.build",
+   "label": "f1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "1111111111111111111111111111111111111111111111111111111111111111",
+      "index": 0
+     },
+     "value": 30000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 5000,
+     "pay": {
+      "ref": "ms1"
+     }
+    },
+    {
+     "value": 7000,
+     "pay": {
+      "ref": "ms2"
+     }
+    },
+    {
+     "value": 100,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 0
+     }
+    },
+    {
+     "value": 300,
+     "pay": {
+      "ref": "s1"
+     }
+    },
+    {
+     "value": 400,
+     "pay": {
+      "p2sh": "512102333333333333333333333333333333333333333333333333333333333333333351ae"
+     }
+    },
+    {
+     "value": 600,
+     "pay": {
+      "ref": "ms1"
+     },
+     "tag": "sstxchange"
+    },
+    {
+     "value": 700,
+     "script": "a914bac02fa8812b67e41b3aebe6ef3346e7ed019fd887"
+    },
+    {
+     "value": 800,
+     "pay": {
+      "ref": "ms1"
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "f1"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 9
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 2
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 3
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 4
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 6
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "acct": 0,
+    "branch": 0,
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "p2sh": "512102333333333333333333333333333333333333333333333333333333333333333351ae"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 0
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 0
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 1,
+   "block": null
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 5
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 7
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 5
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 2
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "f1",
+   "block": "b2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "f1",
+   "index": 0,
+   "account": 2147483647,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "f1",
+   "index": 5,
+   "account": 2147483647,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "f1",
+   "index": 7,
+   "account": 2147483647,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 0,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 0,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 5,
+   "block": "b2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 7,
+   "block": {
+    "hash": "b2",
+    "height": 2,
+    "time": 0,
+    "votebits": 1
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 1,
+   "block": "b2"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 1
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f1",
+   "index": 1,
+   "block": "b2"
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "s1tx",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "f1",
+      "index": 0
+     },
+     "value": 5000
+    },
+    {
+     "prev": {
+      "tx": "f1",
+      "index": 5,
+      "tree": 1
+     },
+     "value": 600
+    }
+   ],
+   "outputs": [
+    {
+     "value": 5500,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 1
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "s1tx"
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "s1tx",
+   "index": 0
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "s1tx",
+   "index": 0
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "s1tx",
+   "index": 1
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "9999999999999999999999999999999999999999999999999999999999999999",
+   "index": 0
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 3
+   },
+   "spender": "s1tx",
+   "index": 0
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 5,
+    "tree": 1
+   },
+   "spender": "s1tx",
+   "index": 1
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 5
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "s1tx"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 5
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "s2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "f1",
+      "index": 0
+     },
+     "value": 5000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 4900,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 2
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "b3"
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "s2",
+   "block": "b3"
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "s2",
+   "index": 0
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "d2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "f1",
+      "index": 0
+     },
+     "value": 5000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 4800,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 3
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "d2"
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "d2"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.spend_multisig_out",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   },
+   "spender": "s2",
+   "index": 0
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.rollback",
+   "height": 3
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.rollback",
+   "height": 2
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f1",
+    "index": 7
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "f3",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "3333333333333333333333333333333333333333333333333333333333333333",
+      "index": 0
+     },
+     "value": 3000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 2500,
+     "pay": {
+      "ref": "ms2"
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "f3"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "f3",
+   "index": 0
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "f3"
+  },
+  {
+   "op": "store.exists_tx_mined_or_unmined",
+   "tx": "f3"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "f3",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "c2"
+  },
+  {
+   "op": "tx.build",
+   "label": "cb",
+   "version": 3,
+   "inputs": [
+    {
+     "prev": "coinbase",
+     "value": 9000,
+     "script": "0000"
+    }
+   ],
+   "outputs": [
+    {
+     "value": 0,
+     "opreturn": "00000000000000000000000000000000"
+    },
+    {
+     "value": 9000,
+     "pay": {
+      "ref": "ms2"
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "cb",
+   "block": "c2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "cb",
+   "index": 1,
+   "account": 2147483647,
+   "block": "c2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "cb",
+   "index": 1,
+   "block": "c2"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "cb",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.rollback",
+   "height": 2
+  },
+  {
+   "op": "store.exists_tx_mined_or_unmined",
+   "tx": "cb"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "cb",
+    "index": 1
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms2"
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "g1",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "4444444444444444444444444444444444444444444444444444444444444444",
+      "index": 0
+     },
+     "value": 5000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1500,
+     "pay": {
+      "ref": "ms1"
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "g1"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "g1",
+   "index": 0
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g1",
+    "index": 0
+   }
+  },
+  {
+   "op": "tx.build",
+   "label": "g1s",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "g1",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1500
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1400,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 4
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mem_pool_tx",
+   "tx": "g1s"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "g1s"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g1",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "m2"
+  },
+  {
+   "op": "tx.build",
+   "label": "g2",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "5555555555555555555555555555555555555555555555555555555555555555",
+      "index": 0
+     },
+     "value": 5000
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1700,
+     "pay": {
+      "ref": "ms1"
+     },
+     "tag": "sstxchange"
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "g2",
+   "block": "m2"
+  },
+  {
+   "op": "store.add_credit",
+   "tx": "g2",
+   "index": 0,
+   "account": 2147483647,
+   "block": "m2"
+  },
+  {
+   "op": "store.add_multisig_out",
+   "tx": "g2",
+   "index": 0,
+   "block": "m2"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.extend_main_chain",
+   "label": "m3"
+  },
+  {
+   "op": "tx.build",
+   "label": "g2s",
+   "inputs": [
+    {
+     "prev": {
+      "tx": "g2",
+      "index": 0,
+      "tree": 1
+     },
+     "value": 1700
+    }
+   ],
+   "outputs": [
+    {
+     "value": 1600,
+     "pay": {
+      "acct": 0,
+      "branch": 0,
+      "index": 5
+     }
+    }
+   ]
+  },
+  {
+   "op": "store.insert_mined_tx",
+   "tx": "g2s",
+   "block": "m3"
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.rollback",
+   "height": 3
+  },
+  {
+   "op": "store.get_multisig_output",
+   "outpoint": {
+    "tx": "g2",
+    "index": 0
+   }
+  },
+  {
+   "op": "store.unspent_multisig_credits_for_address",
+   "addr": {
+    "ref": "ms1"
+   }
+  },
+  {
+   "op": "store.unspent_outputs"
+  }
+ ]
+}

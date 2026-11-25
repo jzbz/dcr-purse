@@ -55,6 +55,7 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
 
 pub use addresses::ManagedAddress;
+pub(crate) use addresses::redeem_script_for_hash160;
 pub use dcroxide_dcrec::secp256k1::ReducedPrivateKey;
 pub use dcroxide_txscript::stdaddr::Address;
 pub use hd::{

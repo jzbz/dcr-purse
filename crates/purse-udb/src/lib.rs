@@ -86,8 +86,13 @@
 //! oracle on all four networks; "credit slice" is ported by the credit
 //! slice (2026-11-23), which uses dcroxide's `MsgTx::pk_script_locs` for
 //! `wire.MsgTx.PkScriptLocs` and is checked against Go by hand-written
-//! scripts on simnet and generated ones on all four networks; "later" is a
-//! later slice, with the reason ([`txstore`], "The next slice"). Rust names are methods of [`txstore::TxStore`]
+//! scripts on simnet and generated ones on all four networks; "commitment
+//! and multisig slice" is ported by the third slice (2026-11-24), checked
+//! against Go by hand-written scripts on simnet; "selection slice" by the
+//! fourth (2026-11-24), checked against Go by hand-written scripts on
+//! simnet and generated ones on all four networks, the random selections
+//! and the bytes they draw exactly; "later" is a later slice,
+//! with the reason ([`txstore`], "The next slice"). Rust names are methods of [`txstore::TxStore`]
 //! unless stated, in snake case of Go's.
 //!
 //! | Go (`wallet/udb`) | Rust | Status |
@@ -96,31 +101,31 @@
 //! | `Open` (transaction store part: the `Store` value) | `TxStore::new` | slice 1 |
 //! | `NewTxRecord`, `NewTxRecordFromMsgTx` | [`txstore::TxRecord::new`], [`txstore::TxRecord::from_msg_tx`] | slice 1 |
 //! | `Store.MainChainTip` | `main_chain_tip` | slice 1 (returns a `Result`, ADR-0012 Rule 2(c)) |
-//! | `Store.ExtendMainChain` | `extend_main_chain` | slice 1 (the filter is optional below the birthday height, ADR-0019 FB4; the parent's stake validation or invalidation: the block's flag in slice 1; the move of its credits and debits in the credit slice, QK-0082 fixed) |
+//! | `Store.ExtendMainChain` | `extend_main_chain` | slice 1 (the filter is optional below the birthday height, ADR-0019 FB4; the parent's stake validation or invalidation: the block's flag in slice 1; the move of its credits and debits in the credit slice, QK-0082 fixed; the unmined copy of a revalidated transaction dropped in the selection slice, QK-0734 fixed) |
 //! | `Store.ProcessedTxsBlockMarker`, `UpdateProcessedTxsBlockMarker` | `processed_txs_block_marker`, `update_processed_txs_block_marker` | slice 1 |
 //! | `SetBirthState`, `BirthState` | [`txstore::set_birth_state`], [`txstore::birth_state`] (free functions, as in Go) | slice 1 |
 //! | `Store.IsMissingMainChainCFilters`, `MissingCFiltersHeight` | `is_missing_main_chain_cfilters`, `missing_cfilters_height` | slice 1 (the walk starts at the birthday height, ADR-0019 FB9 and FB10: a PARITY.md line) |
 //! | `Store.InsertMissingCFilters`, `GetMainChainCFilters`, `CFilterV2`, `ImportCFiltersV2` | `insert_missing_cfilters`, `get_main_chain_cfilters`, `cfilter_v2`, `import_cfilters_v2` | slice 1 (`GetMainChainCFilters` from a detached start block answers as Go's, QK-0751) |
 //! | `ExtractBlockHeaderParentHash`, `ExtractBlockHeaderHeight`, `ExtractBlockHeaderTime`, `RawBlockHeader.Height` | free functions over a 180-byte header | slice 1 |
 //! | `Store.GetMainChainBlockHashForHeight`, `GetSerializedBlockHeader`, `GetBlockHeaderTime`, `GetBlockHeader`, `BlockInMainChain`, `GetBlockMetaForHash`, `GetMainChainBlockHashes` | the same names in snake case | slice 1 (a stale header gives the error Go's next comparison gives, where Go panics, QK-0086) |
-//! | `Store.Rollback` | `rollback` (the blocks with transactions, as Go's map) | slice 1; its credit and debit steps in the credit slice (the invalidated rows of a detached block deleted, QK-0081); its commitment and multisig steps later, with them |
+//! | `Store.Rollback` | `rollback` (the blocks with transactions, as Go's map) | slice 1; its credit and debit steps in the credit slice (the invalidated rows of a detached block deleted, QK-0081); its commitment and multisig steps in the commitment and multisig slice |
 //! | `Store.InsertMinedTx` | `insert_mined_tx` | slice 1 (the debit loop and `moveMinedTx`'s credit move in the credit slice; into a stake-invalidated block, an unmined transaction is refused where Go panics) |
-//! | `Store.InsertMemPoolTx`, `SetPublished`, `RemoveUnconfirmed`, `PruneUnmined` | `insert_mem_pool_tx`, `set_published`, `remove_unconfirmed`, `prune_unmined` | slice 1 (`RemoveUnconfirmed`'s unmined credits, and the balance classes of the unmined inputs and the unpublished mark, in the credit slice; its commitment and multisig steps: later) |
+//! | `Store.InsertMemPoolTx`, `SetPublished`, `RemoveUnconfirmed`, `PruneUnmined` | `insert_mem_pool_tx`, `set_published`, `remove_unconfirmed`, `prune_unmined` | slice 1 (`RemoveUnconfirmed`'s unmined credits, and the balance classes of the unmined inputs and the unpublished mark, in the credit slice; its commitment and multisig steps in the commitment and multisig slice, QK-0060 reproduced) |
 //! | `Store.AddCredit` | `add_credit` | credit slice (a block that is not the main-chain block at its height, or holds no record of the transaction, is refused, QK-0783) |
-//! | `Store.AddTicketCommitment`, `RedeemTicketCommitments` | — | later: the commitments feed the balance tables (ADR-0003 Decision item 4, `LockedByTickets`) |
-//! | `Store.AddMultisigOut`, `SpendMultisigOut`, `GetMultisigOutput`, `UnspentMultisigCreditsForAddress` | — | later: `Rollback` changes multisig records only inside its credit and debit steps |
+//! | `Store.AddTicketCommitment`, `RedeemTicketCommitments` | `add_ticket_commitment`, `redeem_ticket_commitments` | commitment and multisig slice (the `Locked` running sum kept with every write of an unspent commitment, ADR-0003 Decision item 4) |
+//! | `Store.AddMultisigOut`, `SpendMultisigOut`, `GetMultisigOutput`, `UnspentMultisigCreditsForAddress` | `add_multisig_out`, `spend_multisig_out`, `get_multisig_output` (the spender only while spent, QK-0055), `unspent_multisig_credits_for_address` | commitment and multisig slice (QK-0054 reproduced, pending owner; a block of the zero hash at another height than 0 refused, ADR-0012 Rule 4) |
 //! | `Store.UnspentOutputCount` | `unspent_output_count` | slice 1 (the length of `unspent`, ADR-0003, addendum "Schema version 1 as built") |
 //! | `Store.UnspentOutputs`, `UnspentOutput`, `ForEachUnspentOutpoint`, `ExistsUTXO` | `unspent_outputs`, `unspent_output`, `for_each_unspent_outpoint` (the callback returns a `Result`), `exists_utxo` | credit slice (`ExistsUTXO` returns a `Result`, ADR-0012 Rule 2(c)) |
-//! | `Store.RandomUTXO` | — | later, with input selection: its random stream and bbolt's cursor walk (spec 23 §5.6, Q-31) |
+//! | `Store.RandomUTXO` | `random_utxo` (drawing from a [`purse_snacl::RandomSource`] as Go draws from its generator) | selection slice (bbolt's cursor walk, spec 04 Q-31) |
 //! | `Store.IsUnspentOutpoint` | `is_unspent_outpoint` | credit slice, as Go behaves (QK-0088 reproduced; spec 04 D-1 taken so, decided by the project owner on 2026-11-24, [`txstore`] choice 6) |
-//! | `Store.MakeInputSource`, `InputSource.SelectInputs` | — | later: the random stream and cursor walk of spec 23 §5.6, verified as sets of selectable outputs |
-//! | `Store.AccountBalance`, `AccountBalances` | `account_balance`, `account_balances` (a vector in account order) | credit slice (running sums, ADR-0003 Decision item 4; `LockedByTickets` always 0 until the commitments are ported) |
+//! | `Store.MakeInputSource`, `InputSource.SelectInputs` | `make_input_source` (returns a `Result`, Rule 2(c)), [`txstore::InputSource::select_inputs`] (answers `purse-txauthor`'s `InputDetail`; the source is a `purse-txauthor` input source) | selection slice (Go's draws, spec 23 §5.6.2; QK-0096, QK-0105 and QK-0788 reproduced) |
+//! | `Store.AccountBalance`, `AccountBalances` | `account_balance`, `account_balances` (a vector in account order) | credit slice (running sums, ADR-0003 Decision item 4; `LockedByTickets` from the commitment and multisig slice) |
 //! | `Store.UnspentTickets` | `unspent_tickets` | credit slice |
 //! | `Store.OwnTicket`, `IterateTickets`, `TicketIterator.Next`, `Err`, `Close`, `TicketDetails` | `own_ticket`, `iterate_tickets` (a vector), `ticket_details` | slice 1 (the credit of output 0 in the credit slice) |
 //! | `Store.TxDetails`, `TxDetails.Height`, `UniqueTxDetails`, `Tx`, `ExistsTx`, `ExistsTxMinedOrUnmined`, `TxBlockHeight` | the same names in snake case | slice 1 (the credit and debit lists in the credit slice) |
 //! | `Store.RangeTransactions`, `RangeBlocks` | `range_transactions`, `range_blocks` | slice 1 (no context argument, ADR-0008) |
 //! | `Store.PreviousPkScripts` | `previous_pk_scripts` | credit slice, as Go behaves (QK-0089 reproduced: never answers without a block; spec 04 D-1 taken so, decided by the project owner on 2026-11-24, [`txstore`] choice 6) |
-//! | `Store.Spender` | — | later, with input selection, whose reservation flows are its natural tests |
+//! | `Store.Spender` | `spender` | selection slice |
 //! | `Store.UnminedTxs`, `UnminedTxHashes` | `unmined_txs`, `unmined_tx_hashes` | slice 1 (ties in the dependency order broken by hash, ADR-0012 Rule 3(a); QK-0092) |
 //!
 //! # Store rows

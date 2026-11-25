@@ -57,7 +57,15 @@
 //! transactions and the whole history; 1,000 address lookups by script
 //! through `Manager.Address` and through `AddrAccount`, 1,000 account
 //! lookups by name and 1,000 `AccountProperties`, each batch in one read
-//! transaction; and commits: each block at the tip (its own durable write
+//! transaction; input selection, `MakeInputSource` and `SelectInputs` of
+//! every output of account 0 at minconf 1 (target 0), for one coin at
+//! minconf 1 from account 0 and from the last account, and for 50 coins at
+//! minconf 0, and 1,000 `RandomUTXO` calls at minconf 1 in one read
+//! transaction (the transaction store's own code on the Rust side, over
+//! the rows this workload writes, its stream seeded from the operating
+//! system as Go's is, so only the selection of everything is compared, as
+//! a set, and the others for covering their target); and commits: each
+//! block at the tip (its own durable write
 //! transaction), the history sync per block, and 20 commits recording one
 //! more external address. Queries repeat at least 5 times and until a
 //! second has passed (at most 200 times), as storebench's `repeat` does;
@@ -109,6 +117,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dcroxide_txscript::stdaddr;
 use dcroxide_txscript::stdscript::{self, ScriptType};
 use dcroxide_wire::{BlockHeader, MsgTx, OutPoint, TxIn, TxOut};
+use purse_dcrutil::Amount;
 use purse_errors::Kind;
 use purse_hdkeychain::ExtendedKey;
 use purse_snacl::{Limits, OsRandom};
@@ -123,6 +132,7 @@ use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{Oracle, SplitMix64, hex, oracle_bin_or_skip, oracle_or_skip};
 use purse_udb::Manager;
 use purse_udb::addrmgr::ChainParams;
+use purse_udb::txstore::TxStore;
 use sha2::{Digest as _, Sha256};
 
 const HARDENED: u32 = 0x8000_0000;
@@ -1341,6 +1351,12 @@ struct HotArgs {
     names: Vec<String>,
     props: Vec<u32>,
     next_addr: usize,
+    /// `MakeInputSource` and `SelectInputs(target)` for (account, minconf,
+    /// target), the tip as the sync height, one source per repetition.
+    selects: Vec<(u32, i32, i64)>,
+    /// `RandomUTXO` calls at minconf 1, all in one read transaction per
+    /// repetition.
+    random_utxos: usize,
 }
 
 impl HotArgs {
@@ -1406,6 +1422,13 @@ impl HotArgs {
             names,
             props,
             next_addr: 20,
+            selects: vec![
+                (0, 1, 0),
+                (0, 1, 100_000_000),
+                (0, 0, 5_000_000_000),
+                (last, 1, 100_000_000),
+            ],
+            random_utxos: 1_000,
         }
     }
 
@@ -1433,12 +1456,29 @@ impl HotArgs {
         v["names"] = json!(self.names);
         v["props"] = json!(self.props);
         v["next_addr"] = json!(self.next_addr);
+        v["selects"] = Value::Array(
+            self.selects
+                .iter()
+                .map(|(a, mc, t)| json!({"account": a, "minconf": mc, "target": t}))
+                .collect(),
+        );
+        v["random_utxos"] = json!(self.random_utxos);
         v
     }
 }
 
 type Figures = BTreeMap<String, Summary>;
 type Checks = BTreeMap<String, String>;
+
+/// dcrd's generator as the transaction store's random stream.
+struct OsStream(dcroxide_crypto::rand::Prng);
+
+impl purse_snacl::RandomSource for OsStream {
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), purse_snacl::RandomSourceError> {
+        self.0.read(buf);
+        Ok(())
+    }
+}
 
 /// The Rust half of storebench's `hot`.
 fn rust_hot(rw: &RustWallet, a: &HotArgs) -> (Figures, Checks) {
@@ -1580,6 +1620,62 @@ fn rust_hot(rw: &RustWallet, a: &HotArgs) -> (Figures, Checks) {
             "lookup/account_properties".to_owned(),
             digest_text(lines.len(), &lines),
         );
+    }
+    // Input selection: the transaction store's own code over the rows this
+    // workload wrote. Its random stream is dcrd's generator seeded from
+    // the operating system, as Go's is, so a selection for a target is
+    // checked only for covering it; a selection of everything (target 0)
+    // is checked as the set of outputs, which the shuffle does not change.
+    let ts = TxStore::new(&rw.chain).expect("txstore");
+    let tip_i = i32::try_from(tip).expect("tip");
+    for &(account, mc, target) in &a.selects {
+        let name = format!("select/account={account}/minconf={mc}/target={target}");
+        let mut check = String::new();
+        let s = repeat(a.reps, || {
+            let mut rtx = rw.store.read().expect("read");
+            let mut rng = OsStream(dcroxide_crypto::rand::Prng::new().expect("os random"));
+            let mut src = ts
+                .make_input_source(&mut rtx, &mut rng, account, mc, tip_i, None)
+                .expect("source");
+            let d = src.select_inputs(Amount(target)).expect("select");
+            check = if target == 0 {
+                let mut lines: Vec<String> = d
+                    .inputs
+                    .iter()
+                    .map(|i| {
+                        format!(
+                            "{} {} {}",
+                            i.previous_out_point.hash, i.previous_out_point.index, i.value_in
+                        )
+                    })
+                    .collect();
+                lines.sort();
+                digest_text(lines.len(), &lines)
+            } else {
+                (d.amount.0 >= target).to_string()
+            };
+        });
+        figs.insert(name.clone(), s);
+        checks.insert(name, check);
+    }
+    if a.random_utxos > 0 {
+        let mut found = 0usize;
+        let s = repeat(a.reps, || {
+            found = 0;
+            let mut rtx = rw.store.read().expect("read");
+            let mut rng = OsStream(dcroxide_crypto::rand::Prng::new().expect("os random"));
+            for _ in 0..a.random_utxos {
+                if ts
+                    .random_utxo(&mut rtx, &mut rng, 1, tip_i)
+                    .expect("RandomUTXO")
+                    .is_some()
+                {
+                    found += 1;
+                }
+            }
+        });
+        figs.insert("random_utxo/minconf=1".to_owned(), s);
+        checks.insert("random_utxo/minconf=1".to_owned(), found.to_string());
     }
     if a.next_addr > 0 {
         let mut next = 0u32;
@@ -2086,7 +2182,7 @@ fn same_data_and_answers_on_both_sides() {
         v
     };
     assert_eq!(names("go"), names("rust"));
-    assert_eq!(names("go").len(), 16, "{:?}", names("go"));
+    assert_eq!(names("go").len(), 21, "{:?}", names("go"));
     // The export the two sides matched covers credits, debits, spent and
     // unspent outputs, change, and every account's addresses.
     let export = fs::read_to_string(dir.join("export-go.txt")).expect("Go export");

@@ -91,7 +91,7 @@ fn go_credit_key(k: &CreditKey, block: &Hash32) -> String {
 /// with Go's bounds check, whose offsets count the 8-byte received time
 /// that prefixes Go's value; a location not stored decodes the transaction
 /// for output `index`.
-fn script_at(
+pub(super) fn script_at(
     tx: Option<&[u8]>,
     loc: &ScriptLoc,
     hash: &Hash32,
@@ -156,7 +156,7 @@ impl BlockHashes {
 /// last mined record read, which the next output of the same transaction
 /// (the next unspent key) reuses.
 #[derive(Default)]
-struct Reads {
+pub(super) struct Reads {
     blocks: BlockHashes,
     record: Option<(TxRecKey, Option<TxMinedRow>)>,
 }
@@ -210,7 +210,7 @@ fn unmined_credit(
 /// `outputCreditInfo`: the credit of `op`, from its unmined credit when
 /// one is recorded (Go looks there first, even for an output it found
 /// unspent), else from its unspent row `mined`.
-fn output_credit(
+pub(super) fn output_credit(
     r: &mut (impl TxRead + ?Sized),
     op: &Outpoint,
     mined: Option<&UnspentRow>,

@@ -227,6 +227,48 @@ fn fetch_address<S: StoreRead + ?Sized>(tx: &mut S, id: &[u8]) -> Result<AddrRow
     row.ok_or_else(|| e!(Kind::NotExist, format!("no address with id {}", hex(id))).into())
 }
 
+/// The redeem script of an address row (the tail of Go's
+/// `redeemScriptForHash160`, `wallet/udb/addressmanager.go:2559-2574`).
+///
+/// # Errors
+///
+/// A derived address or an imported key: `invalid operation: redeem script
+/// lookup requires P2SH address`; an imported value that does not decode:
+/// `IO`.
+fn script_of_row(row: AddrRow) -> Result<Vec<u8>> {
+    let lookup =
+        || -> AnyError { e!(Kind::Invalid, "redeem script lookup requires P2SH address").into() };
+    match row {
+        AddrRow::Imported { data, .. } => {
+            match ImportedData::decode(&data).map_err(bad_imported)? {
+                ImportedData::Script { script, .. } => Ok(script),
+                ImportedData::Key { .. } => Err(lookup()),
+            }
+        }
+        AddrRow::Derived { .. } => Err(lookup()),
+    }
+}
+
+/// Go's `redeemScriptForHash160` (`wallet/udb/addressmanager.go:2559-2574`)
+/// over the `addr_by_hash` row of `hash160`, already read (the transaction
+/// store's `AddMultisigOut` and `UnspentMultisigCreditsForAddress` read it
+/// through their own reader): the redeem script of an imported script.
+///
+/// # Errors
+///
+/// No row: `item does not exist: no address with id <HASH160 hex>`; as
+/// `script_of_row` otherwise.
+pub(crate) fn redeem_script_for_hash160(row: Option<AddrRow>, hash160: &[u8]) -> Result<Vec<u8>> {
+    let row = row.ok_or_else(|| -> AnyError {
+        e!(
+            Kind::NotExist,
+            format!("no address with id {}", hex(hash160))
+        )
+        .into()
+    })?;
+    script_of_row(row)
+}
+
 fn hex(b: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(b.len().saturating_mul(2));
@@ -726,18 +768,7 @@ impl Manager {
         addr: &Address,
     ) -> Result<Vec<u8>> {
         let id = address_id(&normalize_address(addr))?;
-        let lookup = || -> AnyError {
-            e!(Kind::Invalid, "redeem script lookup requires P2SH address").into()
-        };
-        match fetch_address(tx, &id)? {
-            AddrRow::Imported { data, .. } => {
-                match ImportedData::decode(&data).map_err(bad_imported)? {
-                    ImportedData::Script { script, .. } => Ok(script),
-                    ImportedData::Key { .. } => Err(lookup()),
-                }
-            }
-            AddrRow::Derived { .. } => Err(lookup()),
-        }
+        script_of_row(fetch_address(tx, &id)?)
     }
 
     /// Go's `SyncAccountToAddrIndex` (`wallet/udb/addressmanager.go:1985-2065`):

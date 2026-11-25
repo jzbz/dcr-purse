@@ -16,6 +16,7 @@ import (
 
 	"decred.org/dcrwallet/v5/wallet/udb"
 	"decred.org/dcrwallet/v5/wallet/walletdb"
+	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
 )
 
@@ -57,6 +58,19 @@ type hotArgs struct {
 	// (SyncAccountToAddrIndex), each its own durable commit; last, since it
 	// changes the database.
 	NextAddr int `json:"next_addr"`
+	// Store.MakeInputSource and SelectInputs(target) for (account,
+	// minconf, target), the tip as the sync height, one source per
+	// repetition (before NextAddr, which changes the database).
+	Selects []selectSpec `json:"selects"`
+	// Store.RandomUTXO calls at minconf 1, all in one read transaction per
+	// repetition.
+	RandomUTXOs int `json:"random_utxos"`
+}
+
+type selectSpec struct {
+	Account uint32 `json:"account"`
+	MinConf int32  `json:"minconf"`
+	Target  int64  `json:"target"`
 }
 
 // balanceText is a Balances value as the check compares it.
@@ -300,6 +314,70 @@ func cmdHot(args json.RawMessage) (any, error) {
 			return nil, err
 		}
 		checks["lookup/account_properties"] = digestText(len(lines), lines)
+	}
+
+	// Input selection. udb draws from dcrd's generator, seeded from the
+	// operating system here as in the wallet, so a selection for a target
+	// is checked only for covering it; a selection of everything (target
+	// 0) is checked as the set of outputs, which the shuffle does not
+	// change (crates/purse-udb/tests/measure.rs, rust_hot).
+	var tipHeight int32
+	if err := view(func(dbtx walletdb.ReadTx) error {
+		_, tipHeight = w.store.MainChainTip(dbtx)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for _, sel := range a.Selects {
+		name := fmt.Sprintf("select/account=%d/minconf=%d/target=%d", sel.Account, sel.MinConf, sel.Target)
+		var check string
+		err := timeIt(name, func() error {
+			return view(func(dbtx walletdb.ReadTx) error {
+				src := w.store.MakeInputSource(dbtx, sel.Account, sel.MinConf, tipHeight, nil)
+				d, err := src.SelectInputs(dcrutil.Amount(sel.Target))
+				if err != nil {
+					return err
+				}
+				if sel.Target == 0 {
+					lines := make([]string, len(d.Inputs))
+					for i, in := range d.Inputs {
+						lines[i] = fmt.Sprintf("%s %d %d", in.PreviousOutPoint.Hash,
+							in.PreviousOutPoint.Index, in.ValueIn)
+					}
+					sort.Strings(lines)
+					check = digestText(len(lines), lines)
+				} else {
+					check = fmt.Sprintf("%t", int64(d.Amount) >= sel.Target)
+				}
+				return nil
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		checks[name] = check
+	}
+	if a.RandomUTXOs > 0 {
+		var found int
+		err := timeIt("random_utxo/minconf=1", func() error {
+			found = 0
+			return view(func(dbtx walletdb.ReadTx) error {
+				for i := 0; i < a.RandomUTXOs; i++ {
+					c, err := w.store.RandomUTXO(dbtx, 1, tipHeight)
+					if err != nil {
+						return err
+					}
+					if c != nil {
+						found++
+					}
+				}
+				return nil
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		checks["random_utxo/minconf=1"] = fmt.Sprintf("%d", found)
 	}
 
 	if a.NextAddr > 0 {

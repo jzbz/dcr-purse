@@ -17,28 +17,20 @@ use dcroxide_wire::MsgTx;
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
     Blocks, CreditFlags, CreditKey, CreditRow, Credits, CreditsInvalidated, DebitRow, Debits,
-    DebitsInvalidated, Hash32, Height, History, HistoryKey, Outpoint, Spender, TableId, TxMined,
-    TxMinedRow, TxRecKey, TxUnmined, TxUnminedRow, Unspent, UnspentRow, WriteTx,
+    DebitsInvalidated, Hash32, Height, History, HistoryKey, Outpoint, Spender, TxMined, TxMinedRow,
+    TxRecKey, TxUnmined, TxUnminedRow, UnminedInputs, Unspent, UnspentRow, WriteTx,
 };
 
 use super::chain::{block_at, header_of, tip};
+use super::commitment::replace_unmined_spent;
 use super::credit::{
     AcctTracker, del_ucredit, del_uinput, del_unspent, del_unspent_row, is_either_coinbase,
     put_ucredit, put_uinput, put_unspent, script_loc, set_unpublished, unspent_row,
 };
+use super::multisig::{any_multisig, mark_mined, mark_spent, mark_unmined, mark_unspent};
 use super::record::{Block, TxRecord, canonical, display};
-use super::store::{TxRead, TxStore, guard, store_err};
+use super::store::{TxRead, TxStore, store_err};
 use super::unmined::{put_ticket, read_unmined};
-
-/// The tables `Rollback` reads in Go that this crate does not maintain
-/// yet: the multisig records of each input and output, a vote's or
-/// revocation's commitment flags (crate documentation, "The next slice").
-const ROLLBACK_TABLES: [TableId; 4] = [
-    TableId::MultisigOuts,
-    TableId::MultisigUnspent,
-    TableId::Commitments,
-    TableId::CommitmentsUnspent,
-];
 
 /// The transactions `Rollback` removed from one block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,9 +330,15 @@ impl TxStore {
     /// unmined set with their record bytes, their inputs registered in the
     /// unmined-inputs index (a vote's stakebase excepted, over another
     /// spender's rows, as Go), the credits their debits spent restored to
-    /// the unspent set, and their credits made unmined credits; coinbases
-    /// are dropped with their credits, and afterwards the unmined
-    /// transactions spending a dropped coinbase credit are removed. The
+    /// the unspent set (a multisig record of the restored output marked
+    /// unspent), and their credits made unmined credits (a multisig record
+    /// of each marked unmined, whatever block it names, as Go's is:
+    /// QK-0789); a rolled-back vote or revocation marks the
+    /// commitments it redeemed as spent by an unmined transaction again.
+    /// Coinbases are dropped with their credits (a multisig record of each
+    /// is marked unmined and kept, as Go keeps it), and afterwards the
+    /// unmined transactions spending a dropped coinbase credit are removed.
+    /// The
     /// detached blocks' invalidated credits and debits are deleted, which
     /// Go leaves (ADR-0003 Decision item 5; QK-0081). The blocks' headers
     /// and filters are kept as detached ones. Returns each block's
@@ -353,7 +351,7 @@ impl TxStore {
     /// the tip, where Go panics (after removing every block for a negative
     /// height): `Invalid`, nothing written. A recorded transaction that
     /// does not decode, or a record, block row or debited credit missing:
-    /// `IO`. The guard of the multisig and commitment tables. The store's.
+    /// `IO`. The store's.
     pub fn rollback(&self, tx: &mut WriteTx<'_>, height: i32) -> Result<Vec<RolledBack>, AnyError> {
         if height == 0 {
             return Err(e!(Kind::Invalid, "cannot rollback the genesis block").into());
@@ -375,7 +373,10 @@ impl TxStore {
         if from > t.height {
             return Ok(Vec::new());
         }
-        guard(tx, "Rollback", &ROLLBACK_TABLES)?;
+        // One emptiness test of the multisig records, which most wallets
+        // never hold, instead of one lookup per credit output and restored
+        // debit.
+        let ms = any_multisig(tx)?;
         // The records of the blocks from `from` up, read in one range of
         // `history` (a block without wallet transactions has no row, so
         // costs no read), grouped by block.
@@ -443,6 +444,9 @@ impl TxStore {
                         }
                         tx.delete::<Credits>(&ck).map_err(store_err)?;
                         removed.insert(ck, c);
+                        if ms {
+                            mark_unmined(tx, &op)?;
+                        }
                     }
                     delete_invalidated(tx, &mut acct, &txh, h, &msg)?;
                     txs.push(msg);
@@ -480,6 +484,9 @@ impl TxStore {
                         continue;
                     };
                     put_unspent(tx, &prev, &unspent_row(d.credit.height, &c))?;
+                    if ms {
+                        mark_unspent(tx, &prev)?;
+                    }
                 }
                 for index in 0..n_out {
                     let ck = CreditKey {
@@ -499,6 +506,12 @@ impl TxStore {
                     tx.delete::<Credits>(&ck).map_err(store_err)?;
                     removed.insert(ck, c);
                     del_unspent(tx, &op)?;
+                    if ms {
+                        mark_unmined(tx, &op)?;
+                    }
+                }
+                if matches!(tx_type, TxType::SSGen | TxType::SSRtx) {
+                    replace_unmined_spent(tx, tx_type, &msg, true)?;
                 }
                 delete_invalidated(tx, &mut acct, &txh, h, &msg)?;
                 txs.push(msg);
@@ -629,7 +642,9 @@ impl TxStore {
     /// Go restores it in every case, and an earlier transaction of the
     /// same block whose spent credit was moved to the invalidated table
     /// leaves an unspent entry with no credit (QK-0082, fixed under
-    /// ADR-0012 Rule 7; PARITY.md, `purse-udb`).
+    /// ADR-0012 Rule 7; PARITY.md, `purse-udb`). A revalidated record whose
+    /// transaction is also unmined absorbs its unmined copy
+    /// (`merge_unmined_copy`; QK-0734, fixed under Rule 7).
     ///
     /// # Errors
     ///
@@ -746,9 +761,134 @@ impl TxStore {
                     tx.put::<Debits>(&dk, &d).map_err(store_err)?;
                 }
             }
+            if !invalidate {
+                merge_unmined_copy(tx, &mut acct, &key, block_hash, msg)?;
+            }
         }
         acct.flush(tx)
     }
+}
+
+/// QK-0734's fix (ADR-0012 Rule 7; decided, project owner, 2026-11-24):
+/// when stake validation revalidates the record `key` of a transaction that
+/// is also unmined (mined again in a later block, which a `Rollback` then
+/// returned to the unmined set), the unmined copy is merged into the
+/// revalidated record as `moveMinedTx` merges an unmined transaction into
+/// the block it is mined in, each row through the balance mutators. Go keeps
+/// both, so each output is an unspent output and an unmined credit at once,
+/// listed twice by `UnspentOutputs` and counted twice by the balances
+/// (PARITY.md, `purse-udb`, item (23)). QK-0781's path to the same rows
+/// (a transaction recorded mined in two blocks, the higher one rolled
+/// back, the output then credited without a block) passes through no
+/// revalidation and stays reproduced.
+///
+/// - Each input: its unmined-inputs entry deleted when it names this
+///   transaction (an entry naming another transaction is that
+///   transaction's and stays, where `moveMinedTx` deletes it whichever
+///   transaction it names); then, when the record holds no debit for the
+///   input and the output it spends is an unspent wallet credit naming no
+///   spender, the credit is spent and the debit written at the record's
+///   block, as `moveMinedTx` debits it. That output became a credit only
+///   after the record's first mining (a later `AddCredit`), so the
+///   revalidated record has no invalidated debit to restore; without the
+///   debit the output would be listed and selected as unspent while the
+///   mined record spends it.
+/// - Each output: an unmined credit the record also holds as a credit is
+///   deleted (the duplicate); one the record does not hold, credited only by
+///   the later mining that the `Rollback` returned to the unmined set, is
+///   moved into a mined credit and an unspent output at the record's block,
+///   without its expiry flag, as `moveMinedTx` moves it (QK-0079).
+/// - The multisig records (QK-0789; pending owner, crate `txstore`, choice
+///   13): an output's record that is unmined, as the `Rollback` of the later
+///   block left it whatever block it named, is marked mined in the
+///   revalidated block, as `AddMultisigOut` with that block would; an
+///   input's record that is unspent, as the `Rollback` left it when it
+///   restored the later mining's debit, is marked spent by the input, as
+///   `SpendMultisigOut` would (the stake-tree flag cleared, QK-0054). Go
+///   leaves both as the `Rollback` left them.
+/// - The unpublished mark and the unmined record are deleted.
+///
+/// The debit and the moved credit can see only the rows `moveMinedTx`
+/// would: a mined spender of a moved credit recorded while it was unmined
+/// has no debit of it, as in Go after `InsertMinedTx` of an unmined
+/// transaction.
+fn merge_unmined_copy(
+    tx: &mut WriteTx<'_>,
+    acct: &mut AcctTracker,
+    key: &TxRecKey,
+    block_hash: &Hash32,
+    msg: &MsgTx,
+) -> Result<(), AnyError> {
+    let hash = key.hash;
+    if !tx.contains::<TxUnmined>(&hash).map_err(store_err)? {
+        return Ok(());
+    }
+    let ms = any_multisig(tx)?;
+    for (i, input) in msg.tx_in.iter().enumerate() {
+        let prev = canonical(&input.previous_out_point);
+        let i = u32::try_from(i).unwrap_or(u32::MAX);
+        if tx.get::<UnminedInputs>(&prev).map_err(store_err)? == Some(hash) {
+            del_uinput(tx, &prev)?;
+        }
+        let dk = CreditKey {
+            hash,
+            height: key.height,
+            index: i,
+        };
+        if !tx.contains::<Debits>(&dk).map_err(store_err)?
+            && let Some(u) = tx.get::<Unspent>(&prev).map_err(store_err)?
+        {
+            let ck = CreditKey {
+                hash: prev.hash,
+                height: u.height,
+                index: prev.index,
+            };
+            let unspent = tx
+                .get::<Credits>(&ck)
+                .map_err(store_err)?
+                .is_some_and(|c| c.spender.is_none());
+            if unspent {
+                debit_unspent(tx, acct, &prev, &u, &hash, key.height, i)?;
+            }
+        }
+        if ms {
+            mark_spent(tx, &prev, &hash, i)?;
+        }
+    }
+    let n_out = u32::try_from(msg.tx_out.len()).unwrap_or(u32::MAX);
+    for index in 0..n_out {
+        let op = Outpoint { hash, index };
+        if let Some(m) = del_ucredit(tx, &op)? {
+            let ck = CreditKey {
+                hash,
+                height: key.height,
+                index,
+            };
+            // Stake validation has moved every invalidated credit of the
+            // record back to `credits`, so a credit the record holds is
+            // there.
+            if !tx.contains::<Credits>(&ck).map_err(store_err)? {
+                let credit = CreditRow {
+                    amount: m.amount,
+                    flags: CreditFlags {
+                        expiry: false,
+                        ..m.flags
+                    },
+                    account: m.account,
+                    script: m.script,
+                    spender: None,
+                };
+                tx.put::<Credits>(&ck, &credit).map_err(store_err)?;
+                put_unspent(tx, &op, &unspent_row(key.height, &credit))?;
+            }
+        }
+        if ms {
+            mark_mined(tx, &op, block_hash, key.height)?;
+        }
+    }
+    set_unpublished(tx, &hash, false)?;
+    tx.delete::<TxUnmined>(&hash).map_err(store_err)?;
+    Ok(())
 }
 
 /// `Rollback`'s one refusal found as it goes in Go, made before any write:

@@ -6,7 +6,7 @@
 
 //! The [`TxStore`] value, the read access its queries take ([`TxRead`]),
 //! store creation (`createStore` and the rows of upgrades 10, 11, 15 and
-//! 26) and the guard of the later slices' tables.
+//! 26).
 
 use std::ops::Bound;
 
@@ -425,41 +425,6 @@ impl<S: TxRead + ?Sized> TxRead for &mut S {
     fn processed_row(&mut self) -> purse_store::Result<Option<Hash32>> {
         (**self).processed_row()
     }
-}
-
-/// The tables the next slice fills (module documentation, "The next
-/// slice"): the ticket commitments and the multisig outputs. No operation
-/// of this crate writes them.
-pub const LATER_TABLES: [TableId; 4] = [
-    TableId::Commitments,
-    TableId::CommitmentsUnspent,
-    TableId::MultisigOuts,
-    TableId::MultisigUnspent,
-];
-
-/// The guard of the steps that read the next slice's tables: an error of
-/// kind `Bug` naming `step` when any of `tables` holds a row, which only a
-/// write outside this module can have put there. One emptiness check per
-/// table, where Go makes one lookup per input or output; both find nothing
-/// in every store this crate writes.
-pub(crate) fn guard(
-    r: &mut (impl TxRead + ?Sized),
-    step: &str,
-    tables: &[TableId],
-) -> Result<(), AnyError> {
-    for t in tables {
-        if !r.table_is_empty(*t).map_err(store_err)? {
-            return Err(e!(
-                Kind::Bug,
-                format!(
-                    "{step}: table {} holds rows, which this version of purse-udb does not maintain",
-                    t.name()
-                )
-            )
-            .into());
-        }
-    }
-    Ok(())
 }
 
 /// A store error in the wallet-wide model (the address manager's

@@ -12,14 +12,18 @@
 //! This module is written in slices. The crate documentation has the table
 //! of every Go entry point with the slice it belongs to; this page is the
 //! design of the first slice, the rows it keeps, and the rules that bound
-//! it, and then of the credit slice ("The credit slice" below), which fills
-//! in the steps the first slice left. The first slice
+//! it, then of the credit slice ("The credit slice" below), which fills in
+//! the steps the first slice left, of the commitment and multisig slice
+//! ("The commitment and multisig slice" below), and of the selection slice
+//! ("The selection slice" below), which ports input selection, `Spender`
+//! and QK-0734's fix and with them the last of the store's listed
+//! remainder. The first slice
 //! is written as designed here; where the code departs from the design as
 //! first drafted, this page says so. The sections on the first slice
-//! describe it as it was written: where they say that a credit table is
-//! empty or guarded, the credit slice has since replaced the step, and only
-//! the ticket commitment and multisig tables are still guarded
-//! ([`LATER_TABLES`]).
+//! describe it as it was written: where they say that a credit, commitment
+//! or multisig table is empty or guarded, a later slice has since replaced
+//! the step; since the commitment and multisig slice no table is guarded
+//! and the guard (`LATER_TABLES`) is gone.
 //!
 //! # What bounds the first slice
 //!
@@ -152,7 +156,8 @@
 //! (h, p) names a hash whose `tx_mined` row (hash, h) records position p,
 //! and each `tx_mined` row has its `history` row; every `unmined_inputs`
 //! row names a `tx_unmined` row whose transaction spends that outpoint
-//! (spec 03 I8). Spec 03 I7, that a hash is never unmined while a mined
+//! (spec 03 I8); and, with the credits, every `unmined_credits` row belongs
+//! to a `tx_unmined` row. Spec 03 I7, that a hash is never unmined while a mined
 //! record has it, is not one of them: Go records one transaction mined in
 //! two blocks when `InsertMinedTx` is called for each (its key holds the
 //! block), and a `Rollback` of the higher block returns it to the unmined
@@ -499,7 +504,8 @@
 //!   below the birthday height, a refusal at or above it, the walk from
 //!   the birthday height, the readers of a missing filter); the guard of
 //!   all 13 later tables against every operation with a guard, firing and
-//!   writing nothing where Go reads the table, and not firing elsewhere;
+//!   writing nothing where Go reads the table, and not firing elsewhere
+//!   (removed with the guard by the commitment and multisig slice);
 //!   the rows the range walks read (`range_walks_read_what_they_visit`: a
 //!   handful when the callback stops at once on a chain of 2,048 blocks,
 //!   none for a block without wallet transactions, the answers in both
@@ -669,6 +675,309 @@
 //!   (QK-0785's state, its refused `Rollback` writing nothing); and unit
 //!   tests in `credit.rs` and `balance.rs`.
 //!
+//! # The commitment and multisig slice
+//!
+//! Ported on 2026-11-24, with Go's texts and in Go's order of checks and
+//! writes, after the credit slice: neither part records a script location,
+//! and both are written by `Rollback` and `RemoveUnconfirmed`, whose guard
+//! could go only once both were in. The tables are ADR-0003's
+//! (`commitments`, `commitments_unspent`, `multisig_outs`,
+//! `multisig_unspent`); the schema is unchanged.
+//!
+//! - **Ticket commitments** (`commitment.rs`): `AddTicketCommitment`
+//!   ([`TxStore::add_ticket_commitment`]), `RedeemTicketCommitments`
+//!   ([`TxStore::redeem_ticket_commitments`]), and the steps
+//!   `RemoveUnconfirmed` makes (an unmined ticket's commitments at its odd
+//!   outputs deleted with their unspent entries; a vote's or revocation's
+//!   redeemed commitments marked not spent by an unmined transaction) and
+//!   `Rollback` makes (a rolled-back vote's or revocation's marked spent by
+//!   an unmined transaction), through Go's `originalTicketInfo` bound.
+//!   `RemoveUnconfirmed` of a vote or revocation re-creates an unspent
+//!   entry a mined spender's redemption had deleted, whichever transaction
+//!   it is given (QK-0060, reproduced). Every write of an unspent entry and
+//!   every deletion goes through one mutator, which moves the (account,
+//!   `Locked`) running sum of `balances` in the same transaction, counting
+//!   a commitment while its unspent entry exists without the unmined-spent
+//!   flag, as `balanceFullScan`'s last pass does (ADR-0003 Decision item
+//!   4), so `AccountBalance(s)` gives `LockedByTickets` from one row per
+//!   account.
+//! - **Multisig outputs** (`multisig.rs`): `AddMultisigOut`
+//!   ([`TxStore::add_multisig_out`], the redeem script looked up as the
+//!   address manager's `redeemScriptForHash160` does, through the
+//!   `addr_by_hash` row and with its texts), `SpendMultisigOut`,
+//!   `GetMultisigOutput` and `UnspentMultisigCreditsForAddress`
+//!   ([`TxStore::spend_multisig_out`], [`TxStore::get_multisig_output`],
+//!   [`TxStore::unspent_multisig_credits_for_address`]), and the marks
+//!   `Rollback` (unmined, for each credit output, a dropped coinbase's
+//!   included; unspent, for each restored debit) and `RemoveUnconfirmed`
+//!   (unspent, for every input, whichever transaction spent the output)
+//!   write. Go's defects are reproduced (ADR-0012 Rule 1): a spend or an
+//!   unspend clears the stake-tree flag (QK-0054; pending owner, choice 12
+//!   below); `AddMultisigOut` without a block over a mined record writes
+//!   it again unmined and unspent (QK-0097); a multisig output is marked
+//!   unspent while a transaction still spends it (QK-0786); and a record
+//!   outlives the output it describes (QK-0787). The record is
+//!   `purse-store`'s canonical 103-byte row (ADR-0003, addendum "The
+//!   remaining records, as built"): Go's 135-byte value also holds the
+//!   transaction hash, always the key's, and an unspent record's stale
+//!   spender bytes (QK-0055), which no reader shows; `GetMultisigOutput`
+//!   gives the spender only while spent ([`MultisigOut::spender`]), as
+//!   `wallet/multisig.go` reads it, and the operation scripts' result shape
+//!   says so (ADR-0002 section 4). A block of the zero hash at a height
+//!   other than 0, which Go writes and the row cannot hold, is refused,
+//!   writing nothing (ADR-0012 Rule 4: no caller passes one; PARITY.md,
+//!   `purse-udb`).
+//! - The guard of the four tables and the export's refusal of their rows
+//!   are removed; the export writes `[commitments]` and `[multisig]`.
+//!
+//! Speed: the candidate commitments of a vote or revocation are read with
+//! one range of the ticket's commitments, where Go makes one lookup per
+//! candidate index (up to the bound, which a vote with trailing outputs
+//! overestimates); `Rollback` and `RemoveUnconfirmed` test once per call
+//! whether any multisig record exists, where Go looks a record up for
+//! every credit output, restored debit and removed input, so a wallet
+//! without multisig outputs makes no such lookup;
+//! `UnspentMultisigCreditsForAddress` walks only the script's entries of
+//! `multisig_unspent` (keyed by script hash first, ADR-0003) and looks the
+//! redeem script up once, where Go walks every unspent multisig output and
+//! looks it up per output. Each `Locked` change costs one balance read and
+//! one write. No timed run is part of this slice.
+//!
+//! Verified by:
+//!
+//! - the hand-written scripts `35-txstore-commitments` and
+//!   `36-txstore-multisig` (simnet; every record and the final exports equal
+//!   to Go's; frozen vectors in `tests/data/opvectors`): every refusal of
+//!   both parts in Go's order, commitments added unmined and mined, tracked
+//!   twice, removed with an unmined ticket, its double spend mined, votes
+//!   with two payouts, one payout (only output 1 a candidate) and three
+//!   (the bound overestimating), revocations, unmined and mined
+//!   redemptions, a redemption repeated, removed, rolled back and pruned,
+//!   QK-0060's re-creation; multisig outputs of every script kind (P2SH of a
+//!   multisig script, of `OP_TRUE`, of a script not imported, of an imported
+//!   key's hash, stake-tagged), unmined, mined, marked again, overwritten
+//!   (QK-0097), spent, spent again and double spent, a stake-tree output's
+//!   flag cleared by a spend, by `RemoveUnconfirmed` of an unmined spender
+//!   of an unspent record and by `Rollback`'s restored debit (QK-0054),
+//!   unspent by `RemoveUnconfirmed` and `Rollback`
+//!   while spent (QK-0786), and records outliving a removed transaction and
+//!   a dropped coinbase (QK-0787), with reopens;
+//! - seeded generated scripts drawing the slice's operations with the
+//!   credit scripts' (`tests/support/txgen.rs`, `generate_txstore_cms`:
+//!   imported multisig scripts paid by P2SH, one under a stake tag, the
+//!   records `processTransactionRecord` would make for a transaction mined
+//!   or unmined, the four writing operations and the two queries alone, on
+//!   all four networks, and the same in groups; `PURSE_UDB_TX_CMS_SCRIPTS`,
+//!   `PURSE_UDB_TX_CMS_GROUP_SCRIPTS`), every record and the final exports
+//!   equal, a fixed set of 8 frozen
+//!   (`tests/data/txstore_cms_genvectors.txt`); they never pass a block of
+//!   the zero hash, the slice's one divergence;
+//! - the oracle test `a_multisig_block_of_the_zero_hash_is_refused`
+//!   (`tests/oracle.rs`), which shows Go's record beside dcr-purse's
+//!   refusal;
+//! - the property test
+//!   `random_sequences_with_commitments_and_multisig_keep_the_row_invariants`
+//!   (`tests/txstore.rs`): random sequences drawing the four writing
+//!   operations and transactions paying multisig, stake-tagged and other
+//!   P2SH scripts, with the row checker extended (every unspent commitment
+//!   entry has its commitment, the `Locked` sums recomputed from the rows
+//!   with the other balance sums, `multisig_unspent` holding exactly the
+//!   unspent records under their script hashes), failures writing nothing,
+//!   and reopens answering the multisig queries as before; the earlier
+//!   random sequences draw as they did (until the selection slice's
+//!   planned revalidations, below), with those checks too;
+//! - unit tests of `originalTicketInfo` and of the P2SH script hash, and an
+//!   export test of both sections (`tests/export.rs`).
+//!
+//! Not verified here: `redeemmultisigouts`, the RPC QK-0054's open
+//! decision names, which is outside this crate. No upstream
+//! test needs these parts but `TestUpgrades` (`upgrades_test.go`, which
+//! reads `LockedByTickets` after dcrwallet's database upgrades), which has
+//! no counterpart: dcr-purse's store has no upgrades and imports no
+//! `wallet.db` (ADR-0013).
+//!
+//! # The selection slice
+//!
+//! Ported on 2026-11-24, after the commitment and multisig slice, with Go's
+//! texts and in Go's order of reads and checks (`selection.rs`):
+//!
+//! - **`RandomUTXO`** ([`TxStore::random_utxo`]) with `randomUTXO`: 33
+//!   bytes drawn (a 32-byte seek key and a direction bit), a walk of
+//!   `unspent` from the key in that direction, and, finding nothing, the
+//!   other way, collecting the outputs of the first transaction met that the
+//!   skip test keeps (an output an unmined transaction spends, or not
+//!   confirmed at the depth asked, is passed over without ending the
+//!   walk), then one `IntN` among them; the answer is a [`Credit`] as
+//!   [`TxStore::unspent_outputs`] gives it. `minConf` 0 is refused before
+//!   any draw, with Go's text.
+//! - **`MakeInputSource` and `SelectInputs`** ([`TxStore::make_input_source`],
+//!   [`InputSource::select_inputs`]): the random phase (up to half the
+//!   unspent outputs' number of `randomUTXO` tries over the source's life,
+//!   only at a depth other than 0 and a target other than 0), then the
+//!   enumeration phase (every unspent output the skip test keeps that the
+//!   random phase did not return, and at depth 0 the unmined credits of
+//!   published transactions without a stake tag, shuffled with
+//!   `ShuffleSlice`), each candidate tested in Go's order (the credit and
+//!   its record read, then the account, spent, zero, ticket, depth and
+//!   maturity tests, the ignore function, the P2PKH or P2PK script class
+//!   with Go's signature-script sizes). The answer is `purse-txauthor`'s
+//!   `InputDetail`, cumulative over the calls, and the source implements
+//!   `purse-txauthor`'s `InputSource`, so it feeds the authoring loop
+//!   directly. Go's defects are reproduced (ADR-0012 Rule 1): the random
+//!   phase is not account-aware and a try that finds nothing ends the call
+//!   (QK-0096, the end unobservable, since such a try means no output is
+//!   left to enumerate); the zero-value test applies to mined outputs only
+//!   and an unmined credit an unmined transaction already spends is
+//!   selected at depth 0 (QK-0105, both confirmed by the oracle); a source
+//!   asked for everything and then for more than it holds selects outputs
+//!   a second time (QK-0788, new; no dcrwallet caller asks a source twice in
+//!   that order).
+//! - **`Spender`** ([`TxStore::spender`]): the credit under the latest mined
+//!   record of the output's transaction, its mined spender's record, or the
+//!   unmined spender the unmined-inputs index names, searched for the input
+//!   (hash and index, the tree not compared), with Go's kinds and texts.
+//! - **QK-0734 fixed** under ADR-0012 Rule 7 (decided, project owner,
+//!   2026-11-24; choice 10 below): when stake validation revalidates the
+//!   record of a transaction that is also unmined, it merges the unmined
+//!   copy into the record as `moveMinedTx` merges an unmined transaction
+//!   into its block, each row through the balance mutators (`mined.rs`,
+//!   `merge_unmined_copy`): the unmined-inputs entries of its inputs that
+//!   name it are deleted (an entry naming another transaction stays); an
+//!   input the record holds no debit for, whose output is an unspent wallet
+//!   credit naming no spender (credited only after the record's first
+//!   mining), is debited at the record's block; an unmined credit the
+//!   record also holds is deleted, and one it does not hold (credited only
+//!   by the later mining) is moved into a mined credit and an unspent
+//!   output at the record's block; the unpublished mark and the unmined
+//!   record are deleted. The multisig records the `Rollback` of the later
+//!   block left (an output's record cleared whatever block it named,
+//!   QK-0789; a spent input's record marked unspent, QK-0786) are marked
+//!   mined in the revalidated block and spent by the input again (pending
+//!   owner, choice 13 below). Go keeps both copies, and lists, counts and
+//!   selects each output twice (PARITY.md, `purse-udb`, item (23)). QK-0736
+//!   is unchanged: the transaction keeps its mined record in the disapproved
+//!   block and `InsertMemPoolTx` still refuses it as already mined; the fix
+//!   does not reach that step. Nor does it reach QK-0781's state (a
+//!   transaction recorded mined in two blocks, the higher one rolled back,
+//!   the output then credited without a block), which holds the same rows
+//!   and stays reproduced: both sides list, count and select that output
+//!   twice (`a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`
+//!   in `tests/oracle.rs`; QUIRKS.md).
+//!
+//! The random stream is a [`purse_snacl::RandomSource`], the address
+//! manager's seam; `IntN` and `ShuffleSlice` are derived from it as dcrd's
+//! `crypto/rand` derives them (`uniform.go`: `Uint64N`'s multiply-shift
+//! with its rejection loop, and Go's shortcut past the division of the
+//! rejection threshold, which saves the division and changes no draw; the
+//! Fisher-Yates walk from the top), every buffer zeroed
+//! before it is filled, as Go's callers pass fresh buffers to a `Read` that
+//! XORs. Given the bytes Go's generator yields, the port draws what Go
+//! draws and selects what Go selects, draw for draw (spec 23 §5.6.2). The
+//! oracle's oprunner restarts its seeded stream under a key the random
+//! operations may carry (`rand`, ADR-0002 section 2), and the Rust runner
+//! keys dcrd's generator (dcroxide's `Prng::from_seed`) with the same key,
+//! so the operation scripts compare the selections, the random outputs and
+//! the bytes drawn exactly.
+//!
+//! The walk's order is bbolt's cursor's (spec 04 §5.1, Q-31): a seek lands
+//! on the first key at or above the 32-byte seek key, and a `Prev` after it
+//! gives the key below, or the last key when the seek found nothing, so the
+//! forward walk is every key at or above the seek key and the backward walk
+//! every key below it, in reverse; a 32-byte key sorts before the 36-byte
+//! outpoints it prefixes, so both are ranges of the typed outpoint keys.
+//!
+//! Speed: the walks read `unspent` a page at a time (`store::walk`), the
+//! pages doubling from one row, so a `randomUTXO` try that finds its
+//! transaction in the first rows reads a handful, and a candidate's row
+//! comes from the walk, where Go seeks the chosen key again. The
+//! enumeration reads the unmined-inputs index once, in key order, beside
+//! the walk of `unspent` (a merge), where Go looks every output up; each
+//! candidate keeps its row, where Go reads it again before testing it.
+//! Where the design trades speed for parity: a mined candidate's credit
+//! and record are read before its account is compared, as Go reads them,
+//! so a missing record fails the selection whichever account the output
+//! belongs to; comparing the account first (the unspent row holds it)
+//! would save a record read per output of another account. The credit is
+//! read for its spent flag, which only QK-0785's state sets on an unspent
+//! output. Each answer of [`InputSource::select_inputs`] is borrowed, and
+//! the `purse-txauthor` source clones it, where Go's closure hands out the
+//! slices it keeps appending to; a record read copies the record's bytes
+//! (as in the credit slice). The measurement harness
+//! (`tests/measure.rs`) times selection and `RandomUTXO` against
+//! dcrwallet's on the same workload; no timed run is part of this slice.
+//!
+//! Verified by:
+//!
+//! - the hand-written script `37-txstore-selection` (simnet; every record,
+//!   the bytes drawn and the final export equal to Go's; frozen vectors in
+//!   `tests/data/opvectors`): `RandomUTXO` on an empty table, on one output
+//!   with the seek key below and above it in both directions, at depths
+//!   that skip it, and on six transactions with seek keys before the first
+//!   key, past the last, inside a run of skipped outputs and at a
+//!   transaction whose outputs are partly skipped, the keys chosen from the
+//!   oracle's stream; `SelectInputs` with targets of 0, below, at and above
+//!   the balance, at depths 0, 1 and 2, for two accounts, with an ignore
+//!   list (a wrong tree included), coinbase, vote and ticket-change outputs
+//!   at and after maturity, zero-value, P2PK, P2SH and stake-tagged
+//!   outputs, unmined credits published and unpublished, spent by an
+//!   unmined transaction (QK-0105) and of zero value, QK-0788's second
+//!   selection, a `view` group continuing one stream across three random
+//!   operations, a reopen, a `Rollback` and a `RemoveUnconfirmed`;
+//!   `Spender` of mined and unmined spenders, unspent credits, outputs that
+//!   are not credits and an outpoint of another tree;
+//! - seeded generated scripts drawing the selections (each keyed or
+//!   continuing the last one's stream) and `Spender` with the credit
+//!   scripts' operations (`tests/support/txgen.rs`,
+//!   `generate_txstore_select`; `PURSE_UDB_TX_SELECT_SCRIPTS`,
+//!   `PURSE_UDB_TX_SELECT_GROUP_SCRIPTS`), avoiding, as every generator
+//!   now does, the sequence of QK-0734's fix (a transaction is mined again
+//!   only once no record of it can remain); a fixed set of 8 is frozen
+//!   (`tests/data/txstore_select_genvectors.txt`), the random records
+//!   compared exactly;
+//! - the oracle tests `a_revalidated_transaction_drops_its_unmined_copy`
+//!   (`tests/oracle.rs`), which shows Go's doubled output (listed twice,
+//!   1,800 atoms counted and selected for one 900-atom output) beside
+//!   dcr-purse's single one, and
+//!   `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`,
+//!   which shows Go's state beside dcr-purse's for the rows only the copy
+//!   holds (an input debited only by the later mining, an output credited
+//!   only by it, the transaction's multisig output and a multisig output it
+//!   spends, the copy's unpublished mark, and an unmined-inputs entry naming
+//!   another transaction), every record up to the approval equal, and, where
+//!   the sequence then detaches the block again, every later record and the
+//!   final exports equal;
+//! - `a_revalidated_transaction_merges_its_unmined_copy_keeping_the_row_invariants`
+//!   (`tests/txstore.rs`): the same sequence in eight variants (with an
+//!   unmined spender of the copy's output, the copy unpublished, an earlier
+//!   transaction of the same block re-mined with it, multisig records, and
+//!   all together), the row invariants, the UTXO queries, the selections
+//!   and a reopen checked after every step;
+//! - the property tests of `tests/txstore.rs`: after every operation of the
+//!   random sequences that succeeds, a selection of everything for two
+//!   accounts at depths 0, 1 and 2 equals the outputs dcrwallet's rules
+//!   select, recomputed from the rows, each once, with the amount their sum;
+//!   a selection for a target takes only such outputs and all of them when
+//!   it falls short; `RandomUTXO` answers an output no unmined transaction
+//!   spends, confirmed, or none when there is none; `Spender` answers from
+//!   each credit's spender or the unmined-inputs index; and a reopened store
+//!   selects, picks and answers `Spender` as the live one did; and the
+//!   sequences include planned revalidations (a block disapproved, a record
+//!   of it mined again in the next block, both rolled back and the block
+//!   approved by another), after each of which the record must be mined
+//!   only, at least two per test (every merge then checked by the row
+//!   invariants, among them that every unmined credit has its unmined
+//!   record);
+//!   `random_utxo_walks_as_bbolt_s_cursor_does` compares the walk with Go's
+//!   `randomUTXO` written out over `purse-store`'s bbolt cursor, at seek
+//!   keys of all zero and all one bits, each transaction's hash exactly and
+//!   the values next to it, both directions, on an empty table and on one
+//!   with skipped outputs;
+//! - unit tests of the derived draws against dcroxide's port of
+//!   `crypto/rand` on the same keyed stream (`selection.rs`).
+//!
+//! No upstream Go test at the pin calls input selection, `RandomUTXO` or
+//! `Spender` (`txquery_test.go`, which is not built, does not either).
+//!
 //! # Choices left to the project owner
 //!
 //! Each was taken here as the ADR-0012 default or the narrowest reading,
@@ -678,7 +987,12 @@
 //! signing accepts; each is marked. Choice 3 is not decided. Choices 7 to
 //! 11 are the credit slice's. On 2026-11-24 the project owner decided, each
 //! as recommended, the points the credit slice put for choices 2 and 6 and
-//! choices 7 to 11; each is marked.
+//! choices 7 to 11; each is marked. Choice 12 is the commitment and multisig
+//! slice's, and is not decided. The selection slice adds choice 13 (the
+//! multisig records in QK-0734's fix), not decided; otherwise what it
+//! diverges in is decided (QK-0734, choice 10) or under a rule (PARITY.md,
+//! `purse-udb`, items (23) to (25)), and the Go defects it meets are
+//! reproduced by ADR-0012 Rule 1's default.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
@@ -848,7 +1162,15 @@
 //!     line and Go's state shown beside dcr-purse's; not in the change that
 //!     records the decision, so until that slice the code still reproduces
 //!     Go. It remains an upstream-report candidate under ADR-0017, whose
-//!     reports the project owner delivers.*
+//!     reports the project owner delivers.* *Implemented (the selection
+//!     slice, 2026-11-24): stake validation merges the unmined copy into
+//!     the revalidated record as `moveMinedTx` merges an unmined
+//!     transaction into its block, debiting an input only the later mining
+//!     debited and moving a credit only the later mining made ("The
+//!     selection slice" above); `a_revalidated_transaction_drops_its_unmined_copy`
+//!     and `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`
+//!     show Go's state beside dcr-purse's, and QK-0736 is unchanged. The
+//!     multisig records are choice 13.*
 //! 11. QK-0785: a stake transaction spending a regular credit of its own block,
 //!     a state no consensus-valid chain holds. When the block is disapproved
 //!     the credit moves to the invalidated table, spender kept, and the stake
@@ -877,6 +1199,53 @@
 //!     behaviour, checked only by its own test. *Decided (project owner,
 //!     2026-11-24): QK-0785 stays reproduced (ADR-0012 Rule 1); no
 //!     consensus-valid chain reaches it.*
+//!
+//! 12. QK-0054: `SpendMultisigOut` and the unspend of `Rollback` and
+//!     `RemoveUnconfirmed` clear a multisig record's stake-tree flag, so an
+//!     output in the stake tree is reported in the regular tree by
+//!     `GetMultisigOutput` and `UnspentMultisigCreditsForAddress` once it has
+//!     been spent, and `redeemmultisigouts` would build its redemption on
+//!     the wrong tree. Reproduced, as the code stands (ADR-0012 Rule 11's
+//!     interim: the code reproduces Go until the ruling; the decision of
+//!     2026-11-21 left the disposition to Phase 3 with an oracle run of
+//!     `redeemmultisigouts` under Rule 1). Evidence: `36-txstore-multisig`
+//!     shows the flag of a stake-tagged P2SH output cleared by a spend and
+//!     staying clear after `RemoveUnconfirmed` unspends it, every record and
+//!     the export equal to Go's; the run of `redeemmultisigouts` itself
+//!     needs the wallet's RPC layer, which no crate has yet. The store's row
+//!     keeps the flag apart from the spent flag, so either outcome can be
+//!     written. Recommendation: keep the store reproducing Go now, and
+//!     decide the disposition with `redeemmultisigouts`'s oracle run when
+//!     the RPC is ported (the decision of 2026-11-21 stands); if it is
+//!     fixed then, as a recorded divergence, the change is one assignment
+//!     each in `spend_multisig_out` and `mark_unspent`. *Pending owner.*
+//! 13. The multisig records in QK-0734's fix (QK-0789). `Rollback` of the
+//!     later block marks unmined, by outpoint, the record of each output of
+//!     the transaction it returns to the unmined set, even when the record
+//!     names the earlier block, which it does not detach (QK-0789, a Go
+//!     defect, reproduced), and marks unspent the record of each output its
+//!     restored debits spent (QK-0786). With the transaction unmined, as Go
+//!     keeps it, the cleared record matches Go's view; once the fix makes
+//!     the transaction mined only, neither matches: an output of a mined
+//!     transaction recorded unmined, and an output the mined transaction
+//!     spends listed by `UnspentMultisigCreditsForAddress`, from which
+//!     `redeemmultisigouts` would build a double spend. Nothing in Go
+//!     decides it (Go never reaches the state), and no ADR-0012 rule names
+//!     the multisig records. Taken here as recommended: the merge marks each
+//!     output's unmined record mined in the revalidated block, as
+//!     `AddMultisigOut` with that block would, and each input's unspent
+//!     record spent by the input, as `SpendMultisigOut` would (the stake-tree
+//!     flag cleared, QK-0054); a record another input spends is left.
+//!     Evidence: `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`
+//!     (sequences 3 and 4: Go's record unmined, at height 0, while dcr-purse's
+//!     names block 3; Go's spent record listed as unspent, dcr-purse's spent
+//!     by the transaction; every record before the approval and after the
+//!     block is detached again equal, and the final exports equal). The
+//!     alternative is to leave the records as the `Rollback` left them,
+//!     which a later `AddMultisigOut` of the block would correct but which no
+//!     wallet path makes, the block never being processed again.
+//!     Recommendation: keep the re-marking, as the rest of the merge does
+//!     with the credit rows. *Pending owner.*
 //!
 //! The owner's answer of 2026-11-22 also decided two more points this
 //! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`
@@ -915,9 +1284,6 @@
 //!   unmined-inputs index), but its natural tests are selection's
 //!   reservation flows, so it moves with selection.
 //!
-//! Until then the commitment and multisig tables keep their guard
-//! ([`LATER_TABLES`]) and the export refuses their rows.
-//!
 //! *Added 2026-11-24 (choice 10, decided by the project owner):*
 //!
 //! - **QK-0734's fix** under ADR-0012 Rule 7: stake validation drops the
@@ -928,10 +1294,24 @@
 //!   `a_revalidated_transaction_also_unmined_is_counted_twice`. Until the
 //!   next slice the code reproduces Go.
 //!
+//! *Updated 2026-11-24 (the commitment and multisig slice and the
+//! selection slice, made as one change):* the ticket commitments and the
+//! multisig outputs are ported ("The commitment and multisig slice"
+//! above), their guard removed and their export sections written; input
+//! selection (`MakeInputSource`, `SelectInputs`, `RandomUTXO`), `Spender`
+//! and QK-0734's fix are ported ("The selection slice" above). Nothing of the
+//! store's listed remainder is left. Not part of it, and not in this crate:
+//! the wallet-level flows that call these parts (`processTransactionRecord`,
+//! transaction authoring with the wallet's locked outpoints, QK-0205) and
+//! the RPCs `redeemmultisigouts` and `getmultisigoutinfo`, which choice 12
+//! waits for.
+//!
 //! The store's dedicated-machine run of record (ADR-0003 Open point M2) is
 //! to be made after the next slice, so that input selection is measured
 //! too, and not before (decided, project owner, 2026-11-24; ADR-0014,
-//! addendum of that date). It has not been made.
+//! addendum of that date). It has not been made; with the slices above
+//! ported, nothing it waited for is missing, and `tests/measure.rs` holds
+//! the selection and `RandomUTXO` figures it is to time.
 //!
 //! *As first written:* once `pk_script_locs` is at the dcroxide pin (it is
 //! since 2026-11-23, dcroxide `1587ca1`): `AddCredit`, the credit
@@ -947,10 +1327,13 @@
 
 mod balance;
 mod chain;
+mod commitment;
 mod credit;
 mod mined;
+mod multisig;
 mod query;
 mod record;
+mod selection;
 mod store;
 mod unmined;
 mod utxo;
@@ -962,9 +1345,11 @@ pub use chain::{
 };
 pub use credit::{OP_NONSTAKE, mined_class, tag_opcode, unmined_class};
 pub use mined::RolledBack;
+pub use multisig::{MultisigCredit, MultisigOut};
 pub use record::{
     Block, BlockMeta, Credit, CreditRecord, DebitRecord, Ticket, TicketDetails, TxDetails,
     TxRecord, ZERO_TIME,
 };
-pub use store::{LATER_TABLES, TxRead, TxStore};
+pub use selection::InputSource;
+pub use store::{TxRead, TxStore};
 pub use unmined::PruneError;

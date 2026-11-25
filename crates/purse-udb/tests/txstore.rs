@@ -28,15 +28,22 @@
 //! transaction store never reads): the rows' invariants after every
 //! operation (`check_rows`, and `purse-store`'s `check_chain`); refusals
 //! writing nothing; a reopened store answering as the live one did;
-//! `TxRecord` round trips; the dependency order of `unmined_txs`; the
-//! guard of the later slices' tables; the rows the range walks read, the
+//! `TxRecord` round trips; the dependency order of `unmined_txs`; every
+//! selection, `RandomUTXO` and `Spender` answer against the rows; the
+//! rows the range walks read, the
 //! values the existence tests do not read, and the block rows
 //! `IterateTickets` reads (one per block, not per ticket). Two targeted
 //! tests reach states no random sequence does: a ticket's live debit whose
 //! credit `AddCredit` overwrote in an invalidated block (`acct_history`'s
 //! spender rule), and `UnspentTickets` at Go's maturity boundary, at its
 //! `int32` wrap (QK-0784) and over a dangling unmined-inputs entry
-//! (QK-0048).
+//! (QK-0048). Another gives `Spender`'s refusals over unmined-inputs
+//! entries written directly: one naming no unmined record, one naming an
+//! unmined transaction that does not spend the output, and one naming the
+//! zero hash. QK-0734's fix (the merge of a revalidated transaction's
+//! unmined copy) is reached by planned revalidations inside the random
+//! sequences, and by its own test in eight variants, each step checked
+//! against the rows and across a reopen.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -56,15 +63,14 @@ use dcroxide_wire::{BlockHeader, MsgTx, OutPoint, TxIn, TxOut};
 use purse_errors::Kind;
 use purse_store::{
     AcctHistory, AcctHistoryKey, BalanceClass, BalanceHeights, BalanceRow, Balances, BirthState,
-    Blocks, CreditKey, Credits, CreditsInvalidated, Debits, Hash32, HeaderBytes, History, ReadTx,
-    Store, Table, TableId, Tickets, Tip, TxMined, TxUnmined, UnminedCredits, UnminedInputs,
-    Unpublished, Unspent, WriteTx,
+    Blocks, Commitments, CommitmentsUnspent, CreditKey, Credits, CreditsInvalidated, Debits,
+    Hash32, HeaderBytes, History, MultisigOuts, MultisigUnspent, MultisigUnspentKey, ReadTx, Store,
+    Table, TableId, Tip, TxMined, TxUnmined, UnminedCredits, UnminedInputs, Unpublished, Unspent,
+    WriteTx,
 };
 use purse_testutil::SplitMix64;
 use purse_udb::addrmgr::ChainParams;
-use purse_udb::txstore::{
-    BlockMeta, LATER_TABLES, TxRead, TxRecord, TxStore, mined_class, unmined_class,
-};
+use purse_udb::txstore::{BlockMeta, TxRead, TxRecord, TxStore, mined_class, unmined_class};
 use support::scratch;
 
 /// The error of a test's write transaction: the store's, or a deliberate
@@ -583,6 +589,8 @@ fn filters_below_the_birthday_follow_adr_0019() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     let birth = |height: u32, from_height: bool| BirthState {
         set_from_height: from_height,
@@ -682,6 +690,8 @@ fn pending_birthdays_follow_fb11_and_fb12() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     // Sim::header stamps its n-th header 1_795_400_000 + n.
     let stamp = |n: u32| 1_795_400_000 + i64::from(n);
@@ -789,6 +799,8 @@ fn a_refused_connection_leaves_the_tip_valid() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     store
         .update(|tx| {
@@ -912,10 +924,25 @@ fn check_rows(tx: &mut WriteTx<'_>) {
             "an unmined input row names a transaction not spending it"
         );
     }
-    // The next slice's tables stay empty.
-    for t in LATER_TABLES {
-        assert!(tx.is_empty(t).expect("empty"), "{} holds rows", t.name());
+    // Every unmined credit belongs to an unmined record (Go's
+    // `RemoveUnconfirmed`, `moveMinedTx` and QK-0734's fix,
+    // `merge_unmined_copy`, delete them together). An outpoint that is both
+    // an unspent output and an unmined credit, Go's state after a
+    // revalidation of a transaction also unmined (QK-0734, fixed), is not
+    // refused by the rows alone: QK-0781's state (one transaction recorded
+    // in two blocks, the higher one rolled back, reproduced) holds the same
+    // rows once the lower block's credit and an unmined credit are added,
+    // so the tests of the fix check after each approval that the
+    // revalidated transaction is mined only, and `selectable` takes such
+    // an outpoint twice, as Go's `MakeInputSource` does.
+    for (op, _) in all::<UnminedCredits>(tx) {
+        assert!(
+            tx.contains::<TxUnmined>(&op.hash).expect("contains"),
+            "unmined credit {op:?} without its unmined record"
+        );
     }
+    check_commitment_rows(tx);
+    check_multisig_rows(tx);
     check_credit_rows(tx);
     tx.check_chain_rows();
 }
@@ -1110,6 +1137,291 @@ fn check_utxo_queries(ts: &TxStore, tx: &mut WriteTx<'_>) {
     }
 }
 
+/// A seeded stream for the store's random selections: dcrd's generator
+/// keyed directly, as the operation-script runner keys it.
+struct Stream(dcroxide_crypto::rand::Prng);
+
+impl purse_snacl::RandomSource for Stream {
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), purse_snacl::RandomSourceError> {
+        self.0.read(buf);
+        Ok(())
+    }
+}
+
+fn stream(key: u8) -> Stream {
+    Stream(dcroxide_crypto::rand::Prng::from_seed([key; 32]))
+}
+
+/// The outputs `SelectInputs` may select for `account` at `min_conf`
+/// confirmations at `sync`, recomputed from the rows by dcrwallet's rules
+/// (`MakeInputSource`): the unspent outputs no unmined transaction spends,
+/// confirmed, of the account, not spent, not zero, not a ticket output,
+/// mature, paying a P2PKH or P2PK script; and at `min_conf` 0 the unmined
+/// credits of published transactions of the account without a stake tag
+/// paying such a script (whether or not an unmined transaction spends
+/// them, QK-0105). Each as (outpoint, tree, amount), with the number of
+/// times it is taken: twice for an outpoint that is both such an unspent
+/// output and such an unmined credit, which `MakeInputSource` enumerates
+/// from both buckets (its `seen` set is filled only by the random phase,
+/// which never runs at `min_conf` 0). That state is QK-0781's (a
+/// transaction recorded mined in two blocks, the higher one rolled back,
+/// then credited without a block; reproduced, and selected twice by Go
+/// too: `a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`
+/// in `tests/oracle.rs`). The rows alone do not tell it from QK-0734's
+/// state, whose path is fixed (`check_rows`); the random sequences assert
+/// after each planned approval that the revalidated transaction is mined
+/// only.
+fn selectable(tx: &mut WriteTx<'_>, account: u32, min_conf: i32, sync: i32) -> Selectable {
+    use dcroxide_txscript::stdscript::{ScriptType, determine_script_type};
+    use purse_store::OutputTag;
+    let params = dcroxide_chaincfg::simnet_params();
+    let (cb, change) = (
+        i32::from(params.coinbase_maturity),
+        i32::from(params.sstx_change_maturity),
+    );
+    let confirmed = |h: i32| {
+        let c = if h == -1 || h > sync {
+            0
+        } else {
+            sync.wrapping_sub(h).wrapping_add(1)
+        };
+        c >= min_conf
+    };
+    let matured = |m: i32, h: i32| h >= 0 && sync.wrapping_sub(h).wrapping_add(1) > m;
+    let payable = |script: &[u8]| {
+        let (sub, _) =
+            purse_txrules::rules::stake_sub_script_type(determine_script_type(0, script));
+        matches!(
+            sub,
+            ScriptType::PubKeyHashEcdsaSecp256k1 | ScriptType::PubKeyEcdsaSecp256k1
+        )
+    };
+    let uinputs: BTreeSet<purse_store::Outpoint> = all::<UnminedInputs>(tx)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    let mut want = Selectable::new();
+    for (op, u) in all::<Unspent>(tx) {
+        let h = i32::try_from(u.height).expect("height");
+        if uinputs.contains(&op) || !confirmed(h) {
+            continue;
+        }
+        let c = tx
+            .get::<Credits>(&CreditKey {
+                hash: op.hash,
+                height: u.height,
+                index: op.index,
+            })
+            .expect("get")
+            .expect("an unspent output's credit");
+        if c.account != account || c.spender.is_some() || c.amount == 0 {
+            continue;
+        }
+        let mature = match c.flags.tag {
+            OutputTag::Ticket => false,
+            OutputTag::NonStake if c.flags.coinbase => matured(cb, h),
+            OutputTag::Vote | OutputTag::Revocation | OutputTag::TreasuryGen => matured(cb, h),
+            OutputTag::TicketChange => matured(change, h),
+            OutputTag::NonStake => true,
+        };
+        let rec = tx
+            .get::<TxMined>(&purse_store::TxRecKey {
+                hash: op.hash,
+                height: u.height,
+            })
+            .expect("get")
+            .expect("record");
+        let (m, _) = MsgTx::from_bytes(&rec.tx).expect("record decodes");
+        if mature && payable(&m.tx_out[op.index as usize].pk_script) {
+            let tree = i8::from(c.flags.tag != OutputTag::NonStake);
+            *want.entry((op, tree, c.amount)).or_default() += 1;
+        }
+    }
+    if min_conf == 0 {
+        let unpublished: BTreeSet<Hash32> =
+            all::<Unpublished>(tx).into_iter().map(|(k, _)| k).collect();
+        for (op, m) in all::<UnminedCredits>(tx) {
+            if unpublished.contains(&op.hash)
+                || m.flags.tag != OutputTag::NonStake
+                || m.account != account
+            {
+                continue;
+            }
+            let row = tx.get::<TxUnmined>(&op.hash).expect("get").expect("record");
+            let (t, _) = MsgTx::from_bytes(&row.tx).expect("record decodes");
+            if payable(&t.tx_out[op.index as usize].pk_script) {
+                // An outpoint also taken from `unspent` above is taken
+                // twice (QK-0781's state).
+                *want.entry((op, 0, m.amount)).or_default() += 1;
+            }
+        }
+    }
+    want
+}
+
+/// Selected outputs as (outpoint, tree, amount), with the number of times
+/// each is taken.
+type Selectable = BTreeMap<(purse_store::Outpoint, i8, i64), usize>;
+
+/// The number of outpoints `want` takes more than once.
+fn doubled(want: &Selectable) -> usize {
+    let mut n: BTreeMap<&purse_store::Outpoint, usize> = BTreeMap::new();
+    for ((op, _, _), k) in want {
+        *n.entry(op).or_default() += k;
+    }
+    n.values().filter(|&&k| k > 1).count()
+}
+
+/// Input selection, `RandomUTXO` and `Spender` against the rows: every
+/// output selection may take is taken by a selection of everything
+/// (target 0), as many times as [`selectable`] counts (once, or twice in
+/// QK-0781's state), with the amount their sum; a selection for a target
+/// takes only such outputs, no more times than that, and all of them when
+/// it falls short; `RandomUTXO` gives an unspent output no unmined
+/// transaction spends, confirmed, or none when there is none; and
+/// `Spender` answers from each credit's spender or the unmined-inputs
+/// index. Returns the outputs selectable, the `RandomUTXO` calls that
+/// found one, and the outpoints selectable twice, summed over the
+/// accounts and depths checked.
+fn check_selection(ts: &TxStore, tx: &mut WriteTx<'_>, key: u8) -> (usize, usize, usize) {
+    let (_, tip) = ts.main_chain_tip(tx).expect("tip");
+    let as_multiset = |d: &purse_txauthor::InputDetail| {
+        let mut taken = Selectable::new();
+        let mut sum = 0i64;
+        for input in &d.inputs {
+            let op = purse_store::Outpoint {
+                hash: Hash32(input.previous_out_point.hash.0),
+                index: input.previous_out_point.index,
+            };
+            *taken
+                .entry((op, input.previous_out_point.tree, input.value_in))
+                .or_default() += 1;
+            sum = sum.wrapping_add(input.value_in);
+        }
+        assert_eq!(d.amount.0, sum, "the amount is the inputs' sum");
+        assert_eq!(d.scripts.len(), d.inputs.len());
+        assert_eq!(d.redeem_script_sizes.len(), d.inputs.len());
+        taken
+    };
+    let (mut selected, mut found, mut twice) = (0, 0, 0);
+    for account in [0, 1] {
+        for min_conf in [0, 1, 2] {
+            let want = selectable(tx, account, min_conf, tip);
+            selected += want.values().sum::<usize>();
+            twice += doubled(&want);
+            let mut rng = stream(key);
+            let mut src = ts
+                .make_input_source(tx, &mut rng, account, min_conf, tip, None)
+                .expect("source");
+            let all_of = as_multiset(src.select_inputs(purse_dcrutil::Amount(0)).expect("select"));
+            assert_eq!(all_of, want, "account {account} minconf {min_conf}");
+            let target = 3000;
+            let mut rng = stream(key.wrapping_add(1));
+            let mut src = ts
+                .make_input_source(tx, &mut rng, account, min_conf, tip, None)
+                .expect("source");
+            let d = src
+                .select_inputs(purse_dcrutil::Amount(target))
+                .expect("select")
+                .clone();
+            let some = as_multiset(&d);
+            for (k, n) in &some {
+                assert!(
+                    want.get(k).is_some_and(|w| n <= w),
+                    "{k:?} selected {n} times, outside the selectable outputs {want:?}"
+                );
+            }
+            if d.amount.0 < target {
+                assert_eq!(some, want, "short of the target with outputs left");
+            }
+        }
+    }
+    let uinputs: BTreeMap<purse_store::Outpoint, Hash32> =
+        all::<UnminedInputs>(tx).into_iter().collect();
+    let pickable: BTreeSet<purse_store::Outpoint> = all::<Unspent>(tx)
+        .into_iter()
+        .filter(|(op, u)| !uinputs.contains_key(op) && u.height <= u32::try_from(tip).unwrap_or(0))
+        .map(|(op, _)| op)
+        .collect();
+    let mut rng = stream(key);
+    match ts.random_utxo(tx, &mut rng, 1, tip).expect("RandomUTXO") {
+        Some(c) => {
+            found += 1;
+            assert!(pickable.contains(&purse_store::Outpoint {
+                hash: Hash32(c.outpoint.hash.0),
+                index: c.outpoint.index
+            }));
+        }
+        None => assert!(pickable.is_empty(), "RandomUTXO found none of {pickable:?}"),
+    }
+    let latest = |tx: &mut WriteTx<'_>, h: &Hash32| {
+        all::<TxMined>(tx)
+            .into_iter()
+            .filter(|(k, _)| k.hash == *h)
+            .map(|(k, _)| k.height)
+            .max()
+    };
+    let unmined_spender = |tx: &mut WriteTx<'_>, op: &purse_store::Outpoint, h: &Hash32| {
+        let row = tx
+            .get::<TxUnmined>(h)
+            .expect("get")
+            .expect("the spender's record");
+        let (m, _) = MsgTx::from_bytes(&row.tx).expect("decodes");
+        m.tx_in
+            .iter()
+            .position(|i| {
+                i.previous_out_point.hash.0 == op.hash.0 && i.previous_out_point.index == op.index
+            })
+            .map(|i| u32::try_from(i).expect("small"))
+    };
+    let wire = |op: &purse_store::Outpoint| OutPoint {
+        hash: Hash(op.hash.0),
+        index: op.index,
+        tree: 0,
+    };
+    for (ck, c) in all::<Credits>(tx) {
+        if latest(tx, &ck.hash) != Some(ck.height) {
+            continue;
+        }
+        let op = purse_store::Outpoint {
+            hash: ck.hash,
+            index: ck.index,
+        };
+        let got = ts.spender(tx, &wire(&op));
+        match (c.spender, uinputs.get(&op)) {
+            (Some(sp), _) => {
+                let (m, i) = got.expect("Spender of a spent credit");
+                assert_eq!((Hash32(*m.tx_hash().as_bytes()), i), (sp.hash, sp.input));
+            }
+            (None, Some(h)) => match unmined_spender(tx, &op, h) {
+                Some(i) => {
+                    let (m, gi) = got.expect("Spender of an output an unmined tx spends");
+                    assert_eq!((Hash32(*m.tx_hash().as_bytes()), gi), (*h, i));
+                }
+                None => assert_eq!(got.expect_err("not spent").as_kind(), Some(Kind::NotExist)),
+            },
+            (None, None) => {
+                assert_eq!(got.expect_err("unspent").as_kind(), Some(Kind::NotExist));
+            }
+        }
+    }
+    for (op, _) in all::<UnminedCredits>(tx) {
+        if latest(tx, &op.hash).is_some() {
+            continue;
+        }
+        let got = ts.spender(tx, &wire(&op));
+        match uinputs.get(&op) {
+            Some(h) => {
+                let i = unmined_spender(tx, &op, h).expect("the spender spends it");
+                let (m, gi) = got.expect("Spender of an unmined credit");
+                assert_eq!((Hash32(*m.tx_hash().as_bytes()), gi), (*h, i));
+            }
+            None => assert_eq!(got.expect_err("unspent").as_kind(), Some(Kind::NotExist)),
+        }
+    }
+    (selected, found, twice)
+}
+
 /// All rows of table `T`.
 fn all<T: Table>(tx: &mut WriteTx<'_>) -> Vec<(T::Key, T::Value)> {
     tx.iter::<T>()
@@ -1188,6 +1500,19 @@ fn check_credit_rows(tx: &mut WriteTx<'_>) {
             add(m.account, m.class, 0, m.amount);
         }
     }
+    // A commitment counts in (account, Locked) while its unspent entry
+    // exists without the unmined-spent flag (`balanceFullScan`'s last
+    // pass).
+    for (op, u) in all::<CommitmentsUnspent>(tx) {
+        if u.unmined_spent {
+            continue;
+        }
+        let c = tx
+            .get::<Commitments>(&op)
+            .expect("get")
+            .expect("checked by check_commitment_rows");
+        add(c.account, BalanceClass::Locked, 0, c.amount);
+    }
     let have: BTreeMap<(u32, BalanceClass), (i64, i64)> = all::<Balances>(tx)
         .into_iter()
         .map(|(k, BalanceRow { sum, count })| ((k.account, k.class), (sum, count)))
@@ -1245,6 +1570,38 @@ fn check_credit_rows(tx: &mut WriteTx<'_>) {
     }
     let have: BTreeSet<_> = all::<AcctHistory>(tx).into_iter().collect();
     assert_eq!(have, want, "acct_history against the rows");
+}
+
+/// The commitment rows' invariant: every unspent entry has its commitment
+/// (Go writes an unspent entry only for a commitment it tracks and deletes
+/// both together). The `Locked` sums are checked with the other balance
+/// sums (`check_credit_rows`).
+fn check_commitment_rows(tx: &mut WriteTx<'_>) {
+    for (op, _) in all::<CommitmentsUnspent>(tx) {
+        assert!(
+            tx.contains::<Commitments>(&op).expect("contains"),
+            "an unspent commitment entry {op:?} without its commitment"
+        );
+    }
+}
+
+/// The multisig rows' invariant (`purse-store`'s `check_records`, through
+/// the write transaction): `multisig_unspent` holds exactly one entry per
+/// unspent record, under the record's script hash.
+fn check_multisig_rows(tx: &mut WriteTx<'_>) {
+    let want: BTreeSet<MultisigUnspentKey> = all::<MultisigOuts>(tx)
+        .into_iter()
+        .filter(|(_, row)| row.spender.is_none())
+        .map(|(op, row)| MultisigUnspentKey {
+            script_hash: row.script_hash,
+            outpoint: op,
+        })
+        .collect();
+    let have: BTreeSet<MultisigUnspentKey> = all::<MultisigUnspent>(tx)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(have, want, "multisig_unspent against the records");
 }
 
 /// Whether `s` is a live debit of credit `ck` that stake invalidation of
@@ -1329,7 +1686,38 @@ struct Sim {
     tickets: Vec<Hash32>,
     blocks: Vec<Hash32>,
     nonce: u32,
+    /// The steps left of a planned revalidation, last first: while any is
+    /// left, a step of the random sequences takes the next one instead of
+    /// drawing an operation.
+    plan: Vec<Planned>,
+    /// The vote bits of the next header, when a plan sets them.
+    vote: Option<u16>,
 }
+
+/// A step of a planned revalidation (QK-0734's sequence, whose fix,
+/// `merge_unmined_copy`, no generated script reaches): the tip, holding a
+/// regular record, is disapproved by the next block; some previous outputs
+/// of the record's inputs are credited; the record is mined again in the
+/// block after, with credits for some of its outputs; both blocks are
+/// rolled back, and another block approves the first, which merges the
+/// record's unmined copy.
+#[derive(Clone)]
+enum Planned {
+    /// A block extending the tip with these vote bits; with `Some((rec,
+    /// h))` it approves block `h` again, after which `rec`, mined there and
+    /// unmined before, must be mined only.
+    Extend(u16, Option<(TxRecord, u32)>),
+    /// `AddCredit` of output `index` of the record under the block of its
+    /// latest mined record (unmined when it has none), for a drawn account.
+    Credit(TxRecord, u32),
+    /// `InsertMinedTx` of the record into the tip.
+    Remine(TxRecord),
+    /// `Rollback` from this height.
+    Rollback(i32),
+}
+
+/// The choice standing for a planned step in the random sequences.
+const PLANNED: u64 = u64::MAX;
 
 impl Sim {
     fn hash(&mut self) -> Hash {
@@ -1351,11 +1739,20 @@ impl Sim {
             });
         }
         let n_out = 1 + self.rng.below(3);
+        // Half the outputs (by the drawn byte, so the draws are as they
+        // were) pay a P2PKH script, which input selection takes.
         let tx_out = (0..n_out)
-            .map(|i| TxOut {
-                value: i64::try_from(100 + i).expect("small"),
-                version: 0,
-                pk_script: vec![0x6a, 0x01, u8::try_from(self.rng.below(256)).expect("byte")],
+            .map(|i| {
+                let b = self.rng.below(256);
+                TxOut {
+                    value: i64::try_from(100 + i).expect("small"),
+                    version: 0,
+                    pk_script: if b.is_multiple_of(2) {
+                        p2pkh(None, b)
+                    } else {
+                        vec![0x6a, 0x01, u8::try_from(b).expect("byte")]
+                    },
+                }
             })
             .collect();
         let m = MsgTx {
@@ -1371,6 +1768,41 @@ impl Sim {
         let rec = TxRecord::from_msg_tx(m, 1_795_400_000).expect("record");
         self.recs.push(rec.clone());
         rec
+    }
+
+    /// A regular transaction paying P2SH scripts: the multisig scripts of
+    /// [`ms_scripts`] (one under a stake tag, so in the stake tree), the
+    /// script that is no multisig script, a script never imported, or an
+    /// `OP_RETURN`.
+    fn build_p2sh(&mut self) -> TxRecord {
+        let scripts = ms_scripts();
+        let prev = self.prev();
+        let n_out = 1 + self.rng.below(4);
+        let tx_out = (0..n_out)
+            .map(|i| TxOut {
+                value: i64::try_from(500 + i).expect("small"),
+                version: 0,
+                pk_script: match self.rng.below(7) {
+                    0 | 1 => p2sh(None, &scripts[0]),
+                    2 => p2sh(None, &scripts[1]),
+                    3 => p2sh(Some(0xbd), &scripts[0]),
+                    4 => p2sh(None, &scripts[2]),
+                    5 => p2sh(None, &[0x52]),
+                    _ => op_return(&[0x01]),
+                },
+            })
+            .collect();
+        let m = MsgTx {
+            tx_in: vec![TxIn {
+                previous_out_point: prev,
+                sequence: u32::MAX,
+                value_in: 3000,
+                ..TxIn::default()
+            }],
+            tx_out,
+            ..MsgTx::default()
+        };
+        self.push(m, TxType::Regular)
     }
 
     /// A ticket purchase: one input, the stake submission output, its
@@ -1515,6 +1947,12 @@ impl Sim {
         rec
     }
 
+    /// A transaction the simulation built (at least one has been).
+    fn pick(&mut self) -> TxRecord {
+        let i = usize::try_from(self.rng.below(self.recs.len() as u64)).expect("small");
+        self.recs[i].clone()
+    }
+
     /// A ticket the simulation built, if any.
     fn ticket(&mut self) -> Option<Hash32> {
         if self.tickets.is_empty() {
@@ -1549,6 +1987,57 @@ impl Sim {
         }
     }
 
+    /// Starts a planned revalidation of a regular record of the tip, if
+    /// the tip holds one: the next header disapproves the tip, and the rest
+    /// of the sequence ([`Planned`]) follows.
+    fn start_plan(&mut self, ts: &TxStore, tx: &mut WriteTx<'_>) {
+        let (_, tip) = ts.main_chain_tip(tx).expect("tip");
+        let tip = u32::try_from(tip).expect("height");
+        let regular: Vec<TxRecord> = self
+            .recs
+            .iter()
+            .filter(|r| {
+                r.tx_type() == TxType::Regular
+                    && tx
+                        .contains::<TxMined>(&purse_store::TxRecKey {
+                            hash: *r.hash(),
+                            height: tip,
+                        })
+                        .expect("contains")
+            })
+            .cloned()
+            .collect();
+        if regular.is_empty() {
+            return;
+        }
+        let rec =
+            regular[usize::try_from(self.rng.below(regular.len() as u64)).expect("small")].clone();
+        self.vote = Some(0);
+        let mut plan = Vec::new();
+        for input in &rec.msg_tx().tx_in {
+            let prev = &input.previous_out_point;
+            if self.rng.below(2) == 0
+                && let Some(p) = self.recs.iter().find(|r| r.hash().0 == prev.hash.0)
+            {
+                plan.push(Planned::Credit(p.clone(), prev.index));
+            }
+        }
+        plan.push(Planned::Extend(1, None));
+        plan.push(Planned::Remine(rec.clone()));
+        for index in 0..rec.msg_tx().tx_out.len() {
+            if self.rng.below(2) == 0 {
+                plan.push(Planned::Credit(
+                    rec.clone(),
+                    u32::try_from(index).expect("small"),
+                ));
+            }
+        }
+        plan.push(Planned::Rollback(i32::try_from(tip + 1).expect("small")));
+        plan.push(Planned::Extend(1, Some((rec, tip))));
+        plan.reverse();
+        self.plan = plan;
+    }
+
     fn header(&mut self, ts: &TxStore, tx: &mut WriteTx<'_>) -> (HeaderBytes, Hash32) {
         let (tip, height) = ts.main_chain_tip(tx).expect("tip");
         self.nonce += 1;
@@ -1557,7 +2046,11 @@ impl Sim {
             prev_block: Hash(tip.0),
             merkle_root: Hash([u8::try_from(self.nonce % 256).expect("byte"); 32]),
             stake_root: Hash::ZERO,
-            vote_bits: if self.rng.below(4) == 0 { 0 } else { 1 },
+            vote_bits: match self.vote.take() {
+                Some(v) => v,
+                None if self.rng.below(4) == 0 => 0,
+                None => 1,
+            },
             final_state: [0; 6],
             voters: 0,
             fresh_stake: 0,
@@ -1614,6 +2107,63 @@ fn answers(ts: &TxStore, r: &mut ReadTx, sim: &Sim) -> String {
             );
         }
     }
+    for rec in &sim.recs {
+        for index in 0..rec.msg_tx().tx_out.len() {
+            let op = OutPoint {
+                hash: Hash(rec.hash().0),
+                index: u32::try_from(index).expect("small"),
+                tree: 0,
+            };
+            out += &format!(
+                "{:?}\n",
+                ts.get_multisig_output(r, &op).map_err(|e| e.as_kind())
+            );
+        }
+    }
+    for script in ms_scripts() {
+        let addr = dcroxide_txscript::stdaddr::new_address_script_hash_v0(
+            &script,
+            &ChainParams::by_name("simnet").expect("simnet"),
+        )
+        .expect("address");
+        out += &format!(
+            "{:?}\n",
+            ts.unspent_multisig_credits_for_address(r, &addr)
+                .map_err(|e| e.as_kind())
+        );
+    }
+    let (_, tip) = ts.main_chain_tip(r).expect("tip");
+    for (min_conf, target) in [(0, 0), (1, 4000), (1, 0)] {
+        let mut rng = stream(7);
+        let mut src = ts
+            .make_input_source(r, &mut rng, 0, min_conf, tip, None)
+            .expect("source");
+        out += &format!(
+            "{:?}\n",
+            src.select_inputs(purse_dcrutil::Amount(target))
+                .map_err(|e| e.as_kind())
+        );
+    }
+    out += &format!(
+        "{:?}\n",
+        ts.random_utxo(r, &mut stream(9), 1, tip)
+            .map_err(|e| e.as_kind())
+    );
+    for rec in &sim.recs {
+        for index in 0..rec.msg_tx().tx_out.len() {
+            let op = OutPoint {
+                hash: Hash(rec.hash().0),
+                index: u32::try_from(index).expect("small"),
+                tree: 0,
+            };
+            out += &format!(
+                "{:?}\n",
+                ts.spender(r, &op)
+                    .map(|(m, i)| (m.tx_hash(), i))
+                    .map_err(|e| e.as_kind())
+            );
+        }
+    }
     let mut batches = Vec::new();
     ts.range_transactions(r, -1, -1, |d| {
         batches.push(format!("{d:?}"));
@@ -1622,6 +2172,51 @@ fn answers(ts: &TxStore, r: &mut ReadTx, sim: &Sim) -> String {
     .expect("range");
     out += &batches.join("\n");
     out
+}
+
+/// The redeem scripts the random sequences pay to P2SH: a 1-of-2 and a
+/// 2-of-3 multisig script and `OP_TRUE`, which is no multisig script.
+fn ms_scripts() -> [Vec<u8>; 3] {
+    let (k1, k2, k3) = (
+        format!("02{}", "11".repeat(32)),
+        format!("03{}", "22".repeat(32)),
+        format!("02{}", "33".repeat(32)),
+    );
+    [
+        purse_testutil::unhex(&format!("5121{k1}21{k2}52ae")),
+        purse_testutil::unhex(&format!("5221{k1}21{k2}21{k3}53ae")),
+        vec![0x51],
+    ]
+}
+
+/// Records the redeem scripts of [`ms_scripts`] as imported scripts, the
+/// rows the address manager's `ImportScript` writes (its sealed hash left
+/// empty: the transaction store reads only the script).
+fn import_ms_scripts(tx: &mut WriteTx<'_>) {
+    for script in ms_scripts() {
+        let h = dcroxide_txscript::stdaddr::hash160(&script);
+        tx.put::<purse_store::AddrByHash>(
+            &purse_store::Hash160(h),
+            &purse_store::AddrRow::Imported {
+                account: 0x7fff_ffff,
+                data: purse_udb::addrmgr::ImportedData::Script {
+                    enc_hash: Vec::new(),
+                    script,
+                }
+                .encode(),
+            },
+        )
+        .expect("imported script");
+    }
+}
+
+/// A P2SH script paying `script`, tagged with the stake opcode `tag`.
+fn p2sh(tag: Option<u8>, script: &[u8]) -> Vec<u8> {
+    let mut s: Vec<u8> = tag.into_iter().collect();
+    s.extend_from_slice(&[0xa9, 0x14]);
+    s.extend_from_slice(&dcroxide_txscript::stdaddr::hash160(script));
+    s.push(0x87);
+    s
 }
 
 /// Every row of every table through a read transaction.
@@ -1652,27 +2247,155 @@ fn dump_read(r: &ReadTx) -> Vec<(TableId, Vec<u8>, Vec<u8>)> {
 /// - a reopened store holds the same rows and answers as the live one did.
 #[test]
 fn random_sequences_keep_the_row_invariants() {
-    let mut seeds = SplitMix64::from_env("purse-udb-txstore-sequences");
+    let (failures, counts) = sequences("purse-udb-txstore-sequences", 18, 12);
+    eprintln!("failed operations checked: {failures:?}; successes: {counts:?}");
+    // The guards follow `PURSE_TEST_SEED`: each is at or below the lowest
+    // count over seeds 0 to 399 (selectable outputs 116, random_utxo found
+    // 379, merged revalidations 1, credits added 75, kinds of failure 13).
+    // Seeds 76, 78 and 257 of those reach QK-0781's doubled output.
+    for (what, least) in [
+        ("selectable outputs", 60),
+        ("random_utxo found", 200),
+        ("merged revalidations", 1),
+    ] {
+        let n = counts.get(what).copied().unwrap_or(0);
+        assert!(n >= least, "too few {what}: {n}");
+    }
+    let credits_added = counts.get("add_credit").copied().unwrap_or(0);
+    assert!(
+        credits_added >= 60,
+        "too few credits added: {credits_added}"
+    );
+    assert!(
+        failures.len() >= 4,
+        "too few kinds of failure exercised: {failures:?}"
+    );
+}
+
+/// The random sequences with the commitment and multisig operations drawn
+/// too (`AddTicketCommitment`, `RedeemTicketCommitments`, `AddMultisigOut`,
+/// `SpendMultisigOut`, and transactions paying P2SH scripts the store's
+/// address rows hold), on a store holding those scripts as imported
+/// scripts: the same properties, the `Locked` sums and the multisig index
+/// checked against the rows (`check_rows`), and the multisig queries among
+/// the answers compared after a reopen.
+#[test]
+fn random_sequences_with_commitments_and_multisig_keep_the_row_invariants() {
+    let (failures, counts) = sequences("purse-udb-txstore-ms-sequences", 26, 10);
+    eprintln!("failed operations checked: {failures:?}; successes: {counts:?}");
+    // At or below the lowest count over seeds 0 to 399 (add_ticket_commitment
+    // 20, redeem_ticket_commitments 13, add_multisig_out 8,
+    // spend_multisig_out 3, random_utxo found 266, merged revalidations 4,
+    // kinds of failure 23), so that no supported seed fails a guard.
+    for (op, least) in [
+        ("add_ticket_commitment", 12),
+        ("redeem_ticket_commitments", 8),
+        ("add_multisig_out", 6),
+        ("spend_multisig_out", 2),
+        ("random_utxo found", 100),
+        ("merged revalidations", 2),
+    ] {
+        let n = counts.get(op).copied().unwrap_or(0);
+        assert!(n >= least, "too few successful {op}: {n}");
+    }
+    assert!(
+        failures.len() >= 6,
+        "too few kinds of failure exercised: {failures:?}"
+    );
+}
+
+/// `rounds` random sequences of 120 steps from the seed named `label`,
+/// drawing among the first `choices` operations (18 without the commitment
+/// and multisig ones, 26 with them, which also records the multisig
+/// scripts in the store); returns the failures checked, by operation and
+/// kind, and the successes of the store operations that count, by name.
+fn sequences(
+    label: &str,
+    choices: u64,
+    rounds: usize,
+) -> (BTreeMap<String, usize>, BTreeMap<&'static str, usize>) {
+    let mut seeds = SplitMix64::from_env(label);
     let mut failures: BTreeMap<String, usize> = BTreeMap::new();
-    let mut credits_added = 0usize;
-    for _ in 0..12 {
+    let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for _ in 0..rounds {
         let (mut store, ts, path) = tx_store("simnet");
+        if choices > 18 {
+            store
+                .update(|tx| {
+                    import_ms_scripts(tx);
+                    Ok::<_, purse_store::Error>(())
+                })
+                .expect("update");
+        }
         let mut sim = Sim {
             rng: SplitMix64(seeds.next_u64()),
             recs: Vec::new(),
             tickets: Vec::new(),
             blocks: Vec::new(),
             nonce: 0,
+            plan: Vec::new(),
+            vote: None,
         };
         for step in 0..120 {
-            let choice = sim.rng.below(18);
+            let planned = sim.plan.pop();
+            let choice = if planned.is_some() {
+                PLANNED
+            } else {
+                sim.rng.below(choices)
+            };
             let pre = dump_read(&store.read().expect("read"));
             let mut failed = None;
             let r: Result<(), TErr> = store.update(|tx| {
                 let before = dump(tx);
                 let mut stake_insert = false;
                 let res = match choice {
+                    PLANNED => match planned.clone().expect("a planned step") {
+                        Planned::Extend(vote, approves) => {
+                            sim.vote = Some(vote);
+                            let pre = approves.as_ref().is_some_and(|(r, h)| {
+                                tx.contains::<TxUnmined>(r.hash()).expect("contains")
+                                    && tx
+                                        .contains::<TxMined>(&purse_store::TxRecKey {
+                                            hash: *r.hash(),
+                                            height: *h,
+                                        })
+                                        .expect("contains")
+                            });
+                            let (h, hash) = sim.header(&ts, tx);
+                            let res = ts.extend_main_chain(tx, &h, &hash, Some(&[]));
+                            if res.is_ok() {
+                                sim.blocks.push(hash);
+                                if let (true, Some((r, _))) = (pre, &approves) {
+                                    assert!(
+                                        !tx.contains::<TxUnmined>(r.hash()).expect("contains"),
+                                        "step {step}: a revalidated record keeps its unmined copy"
+                                    );
+                                    *counts.entry("merged revalidations").or_default() += 1;
+                                }
+                            }
+                            res
+                        }
+                        Planned::Credit(r, index) => {
+                            let block = match ts.tx_block_height(tx, r.hash()).unwrap_or(-1) {
+                                h if h >= 0 => ts
+                                    .get_main_chain_block_hash_for_height(tx, h)
+                                    .ok()
+                                    .and_then(|b| ts.get_block_meta_for_hash(tx, &b).ok()),
+                                _ => None,
+                            };
+                            let account = u32::try_from(sim.rng.below(3)).expect("small");
+                            ts.add_credit(tx, &r, block.as_ref(), index, false, account)
+                        }
+                        Planned::Remine(r) => {
+                            let tip = ts.main_chain_tip(tx).expect("tip").0;
+                            ts.insert_mined_tx(tx, &r, &tip)
+                        }
+                        Planned::Rollback(h) => ts.rollback(tx, h).map(drop),
+                    },
                     0 | 1 => {
+                        if sim.plan.is_empty() && sim.rng.below(3) == 0 {
+                            sim.start_plan(&ts, tx);
+                        }
                         let (h, hash) = sim.header(&ts, tx);
                         let res = ts.extend_main_chain(tx, &h, &hash, Some(&[]));
                         if res.is_ok() {
@@ -1772,9 +2495,154 @@ fn random_sequences_keep_the_row_invariants() {
                         let block: Option<BlockMeta> = block;
                         let r = ts.add_credit(tx, &rec, block.as_ref(), index, change, account);
                         if r.is_ok() {
-                            credits_added += 1;
+                            *counts.entry("add_credit").or_default() += 1;
                         }
                         r
+                    }
+                    18 | 19 if !sim.recs.is_empty() => {
+                        // A commitment: mostly of a ticket, at any index
+                        // (odd ones, even ones and one past the end).
+                        let (rec, ticket) = match sim.ticket() {
+                            Some(t) if sim.rng.below(3) != 0 => (
+                                sim.recs
+                                    .iter()
+                                    .find(|r| *r.hash() == t)
+                                    .cloned()
+                                    .expect("built"),
+                                true,
+                            ),
+                            _ => (sim.pick(), false),
+                        };
+                        let n = rec.msg_tx().tx_out.len() as u64;
+                        let index = if ticket && sim.rng.below(2) == 0 {
+                            1
+                        } else {
+                            u32::try_from(sim.rng.below(n + 1)).expect("small")
+                        };
+                        let account = u32::try_from(sim.rng.below(3)).expect("small");
+                        let r = ts.add_ticket_commitment(tx, &rec, index, account);
+                        if r.is_ok() {
+                            *counts.entry("add_ticket_commitment").or_default() += 1;
+                        }
+                        r
+                    }
+                    20 if !sim.recs.is_empty() => {
+                        // A redemption: mostly of a vote or revocation,
+                        // unmined or mined (the tip's meta: only whether a
+                        // block is given matters).
+                        let stake: Vec<TxRecord> = sim
+                            .recs
+                            .iter()
+                            .filter(|r| matches!(r.tx_type(), TxType::SSGen | TxType::SSRtx))
+                            .cloned()
+                            .collect();
+                        let rec = if !stake.is_empty() && sim.rng.below(4) != 0 {
+                            stake
+                                [usize::try_from(sim.rng.below(stake.len() as u64)).expect("small")]
+                            .clone()
+                        } else {
+                            sim.pick()
+                        };
+                        let block = if sim.rng.below(2) == 0 {
+                            None
+                        } else {
+                            let tip = ts.main_chain_tip(tx).expect("tip").0;
+                            ts.get_block_meta_for_hash(tx, &tip).ok()
+                        };
+                        let r = ts.redeem_ticket_commitments(tx, &rec, block.as_ref());
+                        if r.is_ok() {
+                            *counts.entry("redeem_ticket_commitments").or_default() += 1;
+                        }
+                        r
+                    }
+                    21 if !sim.recs.is_empty() => {
+                        // A multisig output: unmined, in a main-chain block
+                        // (the tip or a random one; the store does not
+                        // check the record is mined there, as Go does not),
+                        // at any index.
+                        let p2sh_outs: Vec<(TxRecord, u32)> = sim
+                            .recs
+                            .iter()
+                            .flat_map(|r| {
+                                r.msg_tx()
+                                    .tx_out
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, o)| o.pk_script.last() == Some(&0x87))
+                                    .map(move |(i, _)| {
+                                        (r.clone(), u32::try_from(i).expect("small"))
+                                    })
+                            })
+                            .collect();
+                        let (rec, index) = if !p2sh_outs.is_empty() && sim.rng.below(4) != 0 {
+                            p2sh_outs[usize::try_from(sim.rng.below(p2sh_outs.len() as u64))
+                                .expect("small")]
+                            .clone()
+                        } else {
+                            let rec = sim.pick();
+                            let n = rec.msg_tx().tx_out.len() as u64;
+                            let index = u32::try_from(sim.rng.below(n + 1)).expect("small");
+                            (rec, index)
+                        };
+                        let block = match sim.rng.below(3) {
+                            0 => None,
+                            1 => {
+                                let tip = ts.main_chain_tip(tx).expect("tip").0;
+                                ts.get_block_meta_for_hash(tx, &tip).ok()
+                            }
+                            _ if !sim.blocks.is_empty() => {
+                                let j = usize::try_from(sim.rng.below(sim.blocks.len() as u64))
+                                    .expect("small");
+                                ts.get_block_meta_for_hash(tx, &sim.blocks[j]).ok()
+                            }
+                            _ => None,
+                        };
+                        let r = ts.add_multisig_out(tx, &rec, block.as_ref(), index);
+                        if r.is_ok() {
+                            *counts.entry("add_multisig_out").or_default() += 1;
+                        }
+                        r
+                    }
+                    22 if !sim.recs.is_empty() => {
+                        // A multisig spend of any built output by an input
+                        // of any built transaction.
+                        let recorded: Vec<purse_store::Outpoint> = all::<MultisigOuts>(tx)
+                            .into_iter()
+                            .map(|(k, _)| k)
+                            .collect();
+                        let op = if !recorded.is_empty() && sim.rng.below(4) != 0 {
+                            let k = recorded[usize::try_from(sim.rng.below(recorded.len() as u64))
+                                .expect("small")];
+                            OutPoint {
+                                hash: Hash(k.hash.0),
+                                index: k.index,
+                                tree: 0,
+                            }
+                        } else {
+                            let rec = sim.pick();
+                            let n = rec.msg_tx().tx_out.len().max(1) as u64;
+                            OutPoint {
+                                hash: Hash(rec.hash().0),
+                                index: u32::try_from(sim.rng.below(n)).expect("small"),
+                                tree: 0,
+                            }
+                        };
+                        let spender = sim.pick();
+                        let input = u32::try_from(sim.rng.below(2)).expect("small");
+                        let r = ts.spend_multisig_out(tx, &op, spender.hash(), input);
+                        if r.is_ok() {
+                            *counts.entry("spend_multisig_out").or_default() += 1;
+                        }
+                        r
+                    }
+                    23..=25 => {
+                        let rec = sim.build_p2sh();
+                        if sim.rng.below(3) == 0 {
+                            let tip = ts.main_chain_tip(tx).expect("tip").0;
+                            ts.insert_mined_tx(tx, &rec, &tip)
+                        } else {
+                            ts.insert_mem_pool_tx(tx, &rec)
+                        }
                     }
                     _ => {
                         let rec = sim.build();
@@ -1785,6 +2653,11 @@ fn random_sequences_keep_the_row_invariants() {
                     Ok(()) => {
                         check_rows(tx);
                         check_utxo_queries(&ts, tx);
+                        let (n, f, d) =
+                            check_selection(&ts, tx, u8::try_from(step % 251).expect("small"));
+                        *counts.entry("selectable outputs").or_default() += n;
+                        *counts.entry("random_utxo found").or_default() += f;
+                        *counts.entry("selectable twice (QK-0781)").or_default() += d;
                         Ok(())
                     }
                     Err(e) => {
@@ -1805,7 +2678,12 @@ fn random_sequences_keep_the_row_invariants() {
                                 after, before,
                                 "step {step} choice {choice}: a failure wrote: {e:?}"
                             );
-                            failed = Some(format!("choice {choice} {:?}", e.as_kind()));
+                            let what = if choice == PLANNED {
+                                "planned".to_owned()
+                            } else {
+                                format!("choice {choice}")
+                            };
+                            failed = Some(format!("{what} {:?}", e.as_kind()));
                         }
                         // As Go's callers, abandon the transaction.
                         Err(TErr::Rollback)
@@ -1838,17 +2716,7 @@ fn random_sequences_keep_the_row_invariants() {
             }
         }
     }
-    eprintln!(
-        "failed operations checked: {failures:?}; AddCredit calls that succeeded: {credits_added}"
-    );
-    assert!(
-        credits_added >= 60,
-        "too few credits added: {credits_added}"
-    );
-    assert!(
-        failures.len() >= 4,
-        "too few kinds of failure exercised: {failures:?}"
-    );
+    (failures, counts)
 }
 
 /// `TxRecord::new` keeps the caller's bytes, trailing bytes included, and
@@ -1862,6 +2730,8 @@ fn tx_records_round_trip() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     let (store, ts, _) = tx_store("simnet");
     for _ in 0..64 {
@@ -1904,6 +2774,8 @@ fn unmined_txs_are_in_dependency_order() {
             tickets: Vec::new(),
             blocks: Vec::new(),
             nonce: 0,
+            plan: Vec::new(),
+            vote: None,
         };
         // A chain of spends without double spends: each spends one output
         // of an earlier transaction no other spends, or a foreign one.
@@ -1981,131 +2853,6 @@ fn unmined_txs_are_in_dependency_order() {
 /// `Bug`, before anything is written; every other operation is not stopped
 /// by it. All 4 tables against every operation that has a guard, and
 /// against the mutators that have none.
-#[test]
-fn the_guard_stops_on_later_slice_rows() {
-    let (store, ts, _) = tx_store("simnet");
-    let mut sim = Sim {
-        rng: SplitMix64::from_env("purse-udb-txstore-guard"),
-        recs: Vec::new(),
-        tickets: Vec::new(),
-        blocks: Vec::new(),
-        nonce: 0,
-    };
-    // Block 1 holds a mined regular transaction and a mined ticket; an
-    // unmined transaction with inputs and an unmined one without wait.
-    let mined = sim.build();
-    let ticket = sim.build_ticket();
-    let unmined = sim.build();
-    let inputless = TxRecord::from_msg_tx(
-        MsgTx {
-            tx_out: vec![TxOut {
-                value: 5,
-                version: 0,
-                pk_script: vec![0x6a],
-            }],
-            ..MsgTx::default()
-        },
-        0,
-    )
-    .expect("record");
-    let fresh = sim.build();
-    let b1 = store
-        .update(|tx| {
-            let (h, hash) = sim.header(&ts, tx);
-            ts.extend_main_chain(tx, &h, &hash, Some(&[]))
-                .expect("extend");
-            ts.insert_mined_tx(tx, &mined, &hash).expect("mined");
-            ts.insert_mined_tx(tx, &ticket, &hash).expect("ticket");
-            ts.insert_mem_pool_tx(tx, &unmined).expect("unmined");
-            ts.insert_mem_pool_tx(tx, &inputless).expect("inputless");
-            let _ = h;
-            Ok::<_, purse_store::Error>(hash)
-        })
-        .expect("update");
-    let ticket_details = {
-        let mut r = store.read().expect("read");
-        ts.tx_details(&mut r, ticket.hash()).expect("details")
-    };
-    let block1 = purse_udb::txstore::Block {
-        hash: b1,
-        height: 1,
-    };
-    // A header disapproving block 1, which holds transactions.
-    let disapprove = |tx: &mut WriteTx<'_>| {
-        let (mut h, _) = BlockHeader::from_bytes(&ts.get_block_header(tx, &b1).expect("header").0)
-            .expect("parse");
-        h.prev_block = Hash(b1.0);
-        h.height = 2;
-        h.vote_bits = 0;
-        h.nonce ^= 0x5555;
-        let hash = Hash32(*h.block_hash().as_bytes());
-        ts.extend_main_chain(tx, &header_bytes(&h), &hash, Some(&[]))
-    };
-    // The operations, by letter:
-    //   m insert_mined_tx of a new transaction with inputs
-    //   M insert_mined_tx moving the unmined transaction without inputs
-    //   r rollback(1)              u remove_unconfirmed
-    //   d tx_details               D unique_tx_details
-    //   R range_transactions       t iterate_tickets
-    //   T ticket_details           e extend_main_chain disapproving block 1
-    //   p insert_mem_pool_tx       x prune_unmined (removing nothing)
-    //   s set_published            n unspent_output_count
-    // (`ticket_details` reads the spender's details through `tx_details`,
-    // so it stops for the tables that guard does.)
-    const OPS: &str = "mMrudDRtTepxsn";
-    for (table, stops) in [
-        (TableId::Commitments, "ru"),
-        (TableId::CommitmentsUnspent, "ru"),
-        (TableId::MultisigOuts, "ru"),
-        (TableId::MultisigUnspent, "ru"),
-    ] {
-        assert!(LATER_TABLES.contains(&table));
-        for op in OPS.chars() {
-            store
-                .update(|tx| {
-                    tx.put_raw(table, &[0u8; 36], &[0u8; 8]).expect("raw row");
-                    let before = dump(tx);
-                    let r = match op {
-                        'm' => ts.insert_mined_tx(tx, &fresh, &b1),
-                        'M' => ts.insert_mined_tx(tx, &inputless, &b1),
-                        'r' => ts.rollback(tx, 1).map(drop),
-                        'u' => ts.remove_unconfirmed(tx, unmined.msg_tx(), unmined.hash()),
-                        'd' => ts.tx_details(tx, mined.hash()).map(drop),
-                        'D' => ts
-                            .unique_tx_details(tx, mined.hash(), Some(&block1))
-                            .map(drop),
-                        'R' => ts.range_transactions(tx, 0, -1, |_| Ok(false)),
-                        't' => ts.iterate_tickets(tx).map(drop),
-                        'T' => ts.ticket_details(tx, &ticket_details).map(drop),
-                        'e' => disapprove(tx),
-                        'p' => ts.insert_mem_pool_tx(tx, &fresh),
-                        'x' => ts.prune_unmined(tx, 0).map(drop).map_err(|e| e.error),
-                        's' => ts.set_published(tx, unmined.hash(), false),
-                        _ => ts.unspent_output_count(tx).map(drop),
-                    };
-                    if stops.contains(op) {
-                        let e = r.expect_err("the guard stops");
-                        assert_eq!(e.as_kind(), Some(Kind::Bug), "{} {op}: {e:?}", table.name());
-                        assert_eq!(dump(tx), before, "{} {op}: the guard wrote", table.name());
-                    } else {
-                        r.unwrap_or_else(|e| panic!("{} {op}: stopped: {e:?}", table.name()));
-                    }
-                    Err::<(), TErr>(TErr::Rollback)
-                })
-                .expect_err("rolled back");
-        }
-    }
-    // The ticket set is not a later slice's table.
-    store
-        .update(|tx| {
-            tx.put::<Tickets>(&Hash32([9; 32]), &purse_store::Empty)
-                .expect("ticket");
-            ts.rollback(tx, 1).expect("rollback");
-            Ok::<_, purse_store::Error>(())
-        })
-        .expect("update");
-}
-
 /// A reader that counts the rows it returns with their values, by table,
 /// the keys it returns without values (`keys` and `contains`), and the
 /// range lookups it makes, to hold the walks to what they visit and the
@@ -2404,6 +3151,8 @@ fn existence_tests_read_no_value() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     let (mut mined, mut unmined) = (Vec::new(), Vec::new());
     store
@@ -2480,6 +3229,8 @@ fn iterate_tickets_reads_each_block_once() {
         tickets: Vec::new(),
         blocks: Vec::new(),
         nonce: 0,
+        plan: Vec::new(),
+        vote: None,
     };
     let mut want: BTreeMap<Hash32, i32> = BTreeMap::new();
     let mut n = 0;
@@ -2776,4 +3527,689 @@ fn a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again() {
             Ok::<_, purse_store::Error>(())
         })
         .expect("update");
+}
+
+/// A stream that hands out fixed bytes, XORed into the caller's buffer as
+/// dcrd's generator does.
+struct Scripted {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+impl purse_snacl::RandomSource for Scripted {
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), purse_snacl::RandomSourceError> {
+        let src = self
+            .bytes
+            .get(self.at..self.at + buf.len())
+            .ok_or_else(|| purse_snacl::RandomSourceError::new("exhausted"))?;
+        for (b, s) in buf.iter_mut().zip(src) {
+            *b ^= s;
+        }
+        self.at += buf.len();
+        Ok(())
+    }
+}
+
+/// Go's `randomUTXO` (`txmined.go:2358-2422`) written out over
+/// `purse-store`'s `ReadCursor`, whose `Seek`, `Next` and `Prev` are
+/// bbolt's at the bucket ends (held to bbolt by `purse-store`'s
+/// conformance tests against the `boltcursor` oracle): the key it returns
+/// for the seek key `key`, the direction bit and the `IntN` draw `x`.
+fn go_random_utxo(
+    r: &ReadTx,
+    key: &[u8; 32],
+    prev_first: bool,
+    x: u64,
+    skip: &dyn Fn(&[u8]) -> bool,
+) -> Option<Vec<u8>> {
+    let mut c = r.cursor(TableId::Unspent).expect("cursor");
+    let collect = |c: &mut purse_store::ReadCursor<'_>,
+                   mut e: Option<(Vec<u8>, Vec<u8>)>,
+                   back: bool|
+     -> Vec<Vec<u8>> {
+        let mut keys: Vec<Vec<u8>> = Vec::new();
+        while let Some((k, _)) = e {
+            if keys.first().is_some_and(|f| f[..32] != k[..32]) {
+                break;
+            }
+            if !skip(&k) {
+                keys.push(k);
+            }
+            e = if back { c.prev() } else { c.next() }.expect("step");
+        }
+        keys
+    };
+    let mut e = c.seek(key).expect("seek");
+    if prev_first {
+        e = c.prev().expect("prev");
+    }
+    let mut keys = collect(&mut c, e, prev_first);
+    if keys.is_empty() {
+        let e = if prev_first {
+            c.seek(key).expect("seek")
+        } else {
+            c.seek(key).expect("seek");
+            c.prev().expect("prev")
+        };
+        keys = collect(&mut c, e, !prev_first);
+    }
+    if keys.is_empty() {
+        return None;
+    }
+    let n = keys.len() as u128;
+    let wide = u128::from(x) * n;
+    assert!((wide as u64) >= n as u64, "a draw IntN would reject");
+    Some(keys[(wide >> 64) as usize].clone())
+}
+
+/// `RandomUTXO`'s walk of `unspent` (`store::walk` over typed ranges)
+/// against [`go_random_utxo`] at the cursor's edges (spec 04 Q-31): an
+/// empty table, then six transactions of one to three outputs in four
+/// blocks, one output spent by an unmined transaction; seek keys of all
+/// zero bits and all one bits (before the first key and past the last),
+/// each transaction's hash exactly (a 32-byte key sorting before its
+/// 36-byte outpoints) and the values just below and above it, both
+/// directions, at confirmation depths that skip none, some or every
+/// output. Every answer is the cursor's.
+#[test]
+fn random_utxo_walks_as_bbolt_s_cursor_does() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let blocks: Vec<BlockHeader> = (0..4).map(|_| g.generate(1)).collect();
+    let script = p2pkh(None, 7);
+    let mut txs = Vec::new();
+    for (i, n) in [1usize, 3, 2, 1, 3, 2].into_iter().enumerate() {
+        let mut m = outputs_tx(&vec![1000 + i64::try_from(i).expect("small"); n]);
+        for o in &mut m.tx_out {
+            o.pk_script = script.clone();
+        }
+        m.tx_in.push(TxIn {
+            previous_out_point: OutPoint {
+                hash: Hash([u8::try_from(i).expect("small"); 32]),
+                index: 0,
+                tree: 0,
+            },
+            ..TxIn::default()
+        });
+        txs.push((
+            TxRecord::from_msg_tx(m, 1_795_400_000).expect("record"),
+            i % 4,
+            n,
+        ));
+    }
+    let x = 0x9e37_79b9_7f4a_7c15u64;
+    let check = |store: &Store, cases: &mut usize, nones: &mut usize| {
+        let r = store.read().expect("read");
+        let mut wr = store.read().expect("read");
+        let uinputs: BTreeSet<Vec<u8>> = TxRead::keys::<UnminedInputs>(
+            &mut wr,
+            Bound::Unbounded,
+            Bound::Unbounded,
+            false,
+            usize::MAX,
+        )
+        .expect("keys")
+        .into_iter()
+        .map(|k| [k.hash.0.as_slice(), &k.index.to_be_bytes()].concat())
+        .collect();
+        let rows: BTreeMap<Vec<u8>, u32> = TxRead::rows::<Unspent>(
+            &mut wr,
+            Bound::Unbounded,
+            Bound::Unbounded,
+            false,
+            usize::MAX,
+        )
+        .expect("rows")
+        .into_iter()
+        .map(|(k, u)| {
+            (
+                [k.hash.0.as_slice(), &k.index.to_be_bytes()].concat(),
+                u.height,
+            )
+        })
+        .collect();
+        let mut keys: Vec<[u8; 32]> = vec![[0; 32], [0xff; 32]];
+        for k in rows.keys() {
+            let mut h = [0u8; 32];
+            h.copy_from_slice(&k[..32]);
+            let v = u128::from_be_bytes(h[16..].try_into().expect("16"));
+            for d in [v.wrapping_sub(1), v, v.wrapping_add(1)] {
+                let mut k2 = h;
+                k2[16..].copy_from_slice(&d.to_be_bytes());
+                keys.push(k2);
+            }
+        }
+        for (min_conf, sync) in [(1, 4), (2, 4), (4, 4), (5, 4)] {
+            for key in &keys {
+                for dir in [0u8, 1] {
+                    let skip = |k: &[u8]| {
+                        let h = i32::try_from(rows[k]).expect("height");
+                        uinputs.contains(k) || !(sync - h + 1 >= min_conf && h <= sync)
+                    };
+                    let want = go_random_utxo(&r, key, dir == 1, x, &skip);
+                    let mut bytes = key.to_vec();
+                    bytes.push(dir);
+                    bytes.extend_from_slice(&x.to_le_bytes());
+                    let mut s = Scripted { bytes, at: 0 };
+                    let got = ts
+                        .random_utxo(&mut wr, &mut s, min_conf, sync)
+                        .expect("RandomUTXO")
+                        .map(|c| {
+                            [
+                                c.outpoint.hash.0.as_slice(),
+                                &c.outpoint.index.to_be_bytes(),
+                            ]
+                            .concat()
+                        });
+                    assert_eq!(got, want, "key {key:02x?} dir {dir} minconf {min_conf}");
+                    assert_eq!(s.at, if want.is_some() { 41 } else { 33 }, "bytes drawn");
+                    *cases += 1;
+                    *nones += usize::from(want.is_none());
+                }
+            }
+        }
+    };
+    let (mut cases, mut nones) = (0, 0);
+    check(&store, &mut cases, &mut nones);
+    assert_eq!(cases, nones, "an empty table gives nothing");
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &blocks.iter().collect::<Vec<_>>());
+            for (rec, b, n) in &txs {
+                ts.insert_mined_tx(tx, rec, &Hash32(*blocks[*b].block_hash().as_bytes()))
+                    .expect("InsertMinedTx");
+                for i in 0..*n {
+                    let i = u32::try_from(i).expect("small");
+                    ts.add_credit(tx, rec, Some(&make_block_meta(&blocks[*b])), i, false, 0)
+                        .expect("AddCredit");
+                }
+            }
+            let spend = spend_output(Hash(txs[1].0.hash().0), 1, 0, &[10]);
+            let spend = TxRecord::from_msg_tx(spend, 1_795_400_000).expect("record");
+            ts.insert_mem_pool_tx(tx, &spend).expect("InsertMemPoolTx");
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+    let (mut cases, mut nones) = (0, 0);
+    check(&store, &mut cases, &mut nones);
+    assert!(
+        nones > 0 && nones < cases,
+        "{nones} of {cases} found nothing"
+    );
+}
+
+/// `Spender`'s refusals that no operation of either side reaches, with
+/// the unmined-inputs entries written directly (Go's texts and kinds,
+/// `txquery.go:640-725`): an entry naming a transaction with no unmined
+/// record (`NotExist` "missing unmined spending tx", for a mined and for
+/// an unmined credit), an entry naming an unmined transaction that does
+/// not spend the output (`NotExist` "recorded spending tx does not spend
+/// credit"), and an entry naming the zero hash, which Go's test of the
+/// spender hash for zero sends to the unmined credit's lookup (`Invalid`
+/// "output is not a credit" for a mined credit). Every other branch is
+/// compared with Go by `37-txstore-selection`.
+#[test]
+fn spender_refuses_a_dangling_or_wrong_unmined_spender() {
+    let (store, ts, _) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let block1 = g.generate(1);
+    let (a, _) = funded_ticket();
+    let h1 = Hash32(*block1.block_hash().as_bytes());
+    let b = TxRecord::from_msg_tx(spend_output(Hash([5; 32]), 0, 0, &[300]), 1_795_400_000)
+        .expect("record");
+    let u = TxRecord::from_msg_tx(spend_output(Hash([6; 32]), 0, 0, &[100]), 1_795_400_000)
+        .expect("record");
+    let op = |rec: &TxRecord| purse_store::Outpoint {
+        hash: *rec.hash(),
+        index: 0,
+    };
+    let wire_op = |rec: &TxRecord| OutPoint {
+        hash: Hash(rec.hash().0),
+        index: 0,
+        tree: 0,
+    };
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&block1]);
+            ts.insert_mined_tx(tx, &a, &h1).expect("InsertMinedTx a");
+            ts.add_credit(tx, &a, Some(&make_block_meta(&block1)), 0, false, 0)
+                .expect("AddCredit a");
+            ts.insert_mem_pool_tx(tx, &b).expect("InsertMemPoolTx b");
+            ts.add_credit(tx, &b, None, 0, false, 0)
+                .expect("AddCredit b");
+            ts.insert_mem_pool_tx(tx, &u).expect("InsertMemPoolTx u");
+            let refusal = |tx: &mut WriteTx<'_>, rec: &TxRecord| {
+                let e = ts.spender(tx, &wire_op(rec)).expect_err("a refusal");
+                (e.as_kind(), e.to_string())
+            };
+            for rec in [&a, &b] {
+                let (kind, text) = refusal(tx, rec);
+                assert_eq!(kind, Some(Kind::NotExist), "{text}");
+                assert!(text.contains("credit is unspent"), "{text}");
+                tx.put::<UnminedInputs>(&op(rec), &Hash32([0x42; 32]))
+                    .expect("put");
+                let (kind, text) = refusal(tx, rec);
+                assert_eq!(kind, Some(Kind::NotExist), "{text}");
+                assert!(text.contains("missing unmined spending tx"), "{text}");
+                tx.put::<UnminedInputs>(&op(rec), u.hash()).expect("put");
+                let (kind, text) = refusal(tx, rec);
+                assert_eq!(kind, Some(Kind::NotExist), "{text}");
+                assert!(
+                    text.contains("recorded spending tx does not spend credit"),
+                    "{text}"
+                );
+            }
+            tx.put::<UnminedInputs>(&op(&a), &Hash32::default())
+                .expect("put");
+            let (kind, text) = refusal(tx, &a);
+            assert_eq!(kind, Some(Kind::Invalid), "{text}");
+            assert!(text.contains("output is not a credit"), "{text}");
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+}
+
+/// One write transaction of `f`, after which the row invariants, the UTXO
+/// queries and the selections are checked against the rows, and then a
+/// reopen, after which the store must hold the same rows and give the same
+/// answers.
+fn checked_step(
+    store: Store,
+    path: &std::path::Path,
+    ts: &TxStore,
+    sim: &Sim,
+    what: &str,
+    f: impl FnOnce(&mut WriteTx<'_>),
+) -> Store {
+    store
+        .update(|tx| {
+            f(tx);
+            check_rows(tx);
+            check_utxo_queries(ts, tx);
+            check_selection(ts, tx, 5);
+            Ok::<_, purse_store::Error>(())
+        })
+        .unwrap_or_else(|e| panic!("{what}: {e:?}"));
+    let (live, rows) = {
+        let mut r = store.read().expect("read");
+        (answers(ts, &mut r, sim), dump_read(&r))
+    };
+    store.close().expect("close");
+    let store = Store::open(path).expect("reopen");
+    {
+        let mut r = store.read().expect("read");
+        assert_eq!(dump_read(&r), rows, "{what}: rows after a reopen");
+        assert_eq!(
+            answers(ts, &mut r, sim),
+            live,
+            "{what}: answers after a reopen"
+        );
+        r.check_chain().expect("check_chain");
+    }
+    store
+}
+
+/// QK-0734's fix (fixed under ADR-0012 Rule 7; `merge_unmined_copy` in
+/// `mined.rs`) on its own path, which the random sequences reach only
+/// through their planned revalidations: a transaction mined in block 3,
+/// block 3 disapproved, the transaction mined again in block 5, blocks 4
+/// and 5 rolled back and block 3 approved by another block 4, then the
+/// copy's dependents removed and block 3 detached again. After every step
+/// the row invariants (with the fix's own: no outpoint both an unspent
+/// output and an unmined credit), the UTXO queries, the selections and a
+/// reopen are checked, and after the approval the transaction is mined
+/// only. Each variant adds complications, alone and all together: an
+/// input whose output is credited only after the first mining (debited
+/// at block 3 by the merge), an output credited only by the second mining
+/// (moved into a mined credit), an unmined spender of the copy's output
+/// (removed afterwards), the copy marked unpublished, an earlier
+/// transaction of the same block re-mined with it whose unmined credit the
+/// copy spends, and multisig records (an output of the transaction and an
+/// output it spends; QK-0789). Go's answers for the same steps, where they
+/// differ, are pinned by
+/// `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds` in
+/// `tests/oracle.rs`.
+#[test]
+fn a_revalidated_transaction_merges_its_unmined_copy_keeping_the_row_invariants() {
+    const LATE_INPUT: u8 = 1;
+    const LATE_OUTPUT: u8 = 2;
+    const SPENDER: u8 = 4;
+    const UNPUBLISHED: u8 = 8;
+    const SAME_BLOCK: u8 = 16;
+    const MULTISIG: u8 = 32;
+    for variant in [
+        0,
+        LATE_INPUT,
+        LATE_OUTPUT,
+        SPENDER,
+        UNPUBLISHED,
+        SAME_BLOCK,
+        MULTISIG,
+        63,
+    ] {
+        let on = |flag: u8| variant & flag != 0;
+        let (store, ts, path) = tx_store("testnet3");
+        let mut g = BlockGenerator::new();
+        let (b1, b2, b3) = (g.generate(1), g.generate(1), g.generate(1));
+        let mut g2 = BlockGenerator {
+            last_hash: g.last_hash,
+            last_height: g.last_height,
+        };
+        let (b4, b5, b4x) = (g.generate(0), g.generate(1), g2.generate(1));
+        let hash_of = |b: &BlockHeader| Hash32(*b.block_hash().as_bytes());
+        let ms = ms_scripts();
+        let input = |hash: Hash, index: u32| TxIn {
+            previous_out_point: OutPoint {
+                hash,
+                index,
+                tree: 0,
+            },
+            sequence: u32::MAX,
+            value_in: 1000,
+            ..TxIn::default()
+        };
+        let out = |value: i64, pk_script: Vec<u8>| TxOut {
+            value,
+            version: 0,
+            pk_script,
+        };
+        let rec = |m: MsgTx| TxRecord::from_msg_tx(m, 1_795_400_000).expect("record");
+        let f = rec(MsgTx {
+            tx_in: vec![input(Hash([0x0f; 32]), 0)],
+            tx_out: vec![
+                out(1000, p2pkh(None, 1)),
+                out(2000, p2pkh(None, 2)),
+                out(3000, p2sh(None, &ms[0])),
+            ],
+            ..MsgTx::default()
+        });
+        let c = rec(MsgTx {
+            tx_in: vec![input(Hash([0x0c; 32]), 0)],
+            tx_out: vec![out(700, p2pkh(None, 3))],
+            ..MsgTx::default()
+        });
+        let fh = Hash(f.hash().0);
+        let mut a_in = vec![
+            input(fh, 0),
+            input(fh, 1),
+            input(fh, 2),
+            input(Hash([0x0a; 32]), 0),
+        ];
+        if on(SAME_BLOCK) {
+            a_in.push(input(Hash(c.hash().0), 0));
+        }
+        let a = rec(MsgTx {
+            tx_in: a_in,
+            tx_out: vec![
+                out(900, p2pkh(None, 4)),
+                out(500, p2pkh(None, 5)),
+                out(400, p2sh(None, &ms[0])),
+            ],
+            ..MsgTx::default()
+        });
+        let u = rec(MsgTx {
+            tx_in: vec![input(Hash(a.hash().0), 0)],
+            tx_out: vec![out(800, p2pkh(None, 6))],
+            ..MsgTx::default()
+        });
+        let sim = Sim {
+            rng: SplitMix64(1),
+            recs: vec![f.clone(), c.clone(), a.clone(), u.clone()],
+            tickets: Vec::new(),
+            blocks: Vec::new(),
+            nonce: 0,
+            plan: Vec::new(),
+            vote: None,
+        };
+        let imported = 0x7fff_ffff;
+        let credit = |tx: &mut WriteTx<'_>, r: &TxRecord, b: &BlockHeader, i: u32, acct: u32| {
+            ts.add_credit(tx, r, Some(&make_block_meta(b)), i, false, acct)
+                .unwrap_or_else(|e| panic!("variant {variant}: AddCredit {i}: {e:?}"));
+        };
+        let v = format!("variant {variant}");
+        let mut store = checked_step(store, &path, &ts, &sim, &format!("{v}: setup"), |tx| {
+            if on(MULTISIG) {
+                import_ms_scripts(tx);
+            }
+            insert_main_chain_headers(&ts, tx, &[&b1, &b2, &b3]);
+            ts.insert_mined_tx(tx, &f, &hash_of(&b1)).expect("f");
+            credit(tx, &f, &b1, 0, 0);
+            if !on(LATE_INPUT) {
+                credit(tx, &f, &b1, 1, 1);
+            }
+            if on(MULTISIG) {
+                credit(tx, &f, &b1, 2, imported);
+                ts.add_multisig_out(tx, &f, Some(&make_block_meta(&b1)), 2)
+                    .expect("AddMultisigOut f:2");
+            }
+        });
+        let mine = |tx: &mut WriteTx<'_>, b: &BlockHeader, first: bool| {
+            if on(SAME_BLOCK) {
+                ts.insert_mined_tx(tx, &c, &hash_of(b)).expect("c");
+                credit(tx, &c, b, 0, 0);
+            }
+            ts.insert_mined_tx(tx, &a, &hash_of(b)).expect("a");
+            credit(tx, &a, b, 0, 0);
+            if !first || !on(LATE_OUTPUT) {
+                credit(tx, &a, b, 1, 2);
+            }
+            if on(MULTISIG) {
+                credit(tx, &a, b, 2, imported);
+                let r = ts.add_multisig_out(tx, &a, Some(&make_block_meta(b)), 2);
+                // The second mining's is refused: the record is mined.
+                assert_eq!(r.is_ok(), first, "{r:?}");
+                let fop = OutPoint {
+                    hash: fh,
+                    index: 2,
+                    tree: 0,
+                };
+                ts.spend_multisig_out(tx, &fop, a.hash(), 2)
+                    .expect("SpendMultisigOut f:2");
+            }
+        };
+        store = checked_step(store, &path, &ts, &sim, &format!("{v}: mined"), |tx| {
+            mine(tx, &b3, true);
+        });
+        store = checked_step(
+            store,
+            &path,
+            &ts,
+            &sim,
+            &format!("{v}: disapproved"),
+            |tx| {
+                insert_main_chain_headers(&ts, tx, &[&b4]);
+                if on(LATE_INPUT) {
+                    credit(tx, &f, &b1, 1, 1);
+                }
+            },
+        );
+        store = checked_step(
+            store,
+            &path,
+            &ts,
+            &sim,
+            &format!("{v}: mined again"),
+            |tx| {
+                insert_main_chain_headers(&ts, tx, &[&b5]);
+                mine(tx, &b5, false);
+            },
+        );
+        store = checked_step(
+            store,
+            &path,
+            &ts,
+            &sim,
+            &format!("{v}: rolled back"),
+            |tx| {
+                ts.rollback(tx, 4).expect("Rollback");
+                assert_eq!(
+                    ts.exists_tx_mined_or_unmined(tx, a.hash()).expect("exists"),
+                    (false, true)
+                );
+                if on(SPENDER) {
+                    ts.insert_mem_pool_tx(tx, &u).expect("u");
+                }
+                if on(UNPUBLISHED) {
+                    ts.set_published(tx, a.hash(), false).expect("SetPublished");
+                }
+            },
+        );
+        store = checked_step(store, &path, &ts, &sim, &format!("{v}: approved"), |tx| {
+            insert_main_chain_headers(&ts, tx, &[&b4x]);
+            for r in [&a, &c] {
+                if r.hash() == c.hash() && !on(SAME_BLOCK) {
+                    continue;
+                }
+                assert_eq!(
+                    ts.exists_tx_mined_or_unmined(tx, r.hash()).expect("exists"),
+                    (true, false),
+                    "{v}: mined only"
+                );
+            }
+            assert!(!tx.contains::<Unpublished>(a.hash()).expect("contains"));
+            for index in 0..2 {
+                let k = CreditKey {
+                    hash: *a.hash(),
+                    height: 3,
+                    index,
+                };
+                assert!(
+                    tx.contains::<Credits>(&k).expect("contains"),
+                    "{v}: a:{index}"
+                );
+            }
+            let fop = |index: u32| OutPoint {
+                hash: fh,
+                index,
+                tree: 0,
+            };
+            for index in [0, 1] {
+                let (m, i) = ts.spender(tx, &fop(index)).expect("Spender");
+                assert_eq!((m.tx_hash(), i), (Hash(a.hash().0), index), "{v}");
+                let k = CreditKey {
+                    hash: *a.hash(),
+                    height: 3,
+                    index,
+                };
+                assert!(
+                    tx.contains::<Debits>(&k).expect("contains"),
+                    "{v}: debit {index}"
+                );
+            }
+            if on(MULTISIG) {
+                let aop = OutPoint {
+                    hash: Hash(a.hash().0),
+                    index: 2,
+                    tree: 0,
+                };
+                let m = ts.get_multisig_output(tx, &aop).expect("a:2");
+                assert_eq!(m.block_height, 3, "{v}: a:2 marked mined again");
+                let m = ts.get_multisig_output(tx, &fop(2)).expect("f:2");
+                assert_eq!(
+                    m.spender.map(|s| (s.hash, s.input)),
+                    Some((*a.hash(), 2)),
+                    "{v}: f:2 marked spent again"
+                );
+            }
+        });
+        if on(SPENDER) {
+            store = checked_step(
+                store,
+                &path,
+                &ts,
+                &sim,
+                &format!("{v}: spender removed"),
+                |tx| {
+                    ts.remove_unconfirmed(tx, u.msg_tx(), u.hash())
+                        .expect("RemoveUnconfirmed");
+                },
+            );
+        }
+        store = checked_step(store, &path, &ts, &sim, &format!("{v}: detached"), |tx| {
+            ts.rollback(tx, 3).expect("Rollback");
+            assert_eq!(
+                ts.exists_tx_mined_or_unmined(tx, a.hash()).expect("exists"),
+                (false, true)
+            );
+        });
+        drop(store);
+    }
+}
+
+/// QK-0781's state (reproduced) under the property tests' checks, the
+/// sequence `random_sequences_keep_the_row_invariants` reaches at other
+/// seeds: a transaction recorded mined in blocks 1 and 2 with its credit
+/// at block 1, block 2 rolled back, then the output credited without a
+/// block. The outpoint is then an unspent output and an unmined credit at
+/// once, which QK-0734's fix removes only on its own path:
+/// `UnspentOutputs` lists it twice, `AccountBalances` counts it twice and
+/// `SelectInputs` at depth 0 selects it twice, as Go does
+/// (`a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`
+/// in `tests/oracle.rs`), and the selection checks take it twice at depth
+/// 0 for its account only. The row invariants, the UTXO queries and a
+/// reopen are checked after every step.
+#[test]
+fn a_transaction_mined_twice_and_rolled_back_is_selected_twice_as_go_does() {
+    let (store, ts, path) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let (b1, b2) = (g.generate(1), g.generate(1));
+    let hash_of = |b: &BlockHeader| Hash32(*b.block_hash().as_bytes());
+    let t = TxRecord::from_msg_tx(
+        MsgTx {
+            tx_in: vec![TxIn {
+                previous_out_point: OutPoint {
+                    hash: Hash([0x11; 32]),
+                    index: 0,
+                    tree: 0,
+                },
+                sequence: u32::MAX,
+                value_in: 6000,
+                ..TxIn::default()
+            }],
+            tx_out: vec![TxOut {
+                value: 5000,
+                version: 0,
+                pk_script: p2pkh(None, 1),
+            }],
+            ..MsgTx::default()
+        },
+        1_795_400_000,
+    )
+    .expect("record");
+    let sim = Sim {
+        rng: SplitMix64(1),
+        recs: vec![t.clone()],
+        tickets: Vec::new(),
+        blocks: Vec::new(),
+        nonce: 0,
+        plan: Vec::new(),
+        vote: None,
+    };
+    let store = checked_step(store, &path, &ts, &sim, "mined twice", |tx| {
+        insert_main_chain_headers(&ts, tx, &[&b1, &b2]);
+        ts.insert_mined_tx(tx, &t, &hash_of(&b1)).expect("b1");
+        ts.add_credit(tx, &t, Some(&make_block_meta(&b1)), 0, false, 0)
+            .expect("credit at b1");
+        ts.insert_mined_tx(tx, &t, &hash_of(&b2)).expect("b2");
+    });
+    let store = checked_step(store, &path, &ts, &sim, "rolled back", |tx| {
+        ts.rollback(tx, 2).expect("Rollback");
+        assert_eq!(
+            ts.exists_tx_mined_or_unmined(tx, t.hash()).expect("exists"),
+            (false, true)
+        );
+        assert_eq!(ts.unspent_outputs(tx).expect("UnspentOutputs").len(), 1);
+    });
+    let store = checked_step(store, &path, &ts, &sim, "credited unmined", |tx| {
+        ts.add_credit(tx, &t, None, 0, false, 0)
+            .expect("unmined credit");
+        let outs = ts.unspent_outputs(tx).expect("UnspentOutputs");
+        assert_eq!(outs.len(), 2);
+        assert_eq!(outs[0].outpoint, outs[1].outpoint);
+        let b = ts.account_balances(tx, 0).expect("balances");
+        assert_eq!((b[0].spendable, b[0].total), (10000, 10000));
+        let (_, _, twice) = check_selection(&ts, tx, 5);
+        assert_eq!(twice, 1, "taken twice at depth 0 for account 0 only");
+    });
+    drop(store);
 }

@@ -94,8 +94,21 @@ pub fn check_record(what: &str, g: &Value, r: &Value) {
         );
         return;
     }
+    if RANDOM_OPS.contains(&g["op"].as_str().unwrap_or_default()) {
+        // The store's random selections draw what Go draws (the runner keys
+        // dcrd's generator by the operation's `rand`, or continues the last
+        // one's stream): their `~r` values and the bytes drawn are compared
+        // as they are.
+        assert_eq!(g, r, "{what}: op {} (exact)", g["i"]);
+        return;
+    }
     assert_eq!(comparable(g), comparable(r), "{what}: op {}", g["i"]);
 }
+
+/// The transaction store's operations that draw from the random stream,
+/// whose records the Rust runner makes equal to Go's, `~r` values and
+/// `drawn` included (`runner.rs`).
+pub const RANDOM_OPS: &[&str] = &["store.random_utxo", "store.select_inputs"];
 
 /// The lines of `section` under the masked observable profile, keeping
 /// only `types` when given.

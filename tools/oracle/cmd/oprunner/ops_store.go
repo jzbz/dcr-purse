@@ -18,6 +18,7 @@ import (
 	"github.com/decred/dcrd/gcs/v4"
 	"github.com/decred/dcrd/gcs/v4/blockcf2"
 	"github.com/decred/dcrd/wire"
+	"github.com/jzbz/dcr-purse/tools/oracle/cmd/oprunner/internal/rand"
 	"github.com/jzbz/dcr-purse/tools/oracle/cmd/oprunner/internal/seam"
 	"github.com/jzbz/dcr-purse/tools/oracle/cmd/oprunner/internal/udb"
 )
@@ -470,6 +471,11 @@ var ops = map[string]opDef{
 		if err != nil {
 			return nil, err
 		}
+		pin, err := streamKey(a)
+		if err != nil {
+			return nil, err
+		}
+		pin()
 		cr, err := r.store.RandomUTXO(c.rtx, minConf, syncHeight)
 		if err != nil {
 			return nil, err
@@ -567,13 +573,21 @@ var ops = map[string]opDef{
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{
+		v := map[string]any{
 			"outpoint": outpointValue(m.OutPoint), "tree": m.Tree,
 			"scripthash": hexStr(m.ScriptHash[:]), "m": m.M, "n": m.N,
 			"tx": m.TxHash.String(), "block": m.BlockHash.String(),
 			"height": m.BlockHeight, "amount": int64(m.Amount), "spent": m.Spent,
-			"spentby": m.SpentBy.String(), "spentbyindex": m.SpentByIndex,
-		}, nil
+		}
+		// The spender only while spent, as wallet/multisig.go reads it:
+		// an unspent record's spender bytes are the zero hash and
+		// 0xFFFFFFFF, or after an unspend a stale last byte (QK-0055),
+		// which no reader shows (ADR-0002 section 4).
+		if m.Spent {
+			v["spentby"] = m.SpentBy.String()
+			v["spentbyindex"] = m.SpentByIndex
+		}
+		return v, nil
 	}},
 	"store.unspent_multisig_credits_for_address": {readTx, "Store.UnspentMultisigCreditsForAddress", func(r *runner, c *opCtx, a *opArgs) (any, error) {
 		addr, err := r.argAddress(c, a, "addr")
@@ -878,6 +892,31 @@ func (j *jsonRaw) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// streamKey reads the optional "rand" argument of a random store
+// operation, a 32-byte key (hex), and returns the function that restarts
+// the injected stream under it (rand.Reseed, which keeps the count of
+// bytes drawn), or does nothing without one. The operation calls it after
+// every other argument is read, right before the store draws, so the
+// operation draws from the start of the stream that key names whatever
+// the script drew before it: this is how a script pins the stream a
+// selection reads, and how the Rust runner, whose address manager draws
+// from a stream of its own, draws what Go draws (ADR-0002 section 2).
+func streamKey(a *opArgs) (func(), error) {
+	if !a.has("rand") {
+		return func() {}, nil
+	}
+	b, err := a.hexBytes("rand")
+	if err != nil {
+		return nil, err
+	}
+	if len(b) != 32 {
+		return nil, scriptErrorf("%s: rand must be 32 bytes of hex", a.op)
+	}
+	var k [32]byte
+	copy(k[:], b)
+	return func() { rand.Reseed(k) }, nil
+}
+
 func minConfSync(a *opArgs) (int32, int32, error) {
 	minConf, err := a.i32("minconf")
 	if err != nil {
@@ -936,6 +975,11 @@ func opSelectInputs(r *runner, c *opCtx, a *opArgs) (any, error) {
 		}
 		ignore = func(op *wire.OutPoint) bool { return set[*op] }
 	}
+	pin, err := streamKey(a)
+	if err != nil {
+		return nil, err
+	}
+	pin()
 	src := r.store.MakeInputSource(c.rtx, acct, minConf, syncHeight, ignore)
 	out := []any{}
 	for _, t := range targets {

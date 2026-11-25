@@ -862,6 +862,7 @@ version = "0.1.0"
 dependencies = [
  "dcroxide-chaincfg",
  "dcroxide-chainhash",
+ "dcroxide-crypto",
  "dcroxide-dcrec",
  "dcroxide-dcrjson",
  "dcroxide-gcs",
@@ -877,6 +878,8 @@ dependencies = [
  "purse-snacl",
  "purse-store",
  "purse-testutil",
+ "purse-txauthor",
+ "purse-txrules",
  "redb",
  "serde_json",
  "sha2",

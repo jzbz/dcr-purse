@@ -35,6 +35,22 @@
   filtered on the paths that can change their result and run nightly,
   while the disassembly check stays in `ci.yml` on every push. See
   "Addendum, 2026-11-22 (later)" at the end.
+- **Decided, 2026-11-24 (project owner):** the codecs' timing check
+  gains diagnostics only, after a failure on GitHub that its log could
+  not explain: a trace of every target, and a diagnostic pass of each
+  `chars` target, a test of its own that is never judged. No threshold,
+  floor, budget, retry or blocking change. One planted leak that the
+  harness of `05f7862` found in every run, a dependent multiplication in
+  `hdkeychain chars` at opt-level 3, is found less often as shipped: 39
+  of 60 runs in six sets, from 1 to 10 of 10 a set on the same machine
+  code, 30 of them by the plant's own slower path, against 70 of 70 (64)
+  with `05f7862`'s harness; what holds from set to set is a smaller cost
+  of the plant in the shipped binary (all 0 judged slower by a median of
+  +1.04 ns an operation over the six sets, +0.92 to +1.44 a set, against
+  +1.56, +1.38 to +1.90 a set), close to the 1 ns floor. The
+  measurements put that down to the binary's layout, not to the
+  verdict's rule; the addendum records it, open for the project owner's
+  decision. See "Addendum, 2026-11-24" at the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -884,3 +900,302 @@ crate's `src/ct_check.rs`; `purse-dcrutil`'s crate documentation, which
 gains a section on what of a WIF's handling is constant time; the ADR
 index; `docs/PHASE0-EXIT.md`, whose list of CI's jobs carries a dated
 pointer.
+
+## Addendum, 2026-11-24 — Diagnostics for the codecs' timing check
+
+**The failure.** The timing workflow (`.github/workflows/constant-time.yml`,
+addendum "2026-11-22 (later)") failed once on GitHub, on `f925cc2` at
+opt-level 3, on a runner whose processor was an AMD EPYC 9V74 (four
+processors, two threads a core, under a hypervisor):
+`hdkeychain chars` found all 0 quicker than the random class by 1.84 ns
+an operation at t -59.66, the comparison that decided it in crop 2
+(nominally the warm-up's quickest 18.8%), which held 20,288 of the class's
+samples and 13,928 of the random class's, of about 730,000 each in the
+run. In the same crop all 57 crossed |t| 10 on a difference of the other
+sign, +0.28 ns (slower) at t 10.64, and was reported under the floor;
+that crop held 19,583 of its samples, against the random class's 13,928.
+The placebo passed (-0.03 ns at t -1.59), as did every other target, and
+both controls were found. In the run before, on `f1efb01` at opt-level
+"s" on an EPYC 7763, the same target reported all 0 under the floor,
++0.92 ns at t 100.63 in crop 75, and all 57 under the floor too, +0.88
+ns at t 38.24 in crop 88, while the placebo passed (-0.21 ns at t
+-1.51). No conclusion is drawn from all 57's figures here; they are
+recorded because the diagnostic pass below asks the same question of
+other inputs.
+
+What was established about it, and what was not. Reading the machine
+code of the encoder's character pass found no instruction path, branch or
+memory access that depends on a digit; its instruction sequence is the
+same in both crates; and on a Zen 4 x86_64 Linux desktop the hardware
+counters gave every class equal retired instructions, branches, branch
+mispredictions, loads and stores an operation. The magnitude was not
+reproduced off GitHub: about 120 runs on that desktop gave no failure,
+with differences about 0.03 ns an operation. The cause is not
+identified. The failure's magnitude, its sign and the imbalance of its
+deciding crop do not tell a leak from an artefact of the machine or the
+harness: leaks of 1 to 2 ns an operation planted in a scratch copy give
+the same shapes, a planted slower path among them deciding a run as a
+quicker class in a thin crop. That crop 2 held 1.9% to 2.8% of each
+class's samples, against its nominal 18.8%, is in the log: most of the
+run's samples were slower than the warm-up's quantile, whose thresholds
+come from the first 1,000 samples alone. Whether those thresholds decided
+the verdict cannot be shown, since the log holds no data per sample.
+
+**Decided (project owner, 2026-11-24): diagnostics only.** The harness
+(`crates/purse-testutil/src/ct.rs`) and the two `chars` targets gain
+output that lets the next failure explain itself, and nothing that
+decides a verdict changes: |t| 10 to fail and 4.5 to report,
+the floor of 1 ns an operation, the 100 samples a side, the warm-up
+(1,000 samples, or a tenth of the budget), the crops and their
+thresholds, the rule that picks the comparison deciding a class, the
+budgets (10 s on pushes and pull requests, 60 s nightly, 1 to 90 s on
+dispatch), the absence of retries and the job's blocking status are as
+they were. No threshold, floor, budget, retry or blocking change.
+
+1. **The trace.** The port of dcroxide's harness left out its
+   per-target trace (dcroxide `8053abe`), as more than the targets then
+   needed; it is ported. Every target prints, below its class lines and
+   whatever its verdict: the samples and the warm-up's, the address of
+   one of the harness's functions and of the first chunk of inputs, the
+   processors the thread may run on (`Cpus_allowed_list`) and, new
+   against dcroxide, the processor's name (the first `model name` of
+   `/proc/cpuinfo`, `unknown` without one); the random class's mean in
+   the uncropped test, in crop 32 (89.8%) and in six equal segments of
+   the counted time; each class's t and difference uncropped and in crop
+   32, whatever their |t|, and its t in each segment; and, also new, the
+   samples crop 32 actually holds (of each class, of the random class
+   and of every class together, as counts and percentages of the run's)
+   beside its nominal share, and, for the comparison that decides each
+   class, the test's nominal share and threshold beside the samples of
+   the class and of the random class in it, each as a count and a
+   percentage of that class's samples in the run, and the percentage of
+   every class's together, so that a verdict decided in a thin tail, or
+   a crop 32 that holds one, shows as such. The segments are told apart
+   between chunks of samples, to the nearest chunk (one chunk is about a
+   millisecond for the `chars` targets and up to about 16 ms for the
+   `decode` and `encode` targets, measured at opt-level 3: at most about
+   1% of a segment at the push budget), so that the loop over a chunk's
+   samples counts each sample as it did before; a first form that also
+   filed each sample in its segment inside that loop is described below.
+   Known reports stay out: no target here has a failure measured and
+   judged as one.
+2. **A diagnostic pass of the `chars` targets.** Each `chars` target
+   (purse-hdkeychain's and purse-dcrutil's) gains a test of its own,
+   `chars_diagnostic`, which the workflow's filter runs right after
+   `chars` in the same step, for the same budget: a second pass of the
+   target's three classes and two more, reported under the target's name
+   followed by ", diagnostic pass", printed and never judged, so that it
+   cannot fail the job. The two are a fixed draw, one input of digits
+   drawn once from the harness's generator, spread over the digits as the
+   random class's are; and all 0 again, all 0's value under a name of its
+   own (the duplicate of dcroxide `c582c7c`; the placebo it also added is
+   already in these targets). `chars` itself, the verdict's pass, is as
+   it was at `05f7862`, source for source. If a difference follows the
+   repetition of one input, the fixed draw leans with all 0; if it
+   follows the value, the two copies of all 0 lean together and the fixed
+   draw does not; if it follows neither, the placebo or one copy alone
+   says so. The pass times its own window after the verdict's, with its
+   own warm-up and crop thresholds, so it shows only a difference that
+   lasts into that window: of a passing event such as the one on
+   `f925cc2` it may show nothing, and there the verdict pass's own trace
+   (item 1) is what is left.
+
+**Shares.** In `chars`, the random class and each of the three fixed
+classes keep a share of 1/4, as before (measured from the trace: medians
+of 24.98% to 25.03% for each of the four classes in both targets). In the
+diagnostic pass each of the six has 1/6 (16.64% to 16.69%). Timing the
+two classes in `chars` instead would have cut every share there from 1/4
+to 1/6: at a fixed budget each class would get two thirds of its samples
+(measured: all 0 had 25.0% of `hdkeychain chars`'s samples and 16.6% in
+that arrangement, medians of 30 runs each), and t for a given difference
+falls by the square root of that, to about 0.82 of itself, both sides of
+each comparison losing alike. That arrangement was measured and
+rejected: in a scratch test function with `hdkeychain chars`'s classes,
+not the shipped target, a planted secret branch was found in 2 of 10
+runs with the two classes in the verdict's pass, against 10 of 10 with
+the verdict's pass as it is, its eight misses all below the floor (the
+added copy of all 0 also changes how often the planted branch goes each
+way, and with it what the plant costs).
+
+**Power, measured through the shipped targets.** Three leaks were
+planted in each crate's `map_chars`, each keyed on the first digit being
+0, so that all 0 has it and the random class once in 58: one dependent
+multiplication on every lookup's path, one 64-bit division whose
+dividend is large for the secret (a variable-latency instruction), and a
+branch on the secret whose two sides do the same work. Each was put in
+the shipped `chars` target itself, whose operation called the planted
+function under `#[cfg(test)]` with the plant chosen at run time, in a
+copy of `05f7862`'s tree and in a copy of this change's, the same hook
+in both. Each was timed ten times at the push budget of 10 s, before and
+after interleaved, each run pinned to one processor with `taskset`, five
+runs at a time on separate cores while other jobs ran (load averages 3.4
+to 26.9); a target counts as found when one of its three judged classes
+fails by the rule. In brackets, the median difference of all 0 in the
+comparison that decided it, in nanoseconds an operation. These tables
+give the first sets of runs; the two multiplication cells at opt-level 3
+were timed again in later sets, given under "Later sets" below, and
+their counts moved from set to set on the same machine code:
+
+| target and plant, opt-level 3 | `05f7862` | as shipped |
+| --- | --- | --- |
+| `hdkeychain chars`, dependent multiplication | 30 of 30 (+1.60) | 15 of 20 (+1.04) |
+| `hdkeychain chars`, variable-latency division | 10 of 10 (+2.00) | 10 of 10 (+1.50) |
+| `hdkeychain chars`, secret branch | 29 of 30 (+1.23) | 17 of 20 (+1.13) |
+| `dcrutil chars`, dependent multiplication | 30 of 30 (+1.17) | 20 of 20 (+2.00) |
+| `dcrutil chars`, variable-latency division | 2 of 10 (+0.11) | 1 of 10 (+0.08) |
+| `dcrutil chars`, secret branch | 0 of 10 (+0.41) | 0 of 10 (-0.08) |
+| no leak, each target | 0 of 10 | 0 of 10 |
+
+| target and plant, opt-level "s" | `05f7862` | as shipped |
+| --- | --- | --- |
+| `hdkeychain chars`, dependent multiplication | 10 of 10 (+2.45) | 10 of 10 (+2.90) |
+| `hdkeychain chars`, variable-latency division | 10 of 10 (+1.14) | 10 of 10 (+1.07) |
+| `hdkeychain chars`, secret branch | 10 of 10 (+1.54) | 10 of 10 (+2.04) |
+| `dcrutil chars`, dependent multiplication | 10 of 10 (+2.75) | 10 of 10 (+2.65) |
+| `dcrutil chars`, variable-latency division | 10 of 10 (+1.29) | 10 of 10 (+1.31) |
+| `dcrutil chars`, secret branch | 10 of 10 (+1.92) | 10 of 10 (+2.08) |
+| no leak, each target | 0 of 10 | 0 of 10 |
+
+The three cells of the first table nearest the floor (the multiplication
+and branch plants in `hdkeychain chars`, the multiplication plant in
+`dcrutil chars`) were timed in a second set of ten runs each, before and
+after interleaved, and `05f7862`'s binary ten more times beside the
+variant described below; the first table gives the sets together. In the
+eighty runs with no leak every judged class passed, none even reported.
+At "s", 19 of the 120 finds were decided as all 0 quicker in a thin
+crop (14 with `05f7862`'s harness, 5 as shipped), and at opt-level 3, 10
+of the 164 finds.
+
+The controls were found in every one of these runs. The finds of the
+division plant in `dcrutil chars` (two with `05f7862`'s harness, one as
+shipped) were each decided as all 0 quicker, by 1.03 to 1.62 ns in a thin
+crop, a planted slower path read as a quicker class, as described under
+"The failure"; on 53 digits that plant costs about a tenth of a
+nanosecond, and the branch plant less than half of one.
+
+**Later sets.** The two multiplication cells at opt-level 3 were timed
+again in further sets of ten runs, with the binaries of the first sets
+(or a second build of each tree whose loaded sections, its machine code
+included, are byte for byte the same, apart from the build ID), run the
+same way: 10 s, pinned with `taskset`, before and after interleaved,
+other jobs running. The sets are numbered in the order they ran across
+both cells. For each set: runs found, in brackets those decided by the plant's own
+slower path (all 0 judged slower) and not by all 0 judged quicker in a
+thin crop, then the median difference of all 0 over the runs that judged
+it slower:
+
+| `hdkeychain chars`, multiplication, set (load averages) | `05f7862` | as shipped |
+| --- | --- | --- |
+| first (3.4 to 8.2) | 10 of 10 (10), +1.41 | 7 of 10 (7), +1.04 |
+| second (16.5 to 18.7) | 10 of 10 (10), +1.70 | 8 of 10 (6), +1.19 |
+| beside the variant below (15.9 to 20.9) | 10 of 10 (8), +1.68 | not timed |
+| third (6.0 to 18.1) | 10 of 10 (10), +1.38 | 1 of 10 (1), +0.92 |
+| fourth (22.4 to 26.1) | 10 of 10 (10), +1.90 | 4 of 10 (4), +1.00 |
+| fourth, the second build | 10 of 10 (10), +1.39 | 9 of 10 (8), +1.26 |
+| fifth (22.7 to 26.2) | 10 of 10 (6), +1.60 | 10 of 10 (4), +1.44 |
+| all | 70 of 70 (64), +1.56 | 39 of 60 (30), +1.04 |
+
+| `dcrutil chars`, multiplication, set (load averages) | `05f7862` | as shipped |
+| --- | --- | --- |
+| first, second and beside the variant (6.0 to 20.2) | 30 of 30 (28), +1.17 | 20 of 20 (20), +2.00 |
+| third (8.5 to 12.2) | 6 of 10 (6), +1.02 | 10 of 10 (10), +1.87 |
+| sixth, the first build (heavy load, about 26) | 16 of 16 (7), +1.18 | not timed |
+| sixth, the second build | 16 of 16 (11), +1.25 | not timed |
+
+With the machine code unchanged, run conditions (load, and how the runs
+were invoked: on which cores, in what order) moved these near-floor
+counts: `05f7862`'s binary found the `dcrutil chars` plant in 30 of 30,
+6 of 10 and 16 of 16 runs, and the shipped binary found the `hdkeychain
+chars` plant in 1 of 10 in one set and 10 of 10 in another, six of those
+ten decided as all 0 quicker. The sets under the heaviest load had the
+most finds decided as all 0 quicker (up to 9 of 16), which is not the
+plant's own slower path; no run without a plant produced a find of
+either sign. A single count, such as the 15 of 20 of the first sets, is
+therefore not a stable property of a binary. What held from set to set
+is each plant's cost in each binary, measured by the median difference:
+in `hdkeychain chars` the shipped binary's is +0.92 to +1.44 ns an
+operation a set against +1.38 to +1.90 with `05f7862`'s harness, and in
+`dcrutil chars` +1.87 to +2.00 against +1.02 to +1.25.
+
+**Detection lost, and why it is recorded rather than restored.** One
+loss remains. The multiplication plant in `hdkeychain chars` at
+opt-level 3 costs less in the shipped binary than in `05f7862`'s (+1.04
+against +1.56 ns an operation, the medians over every set), close enough
+to the floor that it was found in 39 of 60 runs in six sets as shipped,
+1 to 10 of 10 a set, 30 of them by the plant's own slower path, against
+70 of 70 in seven sets, 64 by its slower path, with `05f7862`'s harness.
+In the first sets every miss was under the floor (all 0 at +0.85 to
++0.99 ns, |t| above 10). The branch plant there was found in 17 of 20
+against 29 of 30 in the first sets, its three misses at +0.91 to +0.98
+ns. The multiplication plant in `dcrutil chars`, lost in the first form
+(below), is found in 30 of 30 in three sets (+1.87 to +2.00, against
++1.02 to +1.25 with `05f7862`'s harness). This loss is recorded, not
+restored, for the project owner to decide on.
+
+The first form of this change filed each counted sample in its segment
+inside the loop over a chunk's samples, and ran the diagnostic pass
+inside `chars`; with it, measured the same way through the shipped
+targets, the branch plant in `hdkeychain chars` at opt-level 3 was found
+in 9 of 20 runs against 20 of 20 with `05f7862`'s harness (7 of 12
+against 12 of 12 in a second check), and the multiplication plant in
+`dcrutil chars` in 0 of 10 against 10 of 10, every miss under the floor;
+that form was replaced by the one above.
+
+What these measurements show about the cause. The verdict's code is the
+same: the functions that decide a verdict are unchanged in source, the
+target `chars` is unchanged in source, and a replay of 7,200 simulated
+runs through `05f7862`'s harness and this one gave identical rows and
+class lines in every run. In the shipped binaries at opt-level 3 the
+timed region around the planted function has the same instructions as in
+`05f7862`'s, apart from registers, stack offsets, alignment padding and,
+in each crate, one operand held in a register instead of on the stack
+(or the reverse); what moves is where the code and the loop's stack
+buffer lie. A planted cost of one multiplication, or a real one of the
+same size, lies within a nanosecond of the floor, and the same plant
+gave medians of +1.04 to +2.00 ns across these binaries: any change that
+rebuilds these crates' test binaries moves such a cost, up or down. It
+is the medians, not the counts, that follow the layout: at a cost this
+near the floor, how often a run crosses it also moves between sets of
+the same binary, as "Later sets" shows. A second arrangement of the
+trace's bookkeeping (a helper kept out of line) was measured on the
+three plants nearest the floor and did no better (`hdkeychain chars`
+multiplication 7 of 10, branch 4 of 10, `dcrutil chars` multiplication
+10 of 10, against 10, 10 and 10 of 10 with `05f7862`'s harness in the
+same runs); arrangements were not searched further, since picking one by
+its plants' results would fit the layout of this commit's binary and not
+of the next.
+
+**Wall time.** The two diagnostic passes add two budgets to each timing
+step: run as written, each step took 100.1 s (two runs a level) at 10 s
+a target with the harness of `05f7862` and 120.1 to 120.2 s (ten runs a
+level) with this change, 20 s more; at 60 s a target that is 2 minutes
+more a step, and at a dispatch's 90 s, 3 minutes. The job, about 37
+minutes at 90 s, stays inside its 60-minute timeout. In those twenty
+local runs every target passed (`dcrutil chars` reported in 7, |t| 4.5
+to 5.7 on 0.01 ns an operation), both controls were found in every one,
+and the disassembly job's steps passed. By the rule, the diagnostic pass
+of `hdkeychain chars` reported all 0, all 0 again, all 57 and the fixed
+draw in 8, 8, 9 and 9 of the twenty, on differences of 0.04 ns an
+operation or less, and the placebo in none; that of `dcrutil chars`
+passed every class.
+These counts are one set's: two later sets of twenty steps on the same
+code reported `dcrutil chars` in 13 and 15 of the twenty, |t| up to
+11.98 on 0.02 ns an operation or less, with no judged target failing
+and both controls found in every step.
+
+**What was run, and what was not.** On the same Zen 4 x86_64 Linux
+desktop, unrecorded: the harness's tests, which time nothing; the replay
+above; the planted leaks and the runs with no leak, as described; and the
+timing job's steps and the disassembly job's, as the workflows write
+them. Not measured: the plants at a budget of 60 s. None of it ran on
+GitHub or on an EPYC processor, and none is a run of record; there is no
+ledger entry. Whether the trace explains the next failure, and whether
+the failure recurs, is not known.
+
+**Places amended with this addendum:** the Status line (a dated bullet);
+`crates/purse-testutil/src/ct.rs` (the trace, the diagnostic pass and
+their documentation, which also records why the trace was left out at
+first and that known reports stay out); `src/ct_check.rs` in
+`purse-hdkeychain` and `purse-dcrutil` (the `chars_diagnostic` tests,
+their classes and the module documentation);
+`.github/workflows/constant-time.yml` (comments only); the ADR index.

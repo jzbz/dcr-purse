@@ -13,6 +13,17 @@ name: Constant time
 # rule. The disassembly check of the same codecs, which is deterministic
 # and takes seconds, stays in ci.yml's constant-time job, on every push.
 #
+# Diagnostics, since 2026-11-24 (ADR-0012, addendum of that date): every
+# target prints a trace below its class lines, and each chars target has a
+# diagnostic pass, a test of its own (chars_diagnostic) that the filter
+# below runs right after it, for the same budget, of its classes and two
+# more, which is printed and never judged. They were added after
+# hdkeychain chars failed once here (on f925cc2, all 0 quicker than the
+# random class by 1.84 ns an operation, decided in crop 2), a failure the
+# log could not explain and that was not reproduced off GitHub. The rule
+# a target fails by, the budgets below, the pinning, the absence of
+# retries and the job's blocking status are unchanged.
+#
 # A workflow of its own, as dcroxide's is: it times code, so its job runs
 # nothing else, and it runs only when something that can change the result
 # changes. The paths are what changes the timed binaries or the harness:
@@ -64,10 +75,12 @@ env:
 jobs:
   timing:
     name: constant time, timing (wiped base58 codecs, ADR-0012)
-    # Ten targets at each of two opt-levels, each running for its budget:
-    # at 10 s, about 4 minutes after the builds; at 60 s, about 21; at a
-    # dispatch's cap of 90 s, about 31. The cap is dcroxide's for a dispatch
-    # of every target, and keeps the run inside the hour.
+    # Ten targets at each of two opt-levels, each running for its budget,
+    # and the two chars targets' diagnostic passes for one more each:
+    # twelve budgets a step. At 10 s, about 5 minutes after the builds; at
+    # 60 s, about 25; at a dispatch's cap of 90 s, about 37. The cap is
+    # dcroxide's for a dispatch of every target, and keeps the run inside
+    # the hour.
     timeout-minutes: 60
     runs-on: ubuntu-latest
     env:
@@ -103,8 +116,16 @@ jobs:
       # timed steps are pinned to the runner's last processor, so that the
       # scheduler never moves a sample from one processor to another. The
       # disassembly target is skipped here; ci.yml runs it. Each target
-      # prints its row ("ct_check row |") and one line per class
-      # ("ct_check class |").
+      # prints its row ("ct_check row |"), one line per class
+      # ("ct_check class |") and its trace ("ct_check run |", "ct_check
+      # random |", "ct_check trace |" and "ct_check share |": the
+      # runner's processor and allowed CPUs, each class's t uncropped, in
+      # crop 32 and in six segments of the run, and the share of each
+      # class's samples in crop 32 and in the crop that decided it, beside
+      # the crop's nominal share). The chars targets'
+      # diagnostic passes (ct_check::chars_diagnostic in each crate) print
+      # the same lines under the target's name followed by ", diagnostic
+      # pass", whose row says "not judged"; those tests cannot fail.
       - run: cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-run
       - name: timing at opt-level 3 (the release profile)
         run: |
@@ -123,8 +144,9 @@ jobs:
           taskset -c "$(( $(nproc) - 1 ))" \
             cargo test --release -p purse-hdkeychain -p purse-dcrutil --lib --locked --no-fail-fast ct_check -- \
             --ignored --skip ct_check::disassembly --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/ct-check-s.log"
-      # Each target's row, per opt-level, whatever became of the steps
-      # above, but not after the dispatch's check failed.
+      # Each target's row, per opt-level, with the chars targets' rows of
+      # their diagnostic pass, whatever became of the steps above, but not
+      # after the dispatch's check failed.
       - name: Summarize the run
         if: always() && steps.inputs.outcome != 'failure'
         run: |

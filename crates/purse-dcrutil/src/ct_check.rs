@@ -50,6 +50,10 @@
 //!   the alphabet), and a placebo.
 //! - `chars`: the encoder's map of 53 digits to characters (`map_chars`),
 //!   on random digits; fixed classes all 0, all 57, and a placebo.
+//! - `chars_diagnostic`, since 2026-11-24: a diagnostic pass of `chars`, a
+//!   test of its own as purse-hdkeychain's is (ADR-0012, addendum of that
+//!   date), of those classes, a fixed draw of 53 digits and all 0 again,
+//!   printed and never judged; `chars` itself is as it was.
 //! - `decode`: `decode_wif` of a mainnet ECDSA WIF string whose network and
 //!   signature type bytes are fixed and whose 36 secret bytes (the key and
 //!   the checksum) are random; fixed classes all 0x00, all 0xff, one fixed
@@ -78,7 +82,7 @@
 use std::hint::black_box;
 
 use purse_testutil::SplitMix64;
-use purse_testutil::ct::{PLACEBO, time_target};
+use purse_testutil::ct::{PLACEBO, time_diagnostic, time_target};
 #[cfg(target_arch = "x86_64")]
 use purse_testutil::disasm::{Shape, assert_clean};
 
@@ -271,4 +275,84 @@ fn disassembly() {
         ("purse_dcrutil::base58::value_digits", Shape::Branching),
         ("purse_dcrutil::base58::decode_wif", Shape::Branching),
     ]);
+}
+
+/// `len` random digits, each below 58, drawn as the `chars` target's
+/// random class draws its digits.
+fn random_digits(rng: &mut SplitMix64, len: usize) -> Vec<u8> {
+    (0..len)
+        .map(|_| u8::try_from(rng.below(58)).expect("below 58"))
+        .collect()
+}
+
+/// The classes of the `chars` target's diagnostic pass (the module's
+/// documentation): the target's three, as `chars` names them, then a fixed
+/// draw of digits and all 0 again.
+fn chars_diagnostic_classes() -> [Vec<(&'static str, Vec<u8>)>; 2] {
+    let judged = vec![
+        ("all 0", vec![0; WIF_STRING_LEN]),
+        ("all 57", vec![57; WIF_STRING_LEN]),
+        (PLACEBO, Vec::new()),
+    ];
+    let diagnostic = vec![
+        (
+            "fixed draw",
+            random_digits(
+                &mut SplitMix64::for_label("ct_check fixed digits", 0),
+                WIF_STRING_LEN,
+            ),
+        ),
+        ("all 0 again", vec![0; WIF_STRING_LEN]),
+    ];
+    [judged, diagnostic]
+}
+
+/// The diagnostic pass of `chars`, a test of its own that the timing
+/// workflow runs right after `chars`, in the same step: printed and never
+/// judged, so it cannot fail (`purse_testutil::ct`, "The diagnostic
+/// pass"). It is kept out of `chars` itself, whose code is as it was before
+/// the pass was added.
+#[test]
+#[ignore = "timing check: cargo test --release -p purse-dcrutil --lib ct_check -- --ignored --test-threads=1 --nocapture"]
+fn chars_diagnostic() {
+    refuse_debug();
+    let [judged, diagnostic] = chars_diagnostic_classes();
+    time_diagnostic(
+        "dcrutil chars",
+        &judged,
+        &diagnostic,
+        |rng| random_digits(rng, WIF_STRING_LEN),
+        to_array::<WIF_STRING_LEN>,
+        |input| {
+            let mut chars = *input;
+            map_chars(&mut chars);
+            chars
+        },
+    )
+    .print_not_judged();
+}
+
+/// The diagnostic pass's classes: the three judged ones of `chars`, then a
+/// fixed draw of 53 digits, spread over the digits as a random draw is,
+/// and all 0 under a second name.
+#[test]
+fn chars_diagnostic_classes_are_as_documented() {
+    let [judged, diagnostic] = chars_diagnostic_classes();
+    let names: Vec<&str> = judged.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, ["all 0", "all 57", PLACEBO]);
+    assert_eq!(judged[0].1, vec![0; WIF_STRING_LEN]);
+    assert_eq!(judged[1].1, vec![57; WIF_STRING_LEN]);
+    assert!(judged[2].1.is_empty());
+    let names: Vec<&str> = diagnostic.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, ["fixed draw", "all 0 again"]);
+    let draw = &diagnostic[0].1;
+    assert_eq!(draw.len(), WIF_STRING_LEN);
+    assert!(draw.iter().all(|&d| d < 58));
+    let mut seen = [0usize; 58];
+    for &d in draw {
+        seen[usize::from(d)] += 1;
+    }
+    assert!(seen.iter().all(|&n| n <= 6), "{seen:?}");
+    assert!(seen.iter().filter(|&&n| n > 0).count() > 25, "{seen:?}");
+    assert_eq!(diagnostic[1].1, judged[0].1);
 }

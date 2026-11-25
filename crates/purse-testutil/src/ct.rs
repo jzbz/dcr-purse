@@ -11,9 +11,13 @@
 //! harness of the sister project dcroxide (`dcroxide-testutil`'s `ct`
 //! module, which its "Constant time" workflow runs; ported at the revision
 //! `48f5b5e` and unchanged at the pinned revision `1587ca1`), reduced to
-//! what this workspace's targets need: no
-//! known reports, no per-segment trace and no DIT probe. The workspace
-//! does not link `dcroxide-testutil`; a port keeps it out of the lockfile.
+//! what this workspace's targets need: no known reports and no DIT probe.
+//! The workspace does not link `dcroxide-testutil`; a port keeps it out of
+//! the lockfile. The port left out dcroxide's per-target trace too, as
+//! more than the targets then needed; since 2026-11-24 it is ported
+//! (below, "The trace"), after a failure on GitHub that its log could not
+//! explain (ADR-0012, addendum of 2026-11-24). Known reports stay out: no
+//! target here has a failure measured and judged as one.
 //!
 //! An operation is timed with [`Instant`] on inputs of fixed classes and of
 //! a random class, interleaved, and Welch's t-test asks whether a fixed
@@ -57,9 +61,71 @@
 //!
 //! Each target's budget is [`BUDGET_VAR`] seconds of wall time
 //! ([`DEFAULT_SECONDS`] when it is unset). A target prints one row, marked
-//! `ct_check row |`, and a line for each class, marked `ct_check class |`.
-//! The harness's own tests run in every `cargo test` and time nothing: they
-//! drive it with a simulated clock.
+//! `ct_check row |`, a line for each class, marked `ct_check class |`, and
+//! the trace. The harness's own tests run in every `cargo test` and time
+//! nothing: they drive it with a simulated clock.
+//!
+//! # The trace
+//!
+//! Below its class lines, whatever its verdict, and in a failure's message,
+//! each target prints lines that let a failure be read against other runs
+//! and against the machine (ported from dcroxide's `8053abe`, with the
+//! crop shares and the processor's name added). None of it changes what is
+//! timed, the classes' shares, the crops or the verdict:
+//!
+//! * `ct_check run |`: the samples counted and the warm-up's, the
+//!   segments' length, the address of one of the harness's functions and
+//!   of the first chunk of inputs, the processors the thread may run on
+//!   (`Cpus_allowed_list` of `/proc/self/status`, one when the run is
+//!   pinned) and the processor's name (the first `model name` of
+//!   `/proc/cpuinfo`; `unknown` where there is none, as off Linux).
+//! * `ct_check random |`: the random class's mean nanoseconds an
+//!   operation in the uncropped test, in crop 32 ([`FIXED_CROP`]) and in
+//!   each of six equal segments of the counted time ([`SEGMENTS`]), with
+//!   the samples crop 32 actually holds, of every class together and of the
+//!   random class, as counts and percentages of the run's, beside its
+//!   nominal share.
+//! * `ct_check trace |`, a line a class: its t and difference in the
+//!   uncropped test and in crop 32, whatever their |t|, so that runs can be
+//!   pooled on the same two tests and not on a maximum, the class's samples
+//!   crop 32 holds, and its t in each segment, which tells a difference
+//!   that lasts the run from one that comes and goes. The segments are
+//!   told apart between chunks of samples, to the nearest chunk, so that
+//!   the loop over a chunk's samples counts each sample as it did before
+//!   the trace. A chunk holds at most 4,096 operations and
+//!   [`CHUNK_BYTES`] of inputs, caps that bind before its 100 ms aim for
+//!   every target here: measured at opt-level 3, a chunk lasts about a
+//!   millisecond for the `chars` targets (0.9 to 1.4 ms) and up to about
+//!   16 ms for the `decode` and `encode` targets, at most about 1% of a
+//!   segment at the push budget of 10 s.
+//! * `ct_check share |`, a line a class: for the comparison that decides
+//!   the class, the test's nominal share of the warm-up (a crop's quantile)
+//!   and its threshold, the samples of the class and of the random class in
+//!   it, each as a count and a percentage of that class's samples in the
+//!   run, and the percentage of every class's samples together. A crop's
+//!   thresholds come from the warm-up's samples alone, so a crop can keep
+//!   far less of the run than its nominal share; a verdict decided in such
+//!   a tail shows it here.
+//!
+//! # The diagnostic pass
+//!
+//! [`time_diagnostic`] times, for the same budget as a target and in a
+//! test of its own run after the target's, a second pass of the target's
+//! classes and some more, the diagnostic classes, and
+//! [`Report::print_not_judged`] prints its row (the target's name followed
+//! by `, diagnostic pass`), class lines and trace, and never fails. The
+//! target's own test, the verdict's pass, is untouched by it: the same
+//! classes, each with the same share, the same generator and the same
+//! rule. Timing the diagnostic classes in the verdict's pass instead would
+//! have cut every class's share, and with it every t at a fixed budget,
+//! which measurably weakened what the targets find (ADR-0012, addendum of
+//! 2026-11-24). The diagnostic pass itself has those smaller shares, and
+//! for some leaks a different mix of inputs changes the leak, so it sees
+//! less than the verdict's pass. It times its own later window, with its
+//! own warm-up and thresholds, so it shows only a difference that lasts
+//! into that window, and may show nothing of a passing event: what it shows
+//! is read beside the verdict's pass, and a class that passes it shows
+//! nothing.
 //!
 //! It is statistical. It sees a difference large enough to show on the
 //! machine that runs it, fails only on one of a nanosecond an operation or
@@ -75,6 +141,7 @@
 
 use std::env;
 use std::fmt::Write as _;
+use std::fs;
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -115,6 +182,24 @@ pub const PLACEBO: &str = "placebo";
 
 /// dudect's crops, in addition to the uncropped test.
 const CROPS: usize = 100;
+
+/// The crop whose comparison each class's trace line gives beside the
+/// uncropped test's, whatever their |t|: crop 32, which keeps the samples
+/// quicker than the warm-up's quantile 0.898, the nearest of dudect's to
+/// nine tenths (dcroxide's choice). A class's verdict is decided by one
+/// comparison of many, so results pooled over runs are statistics of a
+/// maximum; these two are the same tests in every run. A crop's thresholds
+/// come from the warm-up alone, so the share of the run's samples crop 32
+/// holds can drift from its nominal share, and the trace prints it beside
+/// it. The trace's alone: the verdict does not read it.
+pub const FIXED_CROP: usize = 32;
+
+/// The equal parts of a run's counted time, from the warm-up's end to the
+/// budget's, in each of which the trace also compares every fixed class
+/// with the random class, uncropped: a sixth of the run each, about 1.5 s
+/// at 10 s and 10 s at 60 s. A difference that lasts the whole run shows in
+/// every one; one that comes and goes, in some. The trace's alone.
+pub const SEGMENTS: usize = 6;
 
 /// The samples that warm up and set the crops, unless a tenth of the budget
 /// passes first.
@@ -157,6 +242,24 @@ impl Moments {
     fn variance(&self) -> f64 {
         self.m2 / (self.n - 1) as f64
     }
+
+    /// The moments of the times pushed since `earlier`, a state these
+    /// moments passed through: Chan, Golub and LeVeque's combination of two
+    /// parts, solved for the later part.
+    fn less(&self, earlier: &Moments) -> Moments {
+        let n = self.n - earlier.n;
+        if n == 0 {
+            return Moments::default();
+        }
+        let mean = (self.mean * self.n as f64 - earlier.mean * earlier.n as f64) / n as f64;
+        let delta = mean - earlier.mean;
+        let m2 = self.m2 - earlier.m2 - delta * delta * earlier.n as f64 * n as f64 / self.n as f64;
+        Moments {
+            n,
+            mean,
+            m2: m2.max(0.0),
+        }
+    }
 }
 
 /// Welch's t of `a` against `b`, positive when `a` is slower; infinite when
@@ -196,6 +299,57 @@ struct Comparison {
     random_mean: f64,
 }
 
+/// The segment ([`SEGMENTS`]) of the time `began` (a chunk boundary), of
+/// the equal parts of the time from `from`, the first such boundary after
+/// the warm-up, to `until`, where the budget ends: the last for a time at
+/// `until` or later, and the first for one before `from`.
+fn segment(began: u64, from: u64, until: u64) -> usize {
+    let span = until.saturating_sub(from).max(1);
+    let at = began.saturating_sub(from);
+    (at.saturating_mul(SEGMENTS as u64) / span).min(SEGMENTS as u64 - 1) as usize
+}
+
+/// Every class's moments in the uncropped test in each segment of the
+/// counted time, `[segment][slot]`, from the marks [`Stats::mark`] left and
+/// the moments at the run's end (`end`): segment k's are the samples
+/// counted between mark k and mark k + 1, or the end after the last mark,
+/// and a segment the run did not reach has none.
+fn segment_moments(marks: &[Vec<Moments>], end: &[Moments]) -> Vec<Vec<Moments>> {
+    let empty = vec![Moments::default(); end.len()];
+    let first = [empty.clone()];
+    let marks = if marks.is_empty() { &first[..] } else { marks };
+    (0..SEGMENTS)
+        .map(|k| match marks.get(k) {
+            None => empty.clone(),
+            Some(from) => {
+                let to = marks.get(k + 1).map_or(end, Vec::as_slice);
+                to.iter()
+                    .zip(from)
+                    .map(|(to, from)| to.less(from))
+                    .collect()
+            }
+        })
+        .collect()
+}
+
+/// Each fixed class's t against the random class in each segment, from
+/// [`segment_moments`], in the segments' order: `None` where a side has
+/// fewer than [`MIN_SAMPLES`].
+fn by_segment(segments: &[Vec<Moments>]) -> Vec<Vec<Option<f64>>> {
+    let slots = segments.first().map_or(0, Vec::len);
+    (1..slots)
+        .map(|slot| {
+            segments
+                .iter()
+                .map(|segment| {
+                    (segment[0].n >= MIN_SAMPLES && segment[slot].n >= MIN_SAMPLES)
+                        .then(|| welch_t(&segment[slot], &segment[0]))
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Every class's moments in the uncropped test and in each crop.
 struct Stats {
     /// A sample counts in crop i when it took less than `thresholds[i]`.
@@ -228,6 +382,30 @@ impl Stats {
                 crop[slot].push(x);
             }
         }
+    }
+
+    /// Notes, between two chunks, that the counted time has reached
+    /// segment `segment` ([`segment`]): `marks[k]` becomes every class's
+    /// moments in the uncropped test as they stood when segment k began,
+    /// to the nearest chunk ([`segment_moments`]). The first mark is empty,
+    /// so that samples counted before the first chunk boundary after the
+    /// warm-up fall in segment 0. The trace's alone, and outside the loop
+    /// over a chunk's samples, whose code it leaves as it was.
+    fn mark(&self, marks: &mut Vec<Vec<Moments>>, segment: usize) {
+        if marks.is_empty() {
+            marks.push(vec![Moments::default(); self.tests[0].len()]);
+        }
+        while marks.len() <= segment {
+            marks.push(self.tests[0].clone());
+        }
+    }
+
+    /// Every class's count of samples in every test, `[test][slot]`.
+    fn counts(&self) -> Vec<Vec<u64>> {
+        self.tests
+            .iter()
+            .map(|test| test.iter().map(|m| m.n).collect())
+            .collect()
     }
 
     /// Each fixed class's comparisons, one in each test with
@@ -280,6 +458,18 @@ struct Measured {
     batch: u64,
     samples: u64,
     nanos: u64,
+    /// The samples the warm-up took and threw away.
+    warm_up: usize,
+    /// The clock's time at the first chunk boundary after the warm-up,
+    /// where the segments begin (the samples counted before it, at most a
+    /// chunk's, fall in the first).
+    counted_from: u64,
+    /// The clock's time when the budget ends, where the segments end.
+    deadline: u64,
+    /// The trace's marks of the segments ([`Stats::mark`]).
+    marks: Vec<Vec<Moments>>,
+    /// The address of the first chunk's inputs, on the heap.
+    inputs_at: usize,
 }
 
 /// Times `op` for `budget` nanoseconds of `clock` on inputs `build` makes
@@ -289,6 +479,9 @@ struct Measured {
 /// and its batch's inputs built, the whole chunk's before any of it is
 /// timed, and each sample is timed as its batch, each input and result
 /// through `black_box`, the results dropped after the clock is read.
+/// Between chunks, after the warm-up, the trace's marks of the segments
+/// ([`Stats::mark`]) are taken; nothing is added to the loop over a chunk's
+/// samples, which counts each as it did before the trace.
 fn measure<I, R>(
     clock: &impl Clock,
     rng: &mut SplitMix64,
@@ -321,7 +514,17 @@ fn measure<I, R>(
     let mut warm_up = Vec::new();
     let mut stats: Option<Stats> = None;
     let mut samples = 0;
+    let mut counted_from = start;
+    let mut marks = Vec::new();
+    let mut inputs_at = None;
     loop {
+        if let Some(stats) = &stats {
+            let now = clock.now();
+            if marks.is_empty() {
+                counted_from = now;
+            }
+            stats.mark(&mut marks, segment(now, counted_from, deadline));
+        }
         let classes: Vec<Option<usize>> = (0..chunk).map(|_| draw_class(rng, fixed)).collect();
         let mut inputs = Vec::with_capacity((chunk * batch) as usize);
         for &class in &classes {
@@ -329,6 +532,7 @@ fn measure<I, R>(
                 inputs.push(build(class, rng));
             }
         }
+        inputs_at.get_or_insert(inputs.as_ptr().addr());
         for (class, batch_inputs) in classes.into_iter().zip(inputs.chunks_mut(batch as usize)) {
             let began = clock.now();
             for input in batch_inputs {
@@ -352,6 +556,11 @@ fn measure<I, R>(
                     batch,
                     samples,
                     nanos: ended.saturating_sub(start),
+                    warm_up: warm_up.len(),
+                    counted_from,
+                    deadline,
+                    marks,
+                    inputs_at: inputs_at.unwrap_or_default(),
                 };
             }
         }
@@ -410,6 +619,86 @@ pub struct Report {
     batch: u64,
     samples: u64,
     seconds: f64,
+    /// False for a diagnostic pass ([`time_diagnostic`]), whose lines say
+    /// that it is not judged; it changes only what is printed.
+    judged: bool,
+    trace: Trace,
+}
+
+/// What a target's trace lines give besides its verdict (the module's
+/// documentation, "The trace").
+#[derive(Debug, Default)]
+struct Trace {
+    /// Each fixed class's t in each segment ([`Stats::by_segment`]).
+    by_segment: Vec<Vec<Option<f64>>>,
+    /// The random class's moments in the uncropped test, [`FIXED_CROP`]
+    /// and each segment ([`Stats::random`]).
+    random: Vec<Moments>,
+    /// Every class's samples in every test ([`Stats::counts`]).
+    counts: Vec<Vec<u64>>,
+    /// Each crop's threshold in nanoseconds a sample.
+    thresholds: Vec<u64>,
+    /// The samples the warm-up took and threw away.
+    warm_up: usize,
+    /// A segment's length in nanoseconds.
+    segment_nanos: u64,
+    /// The address of one of the harness's functions, `Stats::push`: the
+    /// binary is mapped whole, so with its symbols every function's
+    /// address follows from this one.
+    code: usize,
+    /// The address of the run's first chunk of inputs, on the heap.
+    inputs: usize,
+    /// The processors the thread may run on ([`allowed_cpus`]).
+    cpus: String,
+    /// The processor's name ([`cpu_model`]).
+    cpu: String,
+}
+
+/// The processors this thread may run on, from `status`, the text of
+/// `/proc/self/status`: its `Cpus_allowed_list` line's value, or `-` when
+/// there is none, as on a system without `/proc`.
+fn allowed_cpus(status: Option<&str>) -> String {
+    status
+        .and_then(|status| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix("Cpus_allowed_list:"))
+        })
+        .map_or_else(|| "-".to_owned(), |list| list.trim().to_owned())
+}
+
+/// The processor's name, from `cpuinfo`, the text of `/proc/cpuinfo`: the
+/// value of its first `model name` line, or `unknown` when there is none,
+/// as on a system without `/proc` or on a processor whose kernel gives no
+/// such line.
+fn cpu_model(cpuinfo: Option<&str>) -> String {
+    cpuinfo
+        .and_then(|info| {
+            info.lines().find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                (key.trim() == "model name").then(|| value.trim())
+            })
+        })
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| "unknown".to_owned(), str::to_owned)
+}
+
+/// The name of test `test`: every sample, or a crop by the share of the
+/// warm-up's times it keeps.
+fn test_name(test: usize) -> String {
+    match test.checked_sub(1) {
+        None => "all samples".to_owned(),
+        Some(i) => format!("crop {i} ({:.1}%)", 100.0 * crop_fraction(i)),
+    }
+}
+
+/// `part` as a percentage of `whole`, `-` when `whole` is zero.
+fn percent(part: u64, whole: u64) -> String {
+    if whole == 0 {
+        "-".to_owned()
+    } else {
+        format!("{:.1}%", 100.0 * part as f64 / whole as f64)
+    }
 }
 
 impl Report {
@@ -447,19 +736,30 @@ impl Report {
             .unwrap_or(Verdict::TooFew)
     }
 
+    /// A class's verdict as its line gives it: the verdict's word, or, in
+    /// a diagnostic pass, which is not judged, what the rule would say,
+    /// in lower case and marked as not judged.
+    fn word(&self, verdict: Verdict) -> String {
+        if self.judged {
+            verdict.word()
+        } else {
+            format!(
+                "not judged (by the rule: {})",
+                verdict.word().to_lowercase()
+            )
+        }
+    }
+
     /// One class's line.
     fn class_line(&self, name: &str, verdict: Verdict, c: Option<&Comparison>) -> String {
         match c {
             None => format!(
                 "ct_check class | {} | {name} | no comparison | {}",
                 self.target,
-                verdict.word()
+                self.word(verdict)
             ),
             Some(c) => {
-                let test = match c.test.checked_sub(1) {
-                    None => "all samples".to_owned(),
-                    Some(i) => format!("crop {i} ({:.1}%)", 100.0 * crop_fraction(i)),
-                };
+                let test = test_name(c.test);
                 format!(
                     "ct_check class | {} | {name} | t {:.2} | {:.1} ns/op random | {:+.2} ns/op | \
                      {test} | {} fixed | {} random | {}",
@@ -469,10 +769,141 @@ impl Report {
                     c.difference / self.batch as f64,
                     c.fixed,
                     c.random,
-                    verdict.word()
+                    self.word(verdict)
                 )
             }
         }
+    }
+
+    /// The trace (the module's documentation, "The trace"), the same lines
+    /// whatever the verdict, each marked at its start, a `-` where there is
+    /// nothing to give. The share line gives, for the comparison that
+    /// decides each class (what its class line shows), the samples of the
+    /// class and of the random class in that test as counts and as
+    /// percentages of each one's samples in the run.
+    fn trace_lines(&self) -> String {
+        let trace = &self.trace;
+        let batch = self.batch as f64;
+        let mut out = format!(
+            "ct_check run | {} | {} samples after {} to warm up | {SEGMENTS} segments of {:.2} s \
+             | code {:#x} | inputs {:#x} | cpus {} | cpu {}\n",
+            self.target,
+            self.samples,
+            trace.warm_up,
+            trace.segment_nanos as f64 / 1e9,
+            trace.code,
+            trace.inputs,
+            trace.cpus,
+            trace.cpu
+        );
+        let mean = |m: Option<&Moments>| match m {
+            Some(m) if m.n > 0 => format!("{:.2}", m.mean / batch),
+            _ => "-".to_owned(),
+        };
+        let segments: Vec<String> = (0..SEGMENTS)
+            .map(|k| mean(trace.random.get(2 + k)))
+            .collect();
+        let count = |test: usize, slot: usize| {
+            trace
+                .counts
+                .get(test)
+                .and_then(|test| test.get(slot))
+                .copied()
+                .unwrap_or(0)
+        };
+        let slots = trace.counts.first().map_or(0, Vec::len);
+        let pooled = |test: usize| (0..slots).map(|s| count(test, s)).sum::<u64>();
+        // What crop 32 actually holds, beside its nominal share: its
+        // thresholds come from the warm-up alone, so in a run that slowed
+        // after the warm-up it can hold a thin tail of the run.
+        let held = |slot: Option<usize>| {
+            let (part, whole) = match slot {
+                Some(slot) => (count(1 + FIXED_CROP, slot), count(0, slot)),
+                None => (pooled(1 + FIXED_CROP), pooled(0)),
+            };
+            format!("holds {part} of {whole} ({})", percent(part, whole))
+        };
+        let _ = writeln!(
+            out,
+            "ct_check random | {} | ns/op | all samples {} | {} {}, every class {}, random {} | \
+             segments {}",
+            self.target,
+            mean(trace.random.first()),
+            test_name(1 + FIXED_CROP),
+            mean(trace.random.get(1)),
+            held(None),
+            held(Some(0)),
+            segments.join(" ")
+        );
+        for (class, ((name, comparisons), (_, deciding))) in self
+            .names
+            .iter()
+            .zip(&self.by_class)
+            .zip(self.classes())
+            .enumerate()
+        {
+            let at = |test: usize| match comparisons.iter().find(|c| c.test == test) {
+                Some(c) => format!("t {:+.2} {:+.2} ns/op", c.t, c.difference / batch),
+                None => "-".to_owned(),
+            };
+            let segments: Vec<String> = (0..SEGMENTS)
+                .map(|k| {
+                    match trace
+                        .by_segment
+                        .get(class)
+                        .and_then(|segments| segments.get(k).copied().flatten())
+                    {
+                        Some(t) => format!("{t:+.2}"),
+                        None => "-".to_owned(),
+                    }
+                })
+                .collect();
+            let _ = writeln!(
+                out,
+                "ct_check trace | {} | {name} | all samples {} | {} {}, {} | t by segment {}",
+                self.target,
+                at(0),
+                test_name(1 + FIXED_CROP),
+                at(1 + FIXED_CROP),
+                held(Some(1 + class)),
+                segments.join(" ")
+            );
+            let Some(c) = deciding else {
+                let _ = writeln!(
+                    out,
+                    "ct_check share | {} | {name} | no comparison",
+                    self.target
+                );
+                continue;
+            };
+            let slot = 1 + class;
+            let threshold = match c.test.checked_sub(1) {
+                None => "every sample".to_owned(),
+                Some(i) => match trace.thresholds.get(i) {
+                    Some(&ns) => format!("under {ns} ns a sample"),
+                    None => "-".to_owned(),
+                },
+            };
+            let all_in = pooled(c.test);
+            let all = pooled(0);
+            let _ = writeln!(
+                out,
+                "ct_check share | {} | {name} | deciding {}, {threshold} | {name} {} of {} ({}) | \
+                 random {} of {} ({}) | every class {} of {} ({})",
+                self.target,
+                test_name(c.test),
+                count(c.test, slot),
+                count(0, slot),
+                percent(count(c.test, slot), count(0, slot)),
+                count(c.test, 0),
+                count(0, 0),
+                percent(count(c.test, 0), count(0, 0)),
+                all_in,
+                all,
+                percent(all_in, all)
+            );
+        }
+        out
     }
 
     /// What the target prints: its row and each class's line.
@@ -505,12 +936,12 @@ impl Report {
             out += &self.class_line(name, *v, *c);
             out.push('\n');
         }
-        out
+        out + &self.trace_lines()
     }
 
-    /// Prints the row and the classes' lines, and fails when a fixed class
-    /// has a comparison of |t| above [`T_FAIL`] on a difference of
-    /// [`MIN_FAIL_NANOS`] an operation or more, or when a class had no
+    /// Prints the row, the classes' lines and the trace, and fails when a
+    /// fixed class has a comparison of |t| above [`T_FAIL`] on a difference
+    /// of [`MIN_FAIL_NANOS`] an operation or more, or when a class had no
     /// comparison with [`MIN_SAMPLES`] on each side. Returns what it
     /// printed.
     ///
@@ -534,6 +965,17 @@ impl Report {
                 self.target
             ),
         }
+    }
+
+    /// A diagnostic pass's output ([`time_diagnostic`]): prints the row,
+    /// whose verdict reads `not judged (diagnostic pass)`, the classes'
+    /// lines, each giving what the rule would say and marked as not judged,
+    /// and the trace. It never fails, whatever the classes' times. Returns
+    /// what it printed.
+    pub fn print_not_judged(&self) -> String {
+        let printed = self.printed("not judged (diagnostic pass)");
+        print!("{printed}");
+        printed
     }
 
     /// The positive control's check: prints the row and the classes' lines,
@@ -632,14 +1074,92 @@ pub fn time_target<I, R>(
     report(target, classes, &measured)
 }
 
+/// Times `op` as the diagnostic pass of the target `target`, for the
+/// budget [`BUDGET_VAR`] gives, on `classes` followed by `diagnostic`,
+/// every class with an equal share, as [`time_target`] times a target: its
+/// generator seeded through [`SplitMix64::from_env`] with the target's
+/// name followed by `, diagnostic pass`, the name it is reported as. A
+/// test of its own calls it, after the target's, and prints the report
+/// with [`Report::print_not_judged`]: never judged (the module's
+/// documentation, "The diagnostic pass").
+///
+/// # Panics
+///
+/// When [`BUDGET_VAR`] is set to anything but a whole number of seconds
+/// above zero.
+pub fn time_diagnostic<I, R>(
+    target: &str,
+    classes: &[(&'static str, Vec<u8>)],
+    diagnostic: &[(&'static str, Vec<u8>)],
+    draw: impl FnMut(&mut SplitMix64) -> Vec<u8>,
+    build: impl FnMut(&[u8]) -> I,
+    op: impl FnMut(&mut I) -> R,
+) -> Report {
+    let value = env::var(BUDGET_VAR).ok();
+    let seconds = budget_seconds(value.as_deref()).unwrap_or_else(|e| panic!("{e}"));
+    let name = diagnostic_name(target);
+    let all = with_diagnostic(classes, diagnostic);
+    let measured = measure(
+        &WallClock(Instant::now()),
+        &mut SplitMix64::from_env(&name),
+        seconds * 1_000_000_000,
+        all.len(),
+        by_class(&all, draw, build),
+        op,
+    );
+    unjudged(report(&name, &all, &measured))
+}
+
+/// The name a diagnostic pass of `target` is reported as.
+fn diagnostic_name(target: &str) -> String {
+    format!("{target}, diagnostic pass")
+}
+
+/// The classes of a diagnostic pass: `classes`, then `diagnostic`.
+fn with_diagnostic(
+    classes: &[(&'static str, Vec<u8>)],
+    diagnostic: &[(&'static str, Vec<u8>)],
+) -> Vec<(&'static str, Vec<u8>)> {
+    classes.iter().chain(diagnostic).cloned().collect()
+}
+
+/// `report`, as a diagnostic pass's: its lines say it is not judged.
+fn unjudged(report: Report) -> Report {
+    Report {
+        judged: false,
+        ..report
+    }
+}
+
 fn report(target: &str, classes: &[(&'static str, Vec<u8>)], measured: &Measured) -> Report {
+    let push: fn(&mut Stats, usize, u64) = Stats::push;
+    let stats = &measured.stats;
+    let segments = segment_moments(&measured.marks, &stats.tests[0]);
     Report {
         target: target.to_owned(),
         names: classes.iter().map(|(name, _)| *name).collect(),
-        by_class: measured.stats.by_class(),
+        by_class: stats.by_class(),
         batch: measured.batch,
         samples: measured.samples,
         seconds: measured.nanos as f64 / 1e9,
+        judged: true,
+        trace: Trace {
+            by_segment: by_segment(&segments),
+            random: [&stats.tests[0], &stats.tests[1 + FIXED_CROP]]
+                .into_iter()
+                .chain(&segments)
+                .map(|test| test[0])
+                .collect(),
+            counts: stats.counts(),
+            thresholds: stats.thresholds.clone(),
+            warm_up: measured.warm_up,
+            segment_nanos: measured.deadline.saturating_sub(measured.counted_from)
+                / SEGMENTS as u64,
+            code: push as usize,
+            inputs: measured.inputs_at,
+            cpus: allowed_cpus(fs::read_to_string("/proc/self/status").ok().as_deref()),
+            cpu: cpu_model(fs::read_to_string("/proc/cpuinfo").ok().as_deref()),
+        },
     }
 }
 
@@ -765,6 +1285,310 @@ mod tests {
         assert_eq!(welch_t(&a, &a), 0.0);
         assert!((crop_fraction(0) - (1.0 - 0.5f64.powf(0.1))).abs() < 1e-12);
         assert!(crop_fraction(99) > 0.999 && crop_fraction(99) < 1.0);
+    }
+
+    /// A diagnostic pass ([`time_diagnostic`]) on the simulated clock, on
+    /// `classes` and `diagnostic` with the generator `SplitMix64(2)`. Each
+    /// operation costs 600 ns plus up to 20 from a generator that knows
+    /// nothing of the class, plus `extra[b]` for an input of byte `b` (the
+    /// random class's is 0).
+    fn simulate_diagnostic(
+        classes: &[(&'static str, Vec<u8>)],
+        diagnostic: &[(&'static str, Vec<u8>)],
+        extra: [u64; 4],
+        budget: u64,
+    ) -> Report {
+        let clock = Simulated(Cell::new(0));
+        let mut jitter = SplitMix64(7);
+        let all = with_diagnostic(classes, diagnostic);
+        let measured = measure(
+            &clock,
+            &mut SplitMix64(2),
+            budget,
+            all.len(),
+            by_class(&all, |_| vec![0], |b| b[0]),
+            |input: &mut u8| {
+                let cost = 600 + jitter.below(21) + extra[usize::from(*input)];
+                clock.0.set(clock.0.get() + cost);
+            },
+        );
+        unjudged(report(&diagnostic_name("simulated"), &all, &measured))
+    }
+
+    fn lines<'a>(printed: &'a str, marker: &str) -> Vec<&'a str> {
+        printed
+            .lines()
+            .filter(|line| line.starts_with(marker))
+            .collect()
+    }
+
+    #[test]
+    fn segments_split_the_counted_time() {
+        assert_eq!(segment(0, 100, 700), 0, "before the warm-up's end");
+        assert_eq!(segment(100, 100, 700), 0);
+        assert_eq!(segment(199, 100, 700), 0);
+        assert_eq!(segment(200, 100, 700), 1);
+        assert_eq!(segment(699, 100, 700), 5);
+        assert_eq!(segment(700, 100, 700), 5, "at the budget's end");
+        assert_eq!(segment(9_000, 100, 700), 5, "after it");
+        assert_eq!(segment(5, 7, 7), 0, "an empty span");
+    }
+
+    #[test]
+    fn the_processor_and_its_allowed_set_are_read() {
+        let cpuinfo = "processor\t: 0\nvendor_id\t: AuthenticAMD\nmodel name\t: AMD EPYC \
+                       9V74 80-Core Processor\n\nprocessor\t: 1\nmodel name\t: other\n";
+        assert_eq!(cpu_model(Some(cpuinfo)), "AMD EPYC 9V74 80-Core Processor");
+        // An arm64 kernel's /proc/cpuinfo has no model name line.
+        assert_eq!(
+            cpu_model(Some("processor\t: 0\nCPU implementer\t: 0x41\n")),
+            "unknown"
+        );
+        assert_eq!(cpu_model(Some("model name\t:\n")), "unknown");
+        assert_eq!(cpu_model(None), "unknown");
+        let status = "Name:\tct\nCpus_allowed:\t80000000\nCpus_allowed_list:\t31\n";
+        assert_eq!(allowed_cpus(Some(status)), "31");
+        assert_eq!(allowed_cpus(Some("Name:\tct\n")), "-");
+        assert_eq!(allowed_cpus(None), "-");
+    }
+
+    #[test]
+    fn the_trace_gives_every_class_its_tests_segments_and_share() {
+        let r = simulate(600, 20, 2, 200_000_000);
+        let printed = r.printed("?");
+        let run = lines(&printed, "ct_check run | simulated | ");
+        assert_eq!(run.len(), 1, "{printed}");
+        assert!(run[0].contains(" | 6 segments of "), "{printed}");
+        assert!(run[0].contains(" | cpus "), "{printed}");
+        assert!(run[0].contains(" | cpu "), "{printed}");
+        let random = lines(
+            &printed,
+            "ct_check random | simulated | ns/op | all samples ",
+        );
+        assert_eq!(random.len(), 1, "{printed}");
+        let segments = random[0].split(" | segments ").nth(1).expect("segments");
+        assert_eq!(segments.split(' ').count(), SEGMENTS, "{printed}");
+        assert!(random[0].contains(" | crop 32 (89.8%) "), "{printed}");
+        assert!(random[0].contains(", every class holds "), "{printed}");
+
+        let traces = lines(&printed, "ct_check trace | simulated | ");
+        let shares = lines(&printed, "ct_check share | simulated | ");
+        assert_eq!(traces.len(), 2, "one a class: {printed}");
+        assert_eq!(shares.len(), 2, "one a class: {printed}");
+        // The leaking class leans in every segment; t is given in each.
+        let by_segment = traces[0].split(" | t by segment ").nth(1).expect("t");
+        let ts: Vec<f64> = by_segment
+            .split(' ')
+            .map(|t| t.parse().expect("a t"))
+            .collect();
+        assert_eq!(ts.len(), SEGMENTS);
+        assert!(ts.iter().all(|&t| t > T_FAIL), "{printed}");
+        assert!(traces[0].contains(" | all samples t +"), "{printed}");
+
+        // The share line's counts are the deciding comparison's, out of each
+        // class's samples in the run.
+        for (class, share) in shares.iter().enumerate() {
+            let (_, c) = r.classes()[class];
+            let c = c.expect("a comparison");
+            let slot = 1 + class;
+            let counts = &r.trace.counts;
+            assert!(
+                share.contains(&format!("deciding {}", test_name(c.test))),
+                "{share}"
+            );
+            assert!(
+                share.contains(&format!(" {} of {} (", c.fixed, counts[0][slot])),
+                "{share}"
+            );
+            assert!(
+                share.contains(&format!(" | random {} of {} (", c.random, counts[0][0])),
+                "{share}"
+            );
+            let total: u64 = counts[0].iter().sum();
+            assert_eq!(total, r.samples);
+            assert!(share.contains(&format!(" of {total} (")), "{share}");
+        }
+    }
+
+    #[test]
+    fn a_verdict_decided_in_a_thin_crop_shows_its_share() {
+        // Each operation costs 600 ns during the warm-up and 640 after it,
+        // as if the processor slowed: the crops' thresholds, from the
+        // warm-up alone, keep far less of the run than their nominal
+        // shares.
+        let clock = Simulated(Cell::new(0));
+        let mut jitter = SplitMix64(7);
+        let classes: Vec<(&'static str, Vec<u8>)> = vec![("fixed", vec![1])];
+        let measured = measure(
+            &clock,
+            &mut SplitMix64(1),
+            200_000_000,
+            1,
+            by_class(&classes, |_| vec![0], |b| b[0]),
+            |input: &mut u8| {
+                let slow = if clock.0.get() > 5_000_000 { 40 } else { 0 };
+                let cost = 600 + slow + jitter.below(41) + 2 * u64::from(*input);
+                clock.0.set(clock.0.get() + cost);
+            },
+        );
+        let r = report("simulated", &classes, &measured);
+        let counts = &r.trace.counts;
+        let all: u64 = counts[0].iter().sum();
+        let in_crop_50: u64 = counts[1 + 50].iter().sum();
+        assert!(crop_fraction(50) > 0.97);
+        assert!(
+            (in_crop_50 as f64) < 0.05 * all as f64,
+            "{in_crop_50} of {all}"
+        );
+        let printed = r.printed("?");
+        // Crop 32, nominally 89.8% of the warm-up, holds a thin tail of the
+        // run, and its lines say so beside the nominal share.
+        let in_crop_32: u64 = counts[1 + FIXED_CROP].iter().sum();
+        assert!((in_crop_32 as f64) < 0.1 * all as f64, "{in_crop_32}");
+        let random = lines(&printed, "ct_check random | simulated | ");
+        assert!(
+            random[0].contains(&format!(
+                "crop 32 (89.8%) {:.2}, every class holds {in_crop_32} of {all} ({}), random \
+                 holds {} of {} (",
+                r.trace.random[1].mean / r.batch as f64,
+                percent(in_crop_32, all),
+                counts[1 + FIXED_CROP][0],
+                counts[0][0]
+            )),
+            "{printed}"
+        );
+        let trace = lines(&printed, "ct_check trace | simulated | fixed | ");
+        assert!(
+            trace[0].contains(&format!(
+                ", holds {} of {} ({}) | t by segment ",
+                counts[1 + FIXED_CROP][1],
+                counts[0][1],
+                percent(counts[1 + FIXED_CROP][1], counts[0][1])
+            )),
+            "{printed}"
+        );
+        let share = lines(&printed, "ct_check share | simulated | fixed | deciding ");
+        assert_eq!(share.len(), 1, "{printed}");
+        let (_, c) = r.classes()[0];
+        let c = c.expect("a comparison");
+        let pooled = counts[c.test].iter().sum::<u64>();
+        assert!(
+            share[0].ends_with(&format!(
+                "every class {pooled} of {all} ({})",
+                percent(pooled, all)
+            )),
+            "{printed}"
+        );
+    }
+
+    #[test]
+    fn a_diagnostic_pass_is_printed_and_never_judged() {
+        let classes: Vec<(&'static str, Vec<u8>)> = vec![("fixed", vec![1]), (PLACEBO, vec![])];
+        let diagnostic: Vec<(&'static str, Vec<u8>)> =
+            vec![("fixed draw", vec![2]), ("fixed again", vec![1])];
+
+        // A leak of 5 ns an operation on byte 2, which only the diagnostic
+        // class "fixed draw" has, and one of 2 ns on byte 1, which the
+        // judged class "fixed" and its copy have: the lines show both, by
+        // the rule, and printing them does not fail.
+        let d = simulate_diagnostic(&classes, &diagnostic, [0, 2, 5, 0], 200_000_000);
+        assert_eq!(d.names, ["fixed", PLACEBO, "fixed draw", "fixed again"]);
+        let verdicts: Vec<Verdict> = d.classes().iter().map(|(v, _)| *v).collect();
+        assert_eq!(verdicts[0], Verdict::Leak);
+        assert!(verdicts[1] <= Verdict::Reported, "{}", d.printed("?"));
+        assert_eq!(verdicts[2], Verdict::Leak);
+        assert_eq!(verdicts[3], Verdict::Leak);
+        let printed = d.print_not_judged();
+        let row = lines(&printed, "ct_check row | simulated, diagnostic pass | ");
+        assert_eq!(row.len(), 1, "{printed}");
+        assert!(
+            row[0].ends_with("| not judged (diagnostic pass)"),
+            "{printed}"
+        );
+        let draw = lines(
+            &printed,
+            "ct_check class | simulated, diagnostic pass | fixed draw |",
+        );
+        assert!(
+            draw[0].ends_with("| not judged (by the rule: leak)"),
+            "{printed}"
+        );
+        assert!(!printed.contains("LEAK"), "{printed}");
+        assert_eq!(
+            lines(&printed, "ct_check trace | simulated, diagnostic pass | ").len(),
+            4
+        );
+        // Each of the five classes has a share of 1/5 here.
+        let total: u64 = d.trace.counts[0].iter().sum();
+        for &n in &d.trace.counts[0] {
+            let share = n as f64 / total as f64;
+            assert!((share - 0.2).abs() < 0.01, "{share}");
+        }
+    }
+
+    #[test]
+    fn segments_are_the_differences_of_the_marks() {
+        let mut all = Moments::default();
+        let mut early = Moments::default();
+        let mut late = Moments::default();
+        let mut jitter = SplitMix64(3);
+        for i in 0..10_000u64 {
+            let x = 2_000.0 + jitter.below(97) as f64 + if i >= 3_000 { 40.0 } else { 0.0 };
+            all.push(x);
+            if i < 3_000 {
+                early.push(x);
+            } else {
+                late.push(x);
+            }
+            if i == 2_999 {
+                let part = all.less(&early);
+                assert_eq!((part.n, part.mean, part.m2), (0, 0.0, 0.0));
+            }
+        }
+        let part = all.less(&early);
+        assert_eq!(part.n, late.n);
+        assert!((part.mean - late.mean).abs() < 1e-9, "{part:?} {late:?}");
+        assert!((part.m2 / late.m2 - 1.0).abs() < 1e-9, "{part:?} {late:?}");
+
+        // A run whose fixed class is 3 ns an operation slower in its fourth
+        // sixth of the counted time alone: the marks, taken between chunks,
+        // put the difference in that segment and nowhere else.
+        let clock = Simulated(Cell::new(0));
+        let mut jitter = SplitMix64(7);
+        let classes: Vec<(&'static str, Vec<u8>)> = vec![("fixed", vec![1])];
+        let budget = 200_000_000;
+        let measured = measure(
+            &clock,
+            &mut SplitMix64(1),
+            budget,
+            1,
+            by_class(&classes, |_| vec![0], |b| b[0]),
+            |input: &mut u8| {
+                let now = clock.0.get();
+                let fourth = now > 105_000_000 && now < 130_000_000;
+                let cost = 600 + jitter.below(21) + 3 * u64::from(*input) * u64::from(fourth);
+                clock.0.set(now + cost);
+            },
+        );
+        let r = report("simulated", &classes, &measured);
+        let ts: Vec<f64> = r.trace.by_segment[0]
+            .iter()
+            .map(|t| t.expect("a t"))
+            .collect();
+        assert!(ts[3] > T_FAIL, "{ts:?}");
+        for (k, t) in ts.iter().enumerate() {
+            if k != 3 {
+                assert!(t.abs() < T_FAIL, "{ts:?}");
+            }
+        }
+        // The segments hold every counted sample, each once.
+        let segments = segment_moments(&measured.marks, &measured.stats.tests[0]);
+        let n: u64 = segments.iter().flatten().map(|m| m.n).sum();
+        assert_eq!(n, r.samples);
+        for segment in &segments {
+            let share = segment.iter().map(|m| m.n).sum::<u64>() as f64 / n as f64;
+            assert!((share - 1.0 / 6.0).abs() < 0.02, "{share}");
+        }
     }
 
     #[test]

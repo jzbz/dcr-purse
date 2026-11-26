@@ -60,7 +60,8 @@
 //! export equal: `a_revalidated_transaction_also_unmined_is_counted_twice`
 //! (QK-0734, QK-0736; since the selection slice
 //! `a_revalidated_transaction_drops_its_unmined_copy`, which shows Go's
-//! state beside dcr-purse's, QK-0734 being fixed) and
+//! state beside dcr-purse's, QK-0734 being fixed: every record up to the
+//! approval equal, no export compared) and
 //! `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
 //! (QK-0785). The commitment and multisig slice adds the hand-written
 //! scripts `35` and `36`, generated scripts drawing its operations too
@@ -2785,7 +2786,8 @@ fn qk0734_run(
 /// 3. A multisig output of the transaction: `Rollback` of block 5 clears
 ///    the record naming block 3, which it does not detach, on both sides
 ///    (QK-0789); dcr-purse marks it mined in block 3 again at the approval
-///    (pending owner, crate `txstore`, choice 13), Go leaves it unmined.
+///    (the re-marking kept: decided, project owner, 2026-11-25, crate
+///    `txstore`, choice 13), Go leaves it unmined.
 /// 4. A multisig output the transaction spends: `Rollback` restores the
 ///    second mining's debit and marks the record unspent on both sides
 ///    (QK-0786); dcr-purse marks it spent again at the approval, Go lists it
@@ -2795,7 +2797,8 @@ fn qk0734_run(
 ///    unmined-inputs index: dcr-purse deletes the mark and the entry naming
 ///    the transaction and keeps the other transaction's (the narrow reading
 ///    of `moveMinedTx`, which deletes the entry whichever transaction it
-///    names), Go keeps both entries and the mark.
+///    names: decided, project owner, 2026-11-25, crate `txstore`, choice
+///    14), Go keeps both entries and the mark.
 #[test]
 fn a_revalidated_transaction_merges_what_only_its_unmined_copy_holds() {
     let Some(mut o) = oracle_or_skip("oprunner") else {

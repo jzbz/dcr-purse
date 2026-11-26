@@ -783,7 +783,12 @@ to allow it is Open point 4.
    by the selection slice, 2026-11-24:* stake validation drops the
    unmined copy, so the outpoint stays in `unspent` alone, PARITY.md,
    `purse-udb`, item (23); QK-0781's path to the same rows, which passes
-   through no revalidation, stays reproduced).
+   through no revalidation, stays reproduced; *decided, project owner,
+   2026-11-25:* the fix keeps marking the transaction's multisig records
+   mined and spent again (QK-0789) and keeps an unmined-inputs entry that
+   names another unmined transaction, crate `txstore`, choices 13 and 14,
+   and QK-0781 is an ADR-0017 candidate beside QK-0734; no table, key or
+   value changes).
    Two divergences, neither in what a client
    can read: `Rollback` deletes the invalidated rows of a detached block,
    which dcrwallet leaves under that block's hash where no code reads them

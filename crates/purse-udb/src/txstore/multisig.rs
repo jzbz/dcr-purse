@@ -18,7 +18,8 @@
 //! neither is stored. A spend or an unspend clears the stake-tree flag, as
 //! Go's do (QK-0054, reproduced; pending owner). QK-0734's fix marks a
 //! revalidated transaction's records mined and spent again (`mark_mined`,
-//! `mark_spent`; QK-0789, pending owner).
+//! `mark_spent`; QK-0789, the re-marking kept: decided, project owner,
+//! 2026-11-25, crate `txstore`, choice 13).
 
 use dcroxide_txscript::stdaddr::Address;
 use dcroxide_txscript::stdscript::{
@@ -192,8 +193,9 @@ pub(crate) fn mark_unspent(tx: &mut WriteTx<'_>, op: &Outpoint) -> Result<(), An
     Ok(())
 }
 
-/// QK-0734's fix (`mined.rs`, `merge_unmined_copy`; QK-0789, pending
-/// owner): the record of `op`, if any and unmined, marked mined in the
+/// QK-0734's fix (`mined.rs`, `merge_unmined_copy`; QK-0789, the
+/// re-marking kept: decided, project owner, 2026-11-25, crate `txstore`,
+/// choice 13): the record of `op`, if any and unmined, marked mined in the
 /// block (`hash`, `height`), as `AddMultisigOut` with that block marks an
 /// unmined record.
 pub(crate) fn mark_mined(
@@ -214,8 +216,9 @@ pub(crate) fn mark_mined(
     Ok(())
 }
 
-/// QK-0734's fix (`mined.rs`, `merge_unmined_copy`; QK-0789, pending
-/// owner): the record of `op`, if any and unspent, marked spent by input
+/// QK-0734's fix (`mined.rs`, `merge_unmined_copy`; QK-0789, the
+/// re-marking kept: decided, project owner, 2026-11-25, crate `txstore`,
+/// choice 13): the record of `op`, if any and unspent, marked spent by input
 /// `input` of `hash`, as `SpendMultisigOut` marks it (its stake-tree flag
 /// cleared, QK-0054, and its `multisig_unspent` entry deleted). A record
 /// another input spends is left as it is.

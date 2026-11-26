@@ -653,7 +653,9 @@
 //!   `a_spender_below_its_funder_is_refused_where_go_fabricates_a_credit`
 //!   (QK-0101), and two reproducing Go's defects:
 //!   `a_revalidated_transaction_also_unmined_is_counted_twice` (QK-0734
-//!   and QK-0736) and
+//!   and QK-0736; since the selection slice
+//!   `a_revalidated_transaction_drops_its_unmined_copy`, which shows Go's
+//!   state beside dcr-purse's, QK-0734 being fixed) and
 //!   `a_revalidated_credit_a_ticket_of_its_block_spends_is_unspent_again`
 //!   (QK-0785);
 //! - the upstream tests that need credits (`tests/txstore.rs`):
@@ -842,7 +844,8 @@
 //!   copy into the record as `moveMinedTx` merges an unmined transaction
 //!   into its block, each row through the balance mutators (`mined.rs`,
 //!   `merge_unmined_copy`): the unmined-inputs entries of its inputs that
-//!   name it are deleted (an entry naming another transaction stays); an
+//!   name it are deleted (an entry naming another transaction stays:
+//!   decided, project owner, 2026-11-25; choice 14 below); an
 //!   input the record holds no debit for, whose output is an unspent wallet
 //!   credit naming no spender (credited only after the record's first
 //!   mining), is debited at the record's block; an unmined credit the
@@ -852,8 +855,9 @@
 //!   record are deleted. The multisig records the `Rollback` of the later
 //!   block left (an output's record cleared whatever block it named,
 //!   QK-0789; a spent input's record marked unspent, QK-0786) are marked
-//!   mined in the revalidated block and spent by the input again (pending
-//!   owner, choice 13 below). Go keeps both copies, and lists, counts and
+//!   mined in the revalidated block and spent by the input again (decided,
+//!   project owner, 2026-11-25; choice 13 below), where Go leaves them as
+//!   its `Rollback` cleared them. Go keeps both copies, and lists, counts and
 //!   selects each output twice (PARITY.md, `purse-udb`, item (23)). QK-0736
 //!   is unchanged: the transaction keeps its mined record in the disapproved
 //!   block and `InsertMemPoolTx` still refuses it as already mined; the fix
@@ -989,10 +993,14 @@
 //! as recommended, the points the credit slice put for choices 2 and 6 and
 //! choices 7 to 11; each is marked. Choice 12 is the commitment and multisig
 //! slice's, and is not decided. The selection slice adds choice 13 (the
-//! multisig records in QK-0734's fix), not decided; otherwise what it
+//! multisig records in QK-0734's fix); otherwise what it
 //! diverges in is decided (QK-0734, choice 10) or under a rule (PARITY.md,
 //! `purse-udb`, items (23) to (25)), and the Go defects it meets are
-//! reproduced by ADR-0012 Rule 1's default.
+//! reproduced by ADR-0012 Rule 1's default. On 2026-11-25 the project
+//! owner decided choice 13 as recommended, the re-marking kept, and
+//! choice 14, the narrow reading of the merge's unmined-inputs step that
+//! the selection slice took without numbering it as a choice; each is
+//! marked. Choices 3 and 12 are not decided.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
@@ -1141,14 +1149,19 @@
 //!     put to the project owner (decided 2026-11-24, below). Evidence: the
 //!     oracle confirms it on simnet with every record
 //!     and the export equal
-//!     (`a_revalidated_transaction_also_unmined_is_counted_twice`: one 900-atom
+//!     (`a_revalidated_transaction_also_unmined_is_counted_twice`, since the
+//!     selection slice `a_revalidated_transaction_drops_its_unmined_copy`,
+//!     which compares every record up to the approval, compares no export
+//!     and pins these figures on Go's side: one 900-atom
 //!     output, a balance of 1,800 at depth 0 and of 900 spendable plus 900
 //!     unconfirmed at depth 1, the transaction unmined only, and
 //!     `InsertMemPoolTx` refused as already mined, QK-0736, reproduced). A
 //!     consensus-valid chain reaches it: a disapproved block's transaction
 //!     mined again, then a reorganisation that approves the first block; the
-//!     state outlasts a restart (how Go's input selection treats the doubled
-//!     output is not run). A fix would have stake validation drop the unmined
+//!     state outlasts a restart (the old test did not run Go's input
+//!     selection; since the selection slice the renamed test also pins Go's
+//!     `SelectInputs` choosing the one output twice at depth 0, 1,800 atoms
+//!     in two identical inputs). A fix would have stake validation drop the unmined
 //!     copy of a transaction whose record it revalidates (its unmined credits
 //!     and unmined-input entries), as `moveMinedTx` does when an unmined
 //!     transaction is mined; nothing in Go defines it, so only dcr-purse's own
@@ -1170,7 +1183,8 @@
 //!     selection slice" above); `a_revalidated_transaction_drops_its_unmined_copy`
 //!     and `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`
 //!     show Go's state beside dcr-purse's, and QK-0736 is unchanged. The
-//!     multisig records are choice 13.*
+//!     multisig records are choice 13, and an unmined-inputs entry naming
+//!     another transaction is choice 14.*
 //! 11. QK-0785: a stake transaction spending a regular credit of its own block,
 //!     a state no consensus-valid chain holds. When the block is disapproved
 //!     the credit moves to the invalidated table, spender kept, and the stake
@@ -1245,7 +1259,35 @@
 //!     which a later `AddMultisigOut` of the block would correct but which no
 //!     wallet path makes, the block never being processed again.
 //!     Recommendation: keep the re-marking, as the rest of the merge does
-//!     with the credit rows. *Pending owner.*
+//!     with the credit rows. *Decided (project owner, 2026-11-25): the
+//!     re-marking is kept. The merge marks the revalidated transaction's
+//!     multisig records mined and spent again, a decided divergence from
+//!     Go, which leaves them as its `Rollback` cleared them, so that the
+//!     multisig rows agree with the credit rows the merge merges (PARITY.md,
+//!     `purse-udb`, item (23); QUIRKS.md, QK-0789).*
+//! 14. The unmined-inputs entries in QK-0734's fix. `moveMinedTx` deletes
+//!     the unmined-inputs entry of each input of the transaction it mines,
+//!     whichever transaction the entry names. The merge deletes only the
+//!     entries that name the revalidated transaction; an entry naming
+//!     another unmined transaction, a double spend of one of its inputs
+//!     (as the `Rollback` of a block recording both leaves it, the later
+//!     one named), stays, since it belongs to that live double spend. Taken
+//!     by the selection slice as the narrow reading and documented with
+//!     `merge_unmined_copy` (`mined.rs`), but not numbered here as a choice
+//!     until 2026-11-25. Go merges nothing and keeps the entry too, so the
+//!     narrow reading adds no difference from Go's rows; the reading that
+//!     follows `moveMinedTx` would delete it where Go keeps it, leaving the
+//!     other transaction unmined with no entry for that input. Evidence:
+//!     `a_revalidated_transaction_merges_what_only_its_unmined_copy_holds`
+//!     (sequence 5: every record up to the approval equal; after it Go's
+//!     export holds the entries naming both transactions and the copy's
+//!     unpublished mark, and lists both as unmined, where dcr-purse's holds
+//!     the other transaction's entry alone and lists that transaction
+//!     alone; the copy's own entry and mark are item (23)'s difference).
+//!     Not run: `Spender` of that outpoint, or another spend of it, after
+//!     the approval. *Decided (project owner, 2026-11-25): the entry naming
+//!     another unmined transaction is kept (the narrow reading), where
+//!     `moveMinedTx` deletes such an entry whichever transaction it names.*
 //!
 //! The owner's answer of 2026-11-22 also decided two more points this
 //! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`
@@ -1292,7 +1334,9 @@
 //!   unmined transaction is mined, with a PARITY.md line and Go's state
 //!   shown beside dcr-purse's by
 //!   `a_revalidated_transaction_also_unmined_is_counted_twice`. Until the
-//!   next slice the code reproduces Go.
+//!   next slice the code reproduces Go. *(That slice, "The selection slice"
+//!   above, renamed the test `a_revalidated_transaction_drops_its_unmined_copy`;
+//!   QK-0734 is fixed as of it: "Updated 2026-11-24" below.)*
 //!
 //! *Updated 2026-11-24 (the commitment and multisig slice and the
 //! selection slice, made as one change):* the ticket commitments and the

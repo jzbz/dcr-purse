@@ -50,7 +50,16 @@
   +1.56, +1.38 to +1.90 a set), close to the 1 ns floor. The
   measurements put that down to the binary's layout, not to the
   verdict's rule; the addendum records it, open for the project owner's
-  decision. See "Addendum, 2026-11-24" at the end.
+  decision. See "Addendum, 2026-11-24" at the end. *Decided,
+  2026-11-25: the next bullet.*
+- **Decided, 2026-11-25 (project owner):** the loss of detection the
+  bullet above records (the dependent-multiplication plant in
+  `hdkeychain chars` at opt-level 3, 39 of 60 runs as shipped against 70
+  of 70) is accepted as recorded, and no verdict rule changes. Making
+  the timed operation less sensitive to code layout (for example an
+  operation that works in place instead of copying its input to the
+  stack) is planned as a separate, later change; it is not made. See the
+  note of 2026-11-25 at the end of "Addendum, 2026-11-24".
 - **Date:** 2026-11-18
 
 ## Context
@@ -1130,7 +1139,9 @@ against 29 of 30 in the first sets, its three misses at +0.91 to +0.98
 ns. The multiplication plant in `dcrutil chars`, lost in the first form
 (below), is found in 30 of 30 in three sets (+1.87 to +2.00, against
 +1.02 to +1.25 with `05f7862`'s harness). This loss is recorded, not
-restored, for the project owner to decide on.
+restored, for the project owner to decide on. *(Decided, project owner,
+2026-11-25: accepted as recorded; the note of that date at the end of
+this addendum.)*
 
 The first form of this change filed each counted sample in its segment
 inside the loop over a chunk's samples, and ran the diagnostic pass
@@ -1199,3 +1210,22 @@ first and that known reports stay out); `src/ct_check.rs` in
 `purse-hdkeychain` and `purse-dcrutil` (the `chars_diagnostic` tests,
 their classes and the module documentation);
 `.github/workflows/constant-time.yml` (comments only); the ADR index.
+
+**Note of 2026-11-25 — decided, project owner.** The loss of detection
+recorded above under "Detection lost, and why it is recorded rather than
+restored" (the dependent-multiplication plant in `hdkeychain chars` at
+opt-level 3, found in 39 of 60 runs as shipped against 70 of 70 with
+`05f7862`'s harness) is accepted as recorded. No verdict rule changes:
+the threshold of |t| 10 to fail and 4.5 to report, the floor of 1 ns an
+operation, the warm-up, the crops, the budgets, the absence of retries
+and the job's blocking status stay as this addendum leaves them. A
+separate, later change is to make the timed operation less sensitive to
+code layout, for example an operation that works in place instead of
+copying its input to the stack, so that a cost near the floor moves less
+from one binary to the next. That change is planned follow-up work: it is
+not part of this note, nothing in the harness, the targets or the
+workflow changes with it, and none of it has been written or measured.
+
+Places amended with this note: the Status line (a dated bullet, and a
+pointer on the bullet of 2026-11-24); the dated pointer under "Detection
+lost, and why it is recorded rather than restored"; the ADR index.

@@ -784,8 +784,10 @@ impl TxStore {
 ///
 /// - Each input: its unmined-inputs entry deleted when it names this
 ///   transaction (an entry naming another transaction is that
-///   transaction's and stays, where `moveMinedTx` deletes it whichever
-///   transaction it names); then, when the record holds no debit for the
+///   transaction's, a live double spend's, and stays, where `moveMinedTx`
+///   deletes it whichever transaction it names: decided, project owner,
+///   2026-11-25, crate `txstore`, choice 14; Go merges nothing and keeps
+///   it too); then, when the record holds no debit for the
 ///   input and the output it spends is an unspent wallet credit naming no
 ///   spender, the credit is spent and the debit written at the record's
 ///   block, as `moveMinedTx` debits it. That output became a credit only
@@ -798,8 +800,9 @@ impl TxStore {
 ///   the later mining that the `Rollback` returned to the unmined set, is
 ///   moved into a mined credit and an unspent output at the record's block,
 ///   without its expiry flag, as `moveMinedTx` moves it (QK-0079).
-/// - The multisig records (QK-0789; pending owner, crate `txstore`, choice
-///   13): an output's record that is unmined, as the `Rollback` of the later
+/// - The multisig records (QK-0789; the re-marking kept, a divergence from
+///   Go: decided, project owner, 2026-11-25, crate `txstore`, choice 13):
+///   an output's record that is unmined, as the `Rollback` of the later
 ///   block left it whatever block it named, is marked mined in the
 ///   revalidated block, as `AddMultisigOut` with that block would; an
 ///   input's record that is unspent, as the `Rollback` left it when it

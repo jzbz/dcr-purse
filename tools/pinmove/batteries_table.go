@@ -142,7 +142,7 @@ var RepoTable = Table{
 			Crate: "purse-udb", Files: []string{"opvectors/*.pe"},
 			Kind: KindGoGenerated, Commands: []string{"oprunner"},
 			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_frozen_vectors",
-			Note:       "Go's final exports of the hand-written scripts, written by the same regenerator as addrmgr_opvectors.txt, which names the pin for them and pins their digests; they name no commit",
+			Note:       "Go's final exports of the hand-written scripts (<name>.pe) and its exports at their rt.checkpoint operations (<name>.<checkpoint>.pe), written by the same regenerator as addrmgr_opvectors.txt, which names the pin for them and pins their digests; they name no commit",
 		},
 		{
 			Crate: "purse-udb", Files: []string{"addrmgr_genvectors.txt"},

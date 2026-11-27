@@ -1066,6 +1066,33 @@ masking, profiles, digests), in memory (`parse`) and line by line
 (`validate`, memory bounded by the longest line), a frozen export, and the
 conformance tests below.
 
+*Addendum (2026-11-26): the sections `purse-udb`'s differential does not
+compare.* Every operation-script differential of `purse-udb`
+(`crates/purse-udb/tests/support/compare.rs`, `check_uncompared`, run
+wherever two exports are compared: the live differential, the frozen
+hand-written replay and each regeneration of the frozen vectors) checks
+`[bad]`, `[unknown]` and `[residue]`, which no profile compares:
+
+- the Rust export's three are empty, as the bullet list above requires;
+- Go's `[unknown]` is empty;
+- Go's `[residue]` holds only `waddrmgr/main/mgrver`, the one dead item of
+  section 9 that a version-26 database made at the pin holds; the others
+  reach such a database only from an older or migrated one, which no
+  script makes, so meeting one fails the comparison until it is examined;
+- Go's `[bad]` holds only records with `value` `-` that the address API
+  leaves: `unreached` on `waddrmgr/addr`, for a key whose `[addresses]`
+  row both exports write with `id` and `addr` `-`, and `api` on
+  `waddrmgr/addracctidx`, for an account (the key, LE32) with such a row in
+  both exports. The hand-written scripts `06-addresses`, `07-imports` and
+  `09-hardened-records` hold them.
+
+Any other record fails the differential as a difference to examine
+(`uncompared_sections_refuse_what_the_rule_does_not_name`,
+`crates/purse-udb/tests/guards.rs`, shows each refusal). `[orphans]` is a
+covered section, compared with the others. The replays of the generated
+frozen sets keep only a digest of Go's export, so they check the Rust half
+alone; the Go half of those sets is checked when they are regenerated.
+
 ### 12. Generated databases
 
 `tools/oracle/cmd/walletgen` writes the databases the checks export:

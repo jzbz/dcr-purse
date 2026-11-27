@@ -1463,17 +1463,85 @@ const CHANGING: &[&str] = &[
 /// transaction store, item (2)), and a panic is never tolerated.
 const TOLERABLE: [&str; 3] = ["Exist", "DoubleSpend", "NotExist"];
 
+/// The operations that may write Go's `unspent` bucket in a script
+/// (`putUnspent`, `putRawUnspent` and `deleteRawUnspent` are reached from
+/// `ExtendMainChain` and `Rollback` through stake validation and
+/// invalidation, from `InsertMinedTx` through `moveMinedTx` and its spends,
+/// from `AddCredit` with a block, and from `Rollback`; txmined.go at the
+/// pin).
+pub const UNSPENT_WRITERS: &[&str] = &[
+    "store.extend_main_chain",
+    "store.insert_mined_tx",
+    "store.add_credit",
+    "store.rollback",
+];
+
+/// The operations whose answer depends on the number of entries of the
+/// `unspent` bucket, which Go reads with bbolt's `KeyN`, a count of the
+/// committed pages that leaves out the transaction's own writes (QK-0003):
+/// `UnspentOutputCount`, and `MakeInputSource`, whose count bounds the
+/// random phase's tries and so the bytes drawn.
+pub const UNSPENT_COUNTERS: &[&str] = &["store.unspent_output_count", "store.select_inputs"];
+
+/// Whether `op` (a top-level operation) is `AddCredit` or a group holding
+/// one.
+fn credits(op: &Value) -> bool {
+    op["op"] == "store.add_credit"
+        || op["ops"]
+            .as_array()
+            .is_some_and(|m| m.iter().any(|x| x["op"] == "store.add_credit"))
+}
+
+/// The places in `script` where an `update` group counts the `unspent`
+/// bucket after a member that may write it ([`UNSPENT_WRITERS`],
+/// [`UNSPENT_COUNTERS`]), once an `AddCredit` has come before the counting
+/// member (until then the bucket is empty on both sides, and no member
+/// writes it): `(index of the group, index of the counting member)`. Go
+/// answers such a count from the bucket as the group's transaction began,
+/// the Rust runner, and dcr-purse's store, with the group's own writes
+/// counted (QK-0003; PARITY.md, `purse-udb` transaction store, item (26)).
+pub fn counts_after_unspent_writes(script: &Value) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut credited = false;
+    for (i, op) in script["ops"].as_array().into_iter().flatten().enumerate() {
+        if op["op"] == "update" {
+            let mut wrote = false;
+            for (j, m) in op["ops"].as_array().into_iter().flatten().enumerate() {
+                let name = m["op"].as_str().unwrap_or("");
+                if wrote && credited && UNSPENT_COUNTERS.contains(&name) {
+                    out.push((i, j));
+                }
+                wrote |= UNSPENT_WRITERS.contains(&name);
+                credited |= name == "store.add_credit";
+            }
+        }
+        credited |= credits(op);
+    }
+    out
+}
+
 /// `generate_txstore`'s script with runs of its operations put in `update`
 /// and `view` groups (ADR-0002 section 2), some members tolerating kinds.
 /// A group never holds what registers a label (a labelled extension, a
 /// built transaction), since a group that ends early or rolls back would
 /// leave a later reference to it unresolved, nor a runtime operation.
+///
+/// Nor does an `update` group count the `unspent` bucket after a member
+/// that may write it once the script has credited an output
+/// ([`counts_after_unspent_writes`]): such a run is cut into consecutive
+/// `update` groups before each counting member, with the draws unchanged,
+/// so a script that never meets the sequence is the one drawn before the
+/// rule (PARITY.md, `purse-udb` transaction store, item (26); crate
+/// `txstore`, choice 15; pinned by
+/// `a_count_after_an_unspent_write_in_a_group_is_gos_committed_count`).
 pub fn group_txstore(rng: &mut SplitMix64, mut script: Value) -> Value {
     let ops = script["ops"].as_array().cloned().unwrap_or_default();
     let groupable = |v: &Value| {
         let name = v["op"].as_str().unwrap_or("");
         (name.starts_with("store.") && v.get("label").is_none()) || name.starts_with("udb.")
     };
+    // The index of the first operation that is or holds an `AddCredit`.
+    let first_credit = ops.iter().position(credits).unwrap_or(usize::MAX);
     let mut out = Vec::with_capacity(ops.len());
     let mut i = 0;
     while i < ops.len() {
@@ -1483,6 +1551,7 @@ pub fn group_txstore(rng: &mut SplitMix64, mut script: Value) -> Value {
             continue;
         }
         let want = 2 + usize::try_from(rng.below(4)).expect("small");
+        let start = i;
         let mut members = Vec::new();
         while i < ops.len() && members.len() < want && groupable(&ops[i]) {
             let mut m = ops[i].clone();
@@ -1513,7 +1582,24 @@ pub fn group_txstore(rng: &mut SplitMix64, mut script: Value) -> Value {
         } else {
             "update"
         };
-        out.push(json!({"op": kind, "ops": members}));
+        if kind == "view" {
+            out.push(json!({"op": kind, "ops": members}));
+            continue;
+        }
+        // Cut before a member counting `unspent` after a member that may
+        // write it, once an output has been credited (the doc above).
+        let mut part: Vec<Value> = Vec::new();
+        let mut wrote = false;
+        for (k, m) in members.into_iter().enumerate() {
+            let name = m["op"].as_str().unwrap_or("").to_owned();
+            if wrote && first_credit < start + k && UNSPENT_COUNTERS.contains(&name.as_str()) {
+                out.push(json!({"op": "update", "ops": std::mem::take(&mut part)}));
+                wrote = false;
+            }
+            wrote |= UNSPENT_WRITERS.contains(&name.as_str());
+            part.push(m);
+        }
+        out.push(json!({"op": "update", "ops": part}));
     }
     script["ops"] = Value::Array(out);
     script

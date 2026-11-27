@@ -429,9 +429,12 @@
 //!   `Initialize` does, so every script, the address manager's included,
 //!   has the genesis rows on both sides. The `update` and `view` groups
 //!   (with `tolerate`) take the slice's operations
-//!   (`tests/support/runner/groups.rs`); `rt.checkpoint` is **not yet** in
-//!   the runner, which still refuses it as a script fault, so no export is
-//!   compared mid-script. The store operations draw
+//!   (`tests/support/runner/groups.rs`); `rt.checkpoint` writes the export
+//!   of the store as it stands, and every checkpoint export is compared
+//!   with Go's, then the final one (scripts `01-create-open`,
+//!   `28-txstore-chain`, `32-txstore-credits`, `35-txstore-commitments` and
+//!   `37-txstore-selection` hold two checkpoints each, frozen with Go's
+//!   exports). The store operations draw
 //!   no randomness, so their results compare exactly. A Go record of kind
 //!   `Panic` is matched by any Rust error (ADR-0002 section 3), outside a
 //!   tolerating group member: a member may not tolerate the kind of an
@@ -1000,7 +1003,9 @@
 //! owner decided choice 13 as recommended, the re-marking kept, and
 //! choice 14, the narrow reading of the merge's unmined-inputs step that
 //! the selection slice took without numbering it as a choice; each is
-//! marked. Choices 3 and 12 are not decided.
+//! marked. Choices 3 and 12 are not decided. Choice 15 (the count of
+//! `unspent` in the differential's groups) is recorded on 2026-11-26 and
+//! is not decided.
 //!
 //! 1. `Rollback` is ported without its credit step. In a store without
 //!    credits that step never runs, in Go as here; the step itself, the one
@@ -1288,6 +1293,29 @@
 //!     the approval. *Decided (project owner, 2026-11-25): the entry naming
 //!     another unmined transaction is kept (the narrow reading), where
 //!     `moveMinedTx` deletes such an entry whichever transaction it names.*
+//! 15. The count of `unspent` in the operation-script differential
+//!     (QK-0003; PARITY.md, `purse-udb` transaction store, item (26)).
+//!     Go's `UnspentOutputCount` and `MakeInputSource` read bbolt's `KeyN`,
+//!     which leaves out the transaction's own writes; `purse-store`'s
+//!     count includes them (QK-0003, not reproduced, accepted 2026-11-19),
+//!     and so does the test runner, whose `update` groups commit each
+//!     member. So an `update` group that counts the table after a member
+//!     wrote it answers differently on the two sides. Evidence:
+//!     `a_count_after_an_unspent_write_in_a_group_is_gos_committed_count`
+//!     (`tests/guards.rs`: Go 2 against dcr-purse's 3 after a credit, 3
+//!     against 2 after a mined spend, 8 bytes drawn against 41 by a
+//!     selection after a credit, the same outputs selected; every other
+//!     record and the exports equal). Taken here: the generated group
+//!     scripts exclude the sequence by construction (`group_txstore`), and
+//!     the test pins both answers. The alternative is for the runner to
+//!     reproduce Go's committed-only count inside a group (the count read
+//!     from the store as the group began), which would check a behaviour
+//!     no dcr-purse caller has: no caller at the pin counts after such a
+//!     write in one transaction (QK-0003's obligation keeps the count
+//!     first), and once the runner runs a group as one store transaction
+//!     (not built) dcr-purse's answer is the production one.
+//!     Recommendation: keep the exclusion and the pinning test.
+//!     *Pending owner.*
 //!
 //! The owner's answer of 2026-11-22 also decided two more points this
 //! slice records: a refused `InsertMissingCFilters` or `ImportCFiltersV2`

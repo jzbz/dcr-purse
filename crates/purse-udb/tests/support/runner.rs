@@ -35,6 +35,10 @@
 //! in between); otherwise the script is refused as a script fault, since
 //! the runner cannot know where Go's stream stands.
 //!
+//! `rt.checkpoint` writes the export of the store as it stands, as Go's
+//! runner writes its snapshot's (`<name>.pe` beside the store), and the
+//! run returns each one with the final export ([`Run::checkpoints`]).
+//!
 //! A top-level record carries `drawn`, as Go's do, when the operation read
 //! bytes from the stream: the bytes every source the runner gave the
 //! manager handed out while it ran. The general comparison removes it
@@ -121,6 +125,7 @@ pub const SUPPORTED: &[&str] = &[
     "rt.reopen",
     "rt.clock_set",
     "rt.clock_advance",
+    "rt.checkpoint",
     "update",
     "view",
     "tx.build",
@@ -189,6 +194,11 @@ pub const SUPPORTED: &[&str] = &[
 /// The `@exporter` meta of this runner's exports.
 pub const EXPORTER: &str = "crates/purse-udb/tests/support/runner.rs";
 
+/// The stem of Go's run database (`script.go`, `newRunner`: `dbPath` is
+/// `<dir>/wallet.db`), the one checkpoint name Go refuses by its file
+/// layout: its snapshot `<name>.db` would be the database itself.
+pub const GO_DATABASE_STEM: &str = "wallet";
+
 /// What a run produced.
 #[derive(Debug)]
 pub struct Run {
@@ -196,6 +206,10 @@ pub struct Run {
     pub results: Vec<Value>,
     /// The final logical export.
     pub export: String,
+    /// The logical export of each `rt.checkpoint`, in script order: its
+    /// name and its text (also written as `<name>.pe` in the run's
+    /// directory, as Go's runner writes it).
+    pub checkpoints: Vec<(String, String)>,
 }
 
 /// Go's kind names, by `purse_errors::Kind` code.
@@ -285,6 +299,8 @@ struct Runner {
     stream_mark: u64,
     /// Whether an `update` group's member is running.
     in_group: bool,
+    /// The exports of the checkpoints so far, by name (`Run::checkpoints`).
+    checkpoints: Vec<(String, String)>,
 }
 
 /// An address argument before its resolution: ready, or the P2PKH address
@@ -1069,6 +1085,10 @@ impl Runner {
                 self.clock = self.clock.saturating_add(a.i64("seconds")?);
                 Ok(Value::Null)
             }
+            "rt.checkpoint" => {
+                a.check(&["name"])?;
+                self.checkpoint(a.str("name")?)?
+            }
             "update" | "view" => {
                 let (r, records) = self.group(&a)?;
                 self.group_ops = Some(records);
@@ -1086,6 +1106,110 @@ impl Runner {
 }
 
 impl Runner {
+    /// The logical export of the store as it stands, with the passphrases
+    /// Go's runner would pass (`tools/oracle/cmd/oprunner/script.go`,
+    /// `exportNow`): `what` names it in a failure, which is the runner's
+    /// fault, never an operation result.
+    fn export_now(&self, what: &str) -> Result<String, String> {
+        let acct_pass: Vec<(u32, &[u8])> = self
+            .acct_pass
+            .iter()
+            .map(|(a, p)| (*a, p.as_slice()))
+            .collect();
+        let opts = ExportOptions {
+            pub_pass: Some(&self.pub_pass),
+            priv_pass: self.priv_pass.as_deref(),
+            acct_pass: &acct_pass,
+            exporter: EXPORTER,
+            limits: Limits::DEFAULT,
+            digest: self.digest,
+        };
+        let tx = self
+            .store()
+            .read()
+            .map_err(|e| fault(format!("read: {e}")))?;
+        let text = export(&tx, &self.chain, &opts).map_err(|e| {
+            fault(format!(
+                "{what}: {}",
+                e.render(purse_errors::DAEMON_SEPARATOR)
+            ))
+        })?;
+        drop(tx);
+        Ok(text)
+    }
+
+    /// Go's `rt.checkpoint` (`script.go`, `top`): the export of the store
+    /// as it stands, written as `<name>.pe` beside the store and kept for
+    /// [`Run::checkpoints`], under Go's naming rules (not `final`, not
+    /// empty, no `/`, `\` or `.`, not repeated; otherwise a script fault)
+    /// and one name Go refuses through its file layout rather than its
+    /// name check: `wallet`. Go's run keeps its database at
+    /// `<dir>/wallet.db` and `exportNow` creates the snapshot
+    /// `<dir>/<name>.db` with `O_EXCL`, so a checkpoint named `wallet`
+    /// fails Go's run with "file exists" (an I/O error, not a script
+    /// fault); this runner's store is `wallet.redb` and it writes no
+    /// snapshot, so it refuses the name explicitly. No other file is in
+    /// Go's run directory while a script runs (`results.jsonl` is
+    /// written after the last operation and is not a `.db`).
+    /// The record is Go's ExportSummary (ADR-0002 section 4) computed from
+    /// this runner's export, whose digests cover what Go's producer writes
+    /// and this one does not; the comparison reads its file name and
+    /// section names and compares the exports themselves
+    /// (`compare::compare_checkpoints`). Neither side draws: Go's exporter
+    /// opens its snapshot with the real generator, never the injected one.
+    fn checkpoint(&mut self, name: &str) -> Result<OpResult, String> {
+        if name == "final"
+            || name.is_empty()
+            || name.contains(['/', '\\', '.'])
+            || self.checkpoints.iter().any(|(n, _)| n == name)
+        {
+            return Err(fault(format!("bad or repeated checkpoint name {name:?}")));
+        }
+        if name == GO_DATABASE_STEM {
+            return Err(fault(format!(
+                "checkpoint name {name:?}: Go's snapshot {name}.db would be its own database"
+            )));
+        }
+        let text = self.export_now(&format!("logical export {name:?}"))?;
+        let file = format!("{name}.pe");
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| fault("no run directory"))?;
+        std::fs::write(dir.join(&file), &text).map_err(|e| fault(format!("write {file}: {e}")))?;
+        let ex = purse_export_check::parse(&text)
+            .map_err(|e| fault(format!("{file} does not parse: {e}")))?;
+        let sections: Vec<Value> = ex
+            .sections
+            .iter()
+            .map(|s| {
+                json!({
+                    "name": s.name,
+                    "records": s.records.len(),
+                    "sha256~cr": s.digest(purse_export_check::Profile::EXACT),
+                    "msha256~c": s.digest(purse_export_check::Profile::MASKED),
+                })
+            })
+            .collect();
+        let file_sha256: String = {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(text.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        let summary = json!({
+            "file": file,
+            "sha256~cr": ex.sha256,
+            "msha256~c": ex.msha256,
+            "file_sha256~cr": file_sha256,
+            "lines": text.lines().count(),
+            "sections": sections,
+        });
+        self.checkpoints.push((name.to_owned(), text));
+        Ok(Ok(summary))
+    }
+
     /// Go's `labelAddress`: a successful import's address under its label.
     fn labelled(&mut self, label: Option<String>, r: Result<ManagedAddress, AnyError>) -> OpResult {
         r.map(|m| {
@@ -1284,6 +1408,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         in_group: false,
         stream: None,
         stream_mark: 0,
+        checkpoints: Vec::new(),
     };
     match runner.reopen()? {
         Ok(_) => {}
@@ -1320,30 +1445,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         results.push(Value::Object(rec));
     }
 
-    let acct_pass: Vec<(u32, &[u8])> = runner
-        .acct_pass
-        .iter()
-        .map(|(a, p)| (*a, p.as_slice()))
-        .collect();
-    let opts = ExportOptions {
-        pub_pass: Some(&runner.pub_pass),
-        priv_pass: runner.priv_pass.as_deref(),
-        acct_pass: &acct_pass,
-        exporter: EXPORTER,
-        limits: Limits::DEFAULT,
-        digest: runner.digest,
-    };
-    let tx = runner
-        .store()
-        .read()
-        .map_err(|e| fault(format!("read: {e}")))?;
-    let text = export(&tx, &runner.chain, &opts).map_err(|e| {
-        fault(format!(
-            "final export: {}",
-            e.render(purse_errors::DAEMON_SEPARATOR)
-        ))
-    })?;
-    drop(tx);
+    let text = runner.export_now("final export")?;
     drop(runner.mgr.take());
     if let Some(s) = runner.store.take() {
         s.close().map_err(|e| fault(format!("close store: {e}")))?;
@@ -1351,6 +1453,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
     Ok(Run {
         results,
         export: text,
+        checkpoints: runner.checkpoints,
     })
 }
 

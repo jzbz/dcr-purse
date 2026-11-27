@@ -8,7 +8,10 @@
 //! hand.
 //!
 //! - `tests/data/addrmgr_opvectors.txt`: the hand-written scripts, with
-//!   Go's final exports kept whole in `tests/data/opvectors/<name>.pe`.
+//!   Go's final exports kept whole in `tests/data/opvectors/<name>.pe` and
+//!   its export at each `rt.checkpoint` in
+//!   `tests/data/opvectors/<name>.<checkpoint>.pe`, each pinned by the
+//!   digests of its checkpoint record.
 //! - `tests/data/addrmgr_genvectors.txt`: a fixed set of generated scripts
 //!   (`tests/support/generator.rs` from a fixed seed, every network and
 //!   both coin types), each kept with Go's records and the digest of what
@@ -58,7 +61,8 @@ use purse_testutil::serde_json::{self, Value};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, REFERENCE_GO, oracle_or_skip};
 use sha2::{Digest, Sha256};
 use support::compare::{
-    check_privcheck, check_record, compare_exports, corpus, covered_digest, go_run,
+    check_privcheck, check_record, check_rust_uncompared, compare_checkpoints, compare_exports,
+    corpus, covered_digest, go_checkpoints, go_run,
 };
 use support::generator::{
     ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
@@ -71,7 +75,7 @@ use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 2323;
+const ENTRIES: usize = 2360;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
@@ -240,9 +244,43 @@ fn replay_frozen_vectors() {
         for (g, r) in v.results.iter().zip(&rust.results) {
             check_record(&v.name, g, r);
         }
+        compare_checkpoints(&v.name, &frozen_checkpoints(&v), &rust.checkpoints);
         compare_exports(&v.name, &go_pe, &rust.export);
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// The frozen file of Go's export at checkpoint `cp` of script `name`.
+fn checkpoint_file(name: &str, cp: &str) -> String {
+    format!("{name}.{cp}.pe")
+}
+
+/// Go's checkpoint exports of a hand-written vector, in script order, each
+/// checked against the digests its `rt.checkpoint` record gives.
+fn frozen_checkpoints(v: &Vector) -> Vec<(String, String)> {
+    v.results
+        .iter()
+        .filter(|r| r["op"] == "rt.checkpoint")
+        .map(|r| {
+            let file = r["ok"]["file"].as_str().expect("a checkpoint's file");
+            let cp = file.strip_suffix(".pe").expect("a .pe file");
+            // `export_text` reads `<its argument>.pe`.
+            let text = export_text(&format!("{}.{cp}", v.name));
+            let ex = purse_export_check::parse(&text).expect("Go export parses");
+            let what = format!("{}: checkpoint {cp}", v.name);
+            assert_eq!(
+                Some(ex.sha256.as_str()),
+                r["ok"]["sha256~cr"].as_str(),
+                "{what}: digest"
+            );
+            assert_eq!(
+                Some(ex.msha256.as_str()),
+                r["ok"]["msha256~c"].as_str(),
+                "{what}: masked digest"
+            );
+            (cp.to_owned(), text)
+        })
+        .collect()
 }
 
 #[test]
@@ -293,7 +331,30 @@ fn regenerate_frozen_vectors() {
         for (g, r) in results.iter().zip(&rust.results) {
             check_record(name, g, r);
         }
+        let checkpoints = go_checkpoints(&results, &dir.join("go"));
+        compare_checkpoints(name, &checkpoints, &rust.checkpoints);
         compare_exports(name, &pe, &rust.export);
+        for (cp, text) in &checkpoints {
+            let mut lines = text.lines();
+            let mut out = format!("{}\n", lines.next().expect("magic"));
+            let _ = writeln!(
+                out,
+                "# Go's export at checkpoint {cp} of crates/purse-udb/tests/data/opscripts/{name}.json,"
+            );
+            let _ = writeln!(
+                out,
+                "# run by tools/oracle/cmd/oprunner; see crates/purse-udb/tests/data/{VECTORS}."
+            );
+            for l in lines {
+                out.push_str(l);
+                out.push('\n');
+            }
+            std::fs::write(
+                data_dir().join("opvectors").join(checkpoint_file(name, cp)),
+                out,
+            )
+            .expect("write checkpoint export");
+        }
         let ex = purse_export_check::parse(&pe).expect("parse");
         let _ = writeln!(body, "name {name}");
         let _ = writeln!(
@@ -336,7 +397,9 @@ fn regenerate_frozen_vectors() {
             "# wrote for the script line above it, running dcrwallet {DCRWALLET_PARITY_COMMIT}'s wallet/udb;"
         ),
         "# each export line names the eof digests (exact, masked) of Go's final export,".to_owned(),
-        "# kept as tests/data/opvectors/<name>.pe. Regenerate with:".to_owned(),
+        "# kept as tests/data/opvectors/<name>.pe, and Go's export at each checkpoint as"
+            .to_owned(),
+        "# tests/data/opvectors/<name>.<checkpoint>.pe. Regenerate with:".to_owned(),
         "#   PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen \\"
             .to_owned(),
         "#       -- --ignored regenerate_frozen_vectors".to_owned(),
@@ -354,6 +417,32 @@ fn regenerate_frozen_vectors() {
     text.push_str(&body);
     std::fs::write(data_dir().join(VECTORS), text).expect("write vectors");
     eprintln!("wrote {} scripts, {entries} result lines", scripts.len());
+}
+
+/// The frozen exports are exactly the hand-written scripts' final exports
+/// and the exports of their checkpoints: no checkpoint without its file,
+/// no file a script no longer makes.
+#[test]
+fn checkpoint_vectors_are_the_scripts_checkpoints() {
+    let mut want = std::collections::BTreeSet::new();
+    for (name, script) in corpus() {
+        want.insert(format!("{name}.pe"));
+        for op in script["ops"].as_array().expect("ops") {
+            if op["op"] == "rt.checkpoint" {
+                let cp = op["name"].as_str().expect("a checkpoint name");
+                want.insert(checkpoint_file(&name, cp));
+            }
+        }
+    }
+    let have: std::collections::BTreeSet<String> = std::fs::read_dir(data_dir().join("opvectors"))
+        .expect("opvectors")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(have, want, "tests/data/opvectors");
+    assert!(
+        want.len() > corpus().len(),
+        "no hand-written script makes a checkpoint"
+    );
 }
 
 /// The generated set: scripts 0 to 5 on regnet, testnet3 and mainnet (two
@@ -571,8 +660,11 @@ fn replay_generated(file: &str, entries: usize, scripts: usize) {
         for (g, r) in v.results.iter().zip(&rust.results) {
             check_record(&v.name, g, r);
         }
+        // Only the final export of a generated script is frozen.
+        assert!(rust.checkpoints.is_empty(), "{}: a checkpoint", v.name);
         let ex = purse_export_check::parse(&rust.export).expect("Rust export parses");
         check_privcheck(&ex).unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
+        check_rust_uncompared(&ex).unwrap_or_else(|e| panic!("{}: {e}", v.name));
         assert_eq!(
             covered_digest(&rust.export),
             v.covered,
@@ -630,6 +722,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
         let dir = scratch("regen-gen");
         let (results, pe) = go_run(&mut o, script, &dir.join("go"));
         let rust = runner::run(script, &dir.join("rust")).expect("Rust runner");
+        // Only the final export of a generated script is frozen.
+        assert!(rust.checkpoints.is_empty(), "{name}: a checkpoint");
         assert_eq!(results.len(), rust.results.len(), "{name}: record count");
         for (g, r) in results.iter().zip(&rust.results) {
             check_record(name, g, r);

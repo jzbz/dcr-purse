@@ -1,0 +1,652 @@
+{
+ "format": "purse-opscript 1",
+ "name": "upstream-tx-tests",
+ "setup": {
+  "network": "testnet3",
+  "seed": "3838383838383838383838383838383838383838383838383838383838383838",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3838383838383838383838383838383838383838383838383838383838383838",
+  "clock": 1795800000
+ },
+ "ops": [
+  {
+   "op": "tx.build",
+   "label": "tx1",
+   "version": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "value": 200000000,
+     "script": ""
+    }
+   ],
+   "received": -62135596800
+  },
+  {
+   "op": "tx.build",
+   "label": "stx1",
+   "version": 0,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "tx1",
+      "index": 0
+     },
+     "value": 200000000,
+     "sequence": 0
+    }
+   ],
+   "outputs": [
+    {
+     "value": 200000000,
+     "script": ""
+    }
+   ],
+   "received": -62135596800
+  },
+  {
+   "op": "tx.build",
+   "label": "tx2",
+   "version": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "value": 300000000,
+     "script": ""
+    }
+   ],
+   "received": -62135596800
+  },
+  {
+   "op": "tx.build",
+   "label": "stx2",
+   "version": 0,
+   "inputs": [
+    {
+     "prev": {
+      "tx": "tx2",
+      "index": 0
+     },
+     "value": 300000000,
+     "sequence": 0
+    }
+   ],
+   "outputs": [
+    {
+     "value": 300000000,
+     "script": ""
+    }
+   ],
+   "received": -62135596800
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.extend_main_chain",
+     "label": "b1"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "b2"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "b3"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "tx1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "tx1",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "tx1"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "tx1",
+     "block": "b1"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.rollback",
+     "height": 1
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.extend_main_chain",
+     "again": "b1"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "again": "b2"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "again": "b3"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "tx1",
+     "block": "b1"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "stx1",
+     "block": "b2"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "stx1",
+     "block": "b2"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.rollback",
+     "height": 2
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "stx2"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "store.rollback",
+   "height": 1
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "tx1"
+  },
+  {
+   "op": "store.remove_unconfirmed",
+   "tx": "stx2"
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "store.account_balance",
+   "minconf": 0,
+   "account": 0
+  },
+  {
+   "op": "store.unspent_outputs"
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "tx.build",
+     "label": "cb",
+     "version": 0,
+     "inputs": [
+      {
+       "prev": "coinbase",
+       "value": 0,
+       "sequence": 0
+      }
+     ],
+     "outputs": [
+      {
+       "value": 2000000000,
+       "script": ""
+      },
+      {
+       "value": 1000000000,
+       "script": ""
+      },
+      {
+       "value": 3000000000,
+       "script": ""
+      }
+     ],
+     "received": -62135596800
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c1"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "cb",
+     "block": "c1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "cb",
+     "index": 0,
+     "account": 0,
+     "block": "c1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "cb",
+     "index": 2,
+     "account": 0,
+     "block": "c1"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c2"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c3"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c4"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c5"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c6"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c7"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c8"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c9"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c10"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c11"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c12"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c13"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c14"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c15"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c16"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "c17"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "tx.build",
+     "label": "spa",
+     "version": 0,
+     "inputs": [
+      {
+       "prev": {
+        "tx": "cb",
+        "index": 0
+       },
+       "value": 0,
+       "sequence": 0
+      }
+     ],
+     "outputs": [
+      {
+       "value": 500000000,
+       "script": ""
+      },
+      {
+       "value": 1500000000,
+       "script": ""
+      }
+     ]
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "spa",
+     "block": "c17"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.rollback",
+     "height": 17
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.rollback",
+     "height": 1
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.unmined_txs"
+    }
+   ]
+  },
+  {
+   "op": "store.main_chain_tip"
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "tx.build",
+     "label": "s1",
+     "version": 0,
+     "inputs": [],
+     "outputs": [
+      {
+       "value": 200000000,
+       "script": ""
+      }
+     ],
+     "received": -62135596800
+    },
+    {
+     "op": "tx.build",
+     "label": "s2",
+     "version": 0,
+     "inputs": [
+      {
+       "prev": {
+        "tx": "s1",
+        "index": 0
+       },
+       "value": 0,
+       "sequence": 0
+      }
+     ],
+     "outputs": [
+      {
+       "value": 100000000,
+       "script": ""
+      }
+     ],
+     "received": -62135596800
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "s1"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "s1",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.insert_mem_pool_tx",
+     "tx": "s2"
+    },
+    {
+     "op": "store.add_credit",
+     "tx": "s2",
+     "index": 0,
+     "account": 0
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 0,
+     "account": 0
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "v1"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "v2"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "s1",
+     "block": "v1"
+    },
+    {
+     "op": "store.insert_mined_tx",
+     "tx": "s2",
+     "block": "v2"
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.extend_main_chain",
+     "label": "v3",
+     "votebits": 0
+    },
+    {
+     "op": "store.account_balance",
+     "minconf": 1,
+     "account": 0
+    },
+    {
+     "op": "store.unspent_outputs"
+    },
+    {
+     "op": "store.block_in_main_chain",
+     "block": "v2"
+    }
+   ]
+  },
+  {
+   "op": "store.unmined_txs"
+  },
+  {
+   "op": "store.main_chain_tip"
+  }
+ ]
+}

@@ -37,3 +37,21 @@ pub fn scratch(label: &str) -> PathBuf {
 pub fn data_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data")
 }
+
+/// `TestCoinbases`' account balances at depth 0 (`tx_test.go:353-574`):
+/// each step, the immature coinbase rewards and the spendable balance,
+/// in atoms. The port asserts them (`tests/txstore.rs`, `coinbases`), and
+/// `tests/guards.rs` checks that they are the values Go returned for the
+/// same steps in `38-upstream-tx-tests` (its frozen records), so the
+/// spendable values the upstream test states and never compares (QK-0650)
+/// are Go's.
+pub const UPSTREAM_COINBASE_BALANCES: [(&str, i64, i64); 8] = [
+    ("block 1", 5_000_000_000, 0),
+    ("block 7", 5_000_000_000, 0),
+    ("block 13", 5_000_000_000, 0),
+    ("block 16", 5_000_000_000, 0),
+    ("block 17", 0, 5_000_000_000),
+    ("spent at block 17", 0, 3_000_000_000),
+    ("block 17 rolled back", 3_000_000_000, 0),
+    ("block 1 rolled back", 0, 0),
+];

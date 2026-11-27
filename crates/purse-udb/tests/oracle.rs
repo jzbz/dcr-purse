@@ -120,7 +120,8 @@ fn hand_written_scripts_match_go() {
 }
 
 /// Every operation the Rust runner implements is one of Go's, and the
-/// hand-written corpus runs every one of them.
+/// hand-written corpus runs every one of them; every operation of Go's
+/// vocabulary is implemented or named in [`PENDING`] with its reason.
 #[test]
 fn supported_operations_are_gos_and_all_exercised() {
     let mut used = BTreeSet::new();
@@ -145,16 +146,74 @@ fn supported_operations_are_gos_and_all_exercised() {
     for op in SUPPORTED {
         assert!(go.contains(*op), "{op} is not an operation of oprunner");
     }
-    let left: Vec<&String> = go
-        .iter()
-        .filter(|op| op.starts_with("mgr.") || op.starts_with("udb."))
-        .filter(|op| !SUPPORTED.contains(&op.as_str()))
-        .collect();
-    eprintln!(
-        "address manager and udb operations not yet ported ({}): {left:?}",
-        left.len()
-    );
+    // Every operation of Go's vocabulary is ported or pending with a
+    // reason, and the pending list names no ported operation or one Go
+    // does not have.
+    for op in &go {
+        assert!(
+            SUPPORTED.contains(&op.as_str()) || PENDING.iter().any(|(p, _)| p == op),
+            "{op} is an operation of oprunner neither ported nor pending"
+        );
+    }
+    for (op, why) in PENDING {
+        assert!(
+            go.contains(*op),
+            "pending {op} ({why}) is not an operation of oprunner"
+        );
+        assert!(!SUPPORTED.contains(op), "pending {op} ({why}) is ported");
+    }
 }
+
+/// The operations of Go's vocabulary the Rust runner does not implement
+/// yet, each with the reason. No address manager (`mgr.`) or transaction
+/// store (`store.`) operation is pending.
+const PENDING: &[(&str, &str)] = &[
+    (
+        "udb.needs_migration",
+        "dcr-purse reads no dcrwallet database (ADR-0013)",
+    ),
+    ("wallet.open", "the wallet package (brief Phases 4 and 5)"),
+    ("wallet.close", "the wallet package (brief Phases 4 and 5)"),
+    (
+        "wallet.new_external_address",
+        "the wallet package (brief Phases 4 and 5)",
+    ),
+    (
+        "wallet.new_internal_address",
+        "the wallet package (brief Phases 4 and 5)",
+    ),
+    (
+        "wallet.branch_next_indexes",
+        "the wallet package (brief Phases 4 and 5)",
+    ),
+    ("udb.set_vsp_ticket", AUX),
+    ("udb.delete_vsp_ticket", AUX),
+    ("udb.get_vsp_ticket", AUX),
+    ("udb.get_vsp_tickets_by_fee_status", AUX),
+    ("udb.set_vsp_host", AUX),
+    ("udb.get_vsp_host", AUX),
+    ("udb.set_vsp_pub_key", AUX),
+    ("udb.get_vsp_pub_key", AUX),
+    ("udb.set_tspend_policy", AUX),
+    ("udb.set_vsp_tspend_policy", AUX),
+    ("udb.tspend_policy", AUX),
+    ("udb.vsp_tspend_policy", AUX),
+    ("udb.tspend_policies", AUX),
+    ("udb.vsp_tspend_policies", AUX),
+    ("udb.set_treasury_key_policy", AUX),
+    ("udb.set_vsp_treasury_key_policy", AUX),
+    ("udb.treasury_key_policy", AUX),
+    ("udb.vsp_treasury_key_policy", AUX),
+    ("udb.treasury_key_policies", AUX),
+    ("udb.vsp_treasury_key_policies", AUX),
+    ("udb.set_default_agenda_preference", AUX),
+    ("udb.set_ticket_agenda_preference", AUX),
+    ("udb.default_agenda_preference", AUX),
+    ("udb.ticket_agenda_preference", AUX),
+];
+
+/// The reason of the auxiliary buckets' operations (spec 05).
+const AUX: &str = "spec 05's auxiliary buckets, not ported yet";
 
 #[test]
 fn generated_scripts_match_go() {
@@ -1771,7 +1830,8 @@ fn group_campaign(
 
 /// Every operation a generated transaction store script draws is one the
 /// Rust runner implements or one of the generator's own spellings of
-/// `store.extend_main_chain` and `tx.build`.
+/// `store.extend_main_chain` and `tx.build`, and every transaction store
+/// operation the runner implements is drawn.
 #[test]
 fn txstore_generator_draws_only_ported_operations() {
     for op in TX_OPS
@@ -1789,6 +1849,26 @@ fn txstore_generator_draws_only_ported_operations() {
                 || op.starts_with("select."),
             "{op}"
         );
+    }
+    // And the reverse: every ported transaction store operation is drawn
+    // by some generator.
+    let drawn: BTreeSet<&str> = TX_OPS
+        .iter()
+        .chain(CREDIT_OPS)
+        .chain(CMS_OPS)
+        .chain(SELECT_OPS)
+        .copied()
+        .collect();
+    for op in SUPPORTED.iter().filter(|op| {
+        op.starts_with("store.")
+            || [
+                "udb.set_birth_state",
+                "udb.birth_state",
+                "udb.extract_block_header",
+            ]
+            .contains(op)
+    }) {
+        assert!(drawn.contains(op), "{op} is ported but never drawn");
     }
 }
 

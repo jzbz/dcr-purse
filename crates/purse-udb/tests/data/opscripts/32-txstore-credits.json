@@ -342,6 +342,10 @@
    "block": "b4"
   },
   {
+   "op": "rt.checkpoint",
+   "name": "before-rollback"
+  },
+  {
    "op": "store.rollback",
    "height": 5
   },
@@ -1124,6 +1128,10 @@
   },
   {
    "op": "store.unspent_output_count"
+  },
+  {
+   "op": "rt.checkpoint",
+   "name": "unmined"
   },
   {
    "op": "store.rollback",

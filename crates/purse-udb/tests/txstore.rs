@@ -20,8 +20,12 @@
 //! - `TestInsertsCreditsDebitsRollbacks` (`tx_test.go:20-351`) and
 //!   `TestCoinbases` (`tx_test.go:353-574`), with Go's assertions (and, for
 //!   `TestCoinbases`, the spendable balance its table states and its loop
-//!   never compares). These three run Rust only: Go runs them itself, and
-//!   the oracle compares the same operations in scripts.
+//!   never compares, QK-0650). These three run Rust only here; the
+//!   hand-written script `38-upstream-tx-tests` replays the same steps,
+//!   with the same queries after each, through Go and the Rust runner
+//!   (`tests/oracle.rs`, `tests/frozen.rs`), and `tests/guards.rs` checks
+//!   that `TestCoinbases`' balances asserted here
+//!   (`support::UPSTREAM_COINBASE_BALANCES`) are the ones Go returned.
 //!
 //! Properties (random sequences from `PURSE_TEST_SEED`, over every
 //! operation of the slice on a store with no address manager, which the
@@ -71,7 +75,7 @@ use purse_store::{
 use purse_testutil::SplitMix64;
 use purse_udb::addrmgr::ChainParams;
 use purse_udb::txstore::{BlockMeta, TxRead, TxRecord, TxStore, mined_class, unmined_class};
-use support::scratch;
+use support::{UPSTREAM_COINBASE_BALANCES, scratch};
 
 /// The error of a test's write transaction: the store's, or a deliberate
 /// rollback.
@@ -507,7 +511,9 @@ fn inserts_credits_debits_rollbacks() {
 /// reached at block 17, partly spent there, and the immature amount after
 /// rolling back block 17 and then block 1. Go's table also states the
 /// spendable balance, which its loop never compares (it checks the
-/// immature amount twice); the port compares both.
+/// immature amount twice, QK-0650); the port compares both, against
+/// `support::UPSTREAM_COINBASE_BALANCES`, the values Go returns for these
+/// steps in `38-upstream-tx-tests`.
 #[test]
 fn coinbases() {
     let (store, ts, _) = tx_store("testnet3");
@@ -537,36 +543,45 @@ fn coinbases() {
                 .expect("AddCredit");
             ts.add_credit(tx, &cb_rec, Some(&b1_meta), 2, false, 0)
                 .expect("AddCredit");
-            let maturity = |tx: &mut WriteTx<'_>, step: &str, immature: i64, spendable: i64| {
+            let mut steps = UPSTREAM_COINBASE_BALANCES.iter();
+            let mut maturity = |tx: &mut WriteTx<'_>| {
+                let (step, immature, spendable) = steps.next().expect("a step");
                 let b = ts.account_balance(tx, 0, 0).expect("AccountBalance");
-                assert_eq!(b.immature_coinbase_rewards, immature, "{step}: immature");
-                assert_eq!(b.spendable, spendable, "{step}: spendable");
+                assert_eq!(b.immature_coinbase_rewards, *immature, "{step}: immature");
+                assert_eq!(b.spendable, *spendable, "{step}: spendable");
                 check_rows(tx);
                 check_utxo_queries(&ts, tx);
             };
-            maturity(tx, "block 1", 5_000_000_000, 0);
+            // Block 1.
+            maturity(tx);
             insert_main_chain_headers(&ts, tx, &hs[1..7]);
-            maturity(tx, "block 7", 5_000_000_000, 0);
+            // Block 7.
+            maturity(tx);
             insert_main_chain_headers(&ts, tx, &hs[7..13]);
-            maturity(tx, "block 13", 5_000_000_000, 0);
+            // Block 13.
+            maturity(tx);
             insert_main_chain_headers(&ts, tx, &hs[13..16]);
-            maturity(tx, "block 16", 5_000_000_000, 0);
+            // Block 16.
+            maturity(tx);
             insert_main_chain_headers(&ts, tx, &hs[16..17]);
-            maturity(tx, "block 17", 0, 5_000_000_000);
+            // Block 17.
+            maturity(tx);
             // Spending output 0 leaves output 2 mature.
             let spender = spend_output(Hash(cb_rec.hash().0), 0, 0, &[500_000_000, 1_500_000_000]);
             let spender_rec = TxRecord::from_msg_tx(spender, 1_795_300_000).expect("record");
             let b17h = Hash32(*headers[16].block_hash().as_bytes());
             ts.insert_mined_tx(tx, &spender_rec, &b17h)
                 .expect("InsertMinedTx");
-            maturity(tx, "spent at block 17", 0, 3_000_000_000);
+            // Spent at block 17.
+            maturity(tx);
             // Block 17 rolled back: output 2 immature again, output 0
             // spent by the returned (unmined) spender.
             ts.rollback(tx, 17).expect("Rollback");
-            maturity(tx, "block 17 rolled back", 3_000_000_000, 0);
+            maturity(tx);
             // Block 1 rolled back: the coinbase is gone.
             ts.rollback(tx, 1).expect("Rollback");
-            maturity(tx, "block 1 rolled back", 0, 0);
+            maturity(tx);
+            assert!(steps.next().is_none(), "every step asserted");
             Ok::<_, purse_store::Error>(())
         })
         .expect("update");

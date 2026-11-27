@@ -15,9 +15,17 @@
 //! committed even when the member fails, and an `update` group that ends
 //! on an untolerated error puts the store file back as it was before the
 //! group (and the block labels with it). That is one transaction's outcome
-//! for these members, since none reads a count that a transaction's own
-//! writes would change (`UnspentOutputCount` reads the `unspent` table,
-//! which the first slice never writes); and a member that writes before
+//! for these members but in two respects. First, a count of the `unspent`
+//! table: Go's `UnspentOutputCount` and `MakeInputSource` read bbolt's
+//! `KeyN`, which counts the committed pages and leaves out the
+//! transaction's own writes (QK-0003), so a member counting after a member
+//! that wrote the table (`AddCredit` with a block, `InsertMinedTx`,
+//! `Rollback`, `ExtendMainChain`) answers from the table as the group
+//! began, where this runner, as dcr-purse's store does, counts what the
+//! earlier members wrote (`a_count_after_an_unspent_write_in_a_group_is_gos_committed_count`,
+//! `tests/guards.rs`; PARITY.md, `purse-udb` transaction store,
+//! item (26); the generated group scripts never make the sequence,
+//! `txgen::group_txstore`). Second, a member that writes before
 //! failing shows in the export where Go's does not, or the reverse. The
 //! two operations whose failures write in Go and not here
 //! (`ImportCFiltersV2`, `InsertMissingCFilters`; crate `txstore`, "A

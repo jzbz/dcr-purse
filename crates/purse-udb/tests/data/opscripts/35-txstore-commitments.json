@@ -322,6 +322,10 @@
    "block": "b2"
   },
   {
+   "op": "rt.checkpoint",
+   "name": "mined"
+  },
+  {
    "op": "store.account_balances",
    "minconf": 0
   },
@@ -498,6 +502,10 @@
   {
    "op": "store.account_balances",
    "minconf": 1
+  },
+  {
+   "op": "rt.checkpoint",
+   "name": "before-rollback"
   },
   {
    "op": "store.rollback",

@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use purse_export_check::{Export, Profile, parse, render_with};
+use purse_export_check::{
+    Export, Profile, Record, Section, decode_hex, encode_str, parse, render_with,
+};
 use purse_testutil::Oracle;
 use purse_testutil::serde_json::{self, Value, json};
 use purse_udb::export::{COVERED, COVERED_DERIVED};
@@ -27,6 +29,34 @@ pub fn go_run(o: &mut Oracle, script: &Value, dir: &Path) -> (Vec<Value>, String
     let results = res["results"].as_array().expect("results").clone();
     let pe = std::fs::read_to_string(dir.join("final.pe")).expect("final.pe");
     (results, pe)
+}
+
+/// The exports of the `rt.checkpoint` records among Go's `results` of a
+/// run in `dir`, in script order: each checkpoint's name and the text of
+/// the `<name>.pe` Go's runner wrote there.
+pub fn go_checkpoints(results: &[Value], dir: &Path) -> Vec<(String, String)> {
+    results
+        .iter()
+        .filter(|r| r["op"] == "rt.checkpoint")
+        .map(|r| {
+            let file = r["ok"]["file"].as_str().expect("a checkpoint's file");
+            let name = file.strip_suffix(".pe").expect("a .pe file").to_owned();
+            let text = std::fs::read_to_string(dir.join(file))
+                .unwrap_or_else(|e| panic!("checkpoint {file}: {e}"));
+            (name, text)
+        })
+        .collect()
+}
+
+/// Checks the checkpoint exports of a Go run and a Rust run: the same
+/// checkpoints in the same order, each pair equal as [`compare_exports`]
+/// compares the final ones.
+pub fn compare_checkpoints(what: &str, go: &[(String, String)], rust: &[(String, String)]) {
+    let names = |v: &[(String, String)]| v.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+    assert_eq!(names(go), names(rust), "{what}: checkpoints");
+    for ((name, g), (_, r)) in go.iter().zip(rust) {
+        compare_exports(&format!("{what}: checkpoint {name}"), g, r);
+    }
 }
 
 /// A record without the members that follow each side's random stream:
@@ -81,6 +111,23 @@ pub fn check_record(what: &str, g: &Value, r: &Value) {
             v
         };
         return check_record(what, &strip(g), &strip(r));
+    }
+    if g["op"] == "rt.checkpoint" && g.get("ok").is_some() {
+        // An ExportSummary: each side's digests and counts are of its own
+        // export, which holds what the other's producer does not write (the
+        // exporter, the sections no profile compares, aux sections not yet
+        // covered), so the record is compared by its file and its sections'
+        // names, and the exports themselves by `compare_checkpoints`.
+        assert_eq!(g["i"], r["i"], "{what}: record order");
+        assert_eq!(g["op"], r["op"], "{what}: op {}", g["i"]);
+        let names = |v: &Value| {
+            v["ok"]["sections"]
+                .as_array()
+                .map(|s| s.iter().map(|x| x["name"].clone()).collect::<Vec<_>>())
+        };
+        assert_eq!(g["ok"]["file"], r["ok"]["file"], "{what}: op {}", g["i"]);
+        assert_eq!(names(g), names(r), "{what}: op {}: sections", g["i"]);
+        return;
     }
     if g["err"]["kind"] == "Panic" {
         assert_eq!(g["i"], r["i"], "{what}: record order");
@@ -187,11 +234,106 @@ pub fn compare_exports(what: &str, go_pe: &str, rust_pe: &str) {
     compare_parsed(what, &go, &rust);
 }
 
+/// The dead items of ADR-0001 section 9 that a version-26 database made at
+/// the pin can hold in Go's `[residue]`: `waddrmgr/main/mgrver`, written at
+/// creation and never deleted. The section's other dead items reach a
+/// version-26 database only from a migrated or older one, which no script
+/// makes, so meeting one fails the comparison.
+pub const GO_RESIDUE: &[&str] = &["waddrmgr/main/mgrver"];
+
+/// Whether `ex`'s `[addresses]` holds a row matching `pick` whose
+/// identity and address are absent (`-`), which Go's export writes for a
+/// row the address API did not return.
+fn unreached_row(ex: &Export, pick: impl Fn(&Section, &Record) -> bool) -> bool {
+    ex.section("addresses").is_some_and(|s| {
+        s.records_of("address")
+            .any(|r| pick(s, r) && s.value(r, "id") == Some("-") && s.value(r, "addr") == Some("-"))
+    })
+}
+
+/// Checks the sections no comparison compares (ADR-0001 section 11,
+/// addendum of 2026-11-26): the Rust export's `[bad]`, `[unknown]` and
+/// `[residue]` are empty; Go's `[unknown]` is empty; Go's `[residue]`
+/// holds only [`GO_RESIDUE`]; and Go's `[bad]` holds only records the
+/// address API left (`value` absent): `unreached` on `waddrmgr/addr` for a
+/// key whose `[addresses]` row is written with `-` identity and address in
+/// both exports, and `api` on `waddrmgr/addracctidx` for an account (the
+/// key, LE32) one of whose `[addresses]` rows is written so in both.
+/// `[orphans]` is compared with the covered sections.
+pub fn check_uncompared(go: &Export, rust: &Export) -> Result<(), String> {
+    check_rust_uncompared(rust)?;
+    let unknown = go.section("unknown").ok_or("Go export: no [unknown]")?;
+    if !unknown.records.is_empty() {
+        return Err(format!(
+            "Go export: [unknown] is not empty: {:?}",
+            unknown.lines(false)
+        ));
+    }
+    let residue = go.section("residue").ok_or("Go export: no [residue]")?;
+    for r in &residue.records {
+        let path = residue.value(r, "path").unwrap_or("");
+        if !GO_RESIDUE.iter().any(|p| encode_str(p.as_bytes()) == path) {
+            return Err(format!(
+                "Go export: [residue] holds {path}, not a dead item a database made at the pin holds"
+            ));
+        }
+    }
+    let bad = go.section("bad").ok_or("Go export: no [bad]")?;
+    for (r, line) in bad.records.iter().zip(bad.lines(false)) {
+        let path = bad.value(r, "path").unwrap_or("");
+        let key = bad.value(r, "key").unwrap_or("");
+        let reason = bad.value(r, "reason").unwrap_or("");
+        let tied = bad.value(r, "value") == Some("-")
+            && if path == encode_str(b"waddrmgr/addr") && reason == "unreached" {
+                let row = |s: &Section, a: &Record| s.value(a, "key") == Some(key);
+                unreached_row(go, row) && unreached_row(rust, row)
+            } else if path == encode_str(b"waddrmgr/addracctidx") && reason == "api" {
+                match decode_hex(key).and_then(|k| <[u8; 4]>::try_from(k).ok()) {
+                    Some(k) => {
+                        let account = u32::from_le_bytes(k).to_string();
+                        let row = |s: &Section, a: &Record| {
+                            s.value(a, "account") == Some(account.as_str())
+                        };
+                        unreached_row(go, row) && unreached_row(rust, row)
+                    }
+                    None => false,
+                }
+            } else {
+                false
+            };
+        if !tied {
+            return Err(format!(
+                "Go export: [bad] holds {line}, not a record of an address row both exports \
+                 write with `-` fields"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The Rust half of [`check_uncompared`], for a replay that holds only a
+/// digest of Go's export: `[bad]`, `[unknown]` and `[residue]` empty.
+pub fn check_rust_uncompared(rust: &Export) -> Result<(), String> {
+    for name in ["bad", "unknown", "residue"] {
+        let s = rust
+            .section(name)
+            .ok_or_else(|| format!("Rust export: no [{name}]"))?;
+        if !s.records.is_empty() {
+            return Err(format!(
+                "Rust export: [{name}] is not empty: {:?}",
+                s.lines(false)
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// [`compare_exports`] on parsed exports, for a test that first edits Go's
 /// to state a recorded divergence.
 pub fn compare_parsed(what: &str, go: &Export, rust: &Export) {
     check_privcheck(go).unwrap_or_else(|e| panic!("{what}: Go export: {e}"));
     check_privcheck(rust).unwrap_or_else(|e| panic!("{what}: Rust export: {e}"));
+    check_uncompared(go, rust).unwrap_or_else(|e| panic!("{what}: {e}"));
     for meta in ["network", "chain", "decrypt", "derived", "privcheck"] {
         assert_eq!(go.meta(meta), rust.meta(meta), "{what}: @{meta}");
     }
@@ -225,6 +367,7 @@ pub fn covered_digest(pe: &str) -> String {
 }
 
 /// Runs one script on both sides and compares; returns Go's records.
+/// Every checkpoint export is compared, then the final one.
 pub fn differential(o: &mut Oracle, what: &str, script: &Value) -> Vec<Value> {
     let dir = scratch("diff");
     let (go_results, go_pe) = go_run(o, script, &dir.join("go"));
@@ -234,6 +377,8 @@ pub fn differential(o: &mut Oracle, what: &str, script: &Value) -> Vec<Value> {
     for (g, r) in go_results.iter().zip(&rust.results) {
         check_record(what, g, r);
     }
+    let go_cps = go_checkpoints(&go_results, &dir.join("go"));
+    compare_checkpoints(what, &go_cps, &rust.checkpoints);
     compare_exports(what, &go_pe, &rust.export);
     let _ = std::fs::remove_dir_all(&dir);
     go_results

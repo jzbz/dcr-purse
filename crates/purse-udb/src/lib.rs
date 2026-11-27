@@ -298,9 +298,11 @@
 //! (`tests/support/runner/groups.rs`: each member in its own transaction,
 //! committed even when the member fails, and the store file put back when
 //! an `update` group ends on an untolerated error, which is one
-//! transaction's outcome), and refuses every other operation,
-//! address manager operations in a group and `rt.checkpoint` included, as
-//! not yet ported, so a script can never pass by skipping one. A setup may create a watching-only wallet from
+//! transaction's outcome), `rt.checkpoint` (the export of the store as
+//! it stands, written beside it as Go's runner writes its snapshot's),
+//! and refuses every other operation, address manager operations in a
+//! group included, as not yet ported, so a script can never pass by
+//! skipping one. A setup may create a watching-only wallet from
 //! `xpub` (a key spec, neutered, or `{"raw": string}`, the string passed
 //! unparsed); its exports carry no `[privcheck]`, as Go's runner passes no
 //! private passphrase for it or after a conversion.
@@ -310,8 +312,11 @@
 //! - `tests/oracle.rs`: the live differential. Each script runs through
 //!   Go's `oprunner` and through the Rust runner; the per-operation results
 //!   must be equal (value, or error kind and text; `~r` values, which
-//!   follow each side's random stream, by length), and the two final
-//!   exports must be equal, section by section, under the masked
+//!   follow each side's random stream, by length), and the two exports at
+//!   each `rt.checkpoint` (a checkpoint's record is compared by its file
+//!   and section names, since each side's digests are of its own export),
+//!   then the two final exports, must be equal, section by section, under
+//!   the masked
 //!   observable profile (ADR-0001 section 8) for every section [`export()`]
 //!   covers, with every `[privcheck]` verdict `yes` (a watching-only
 //!   wallet's export has no verdict to give: its public keys are proved
@@ -444,7 +449,11 @@
 //!   `tests/data/txstore_credit_genvectors.txt`); `tests/txstore.rs` holds
 //!   the upstream tests (`TestSetBirthState`, `TestStakeInvalidationOfTip`,
 //!   `TestInsertsCreditsDebitsRollbacks`, `TestCoinbases`, on Go's header
-//!   chain) and the property tests (row and credit invariants after every
+//!   chain; the hand-written script `38-upstream-tx-tests` replays the
+//!   steps and queries of the last three through the oracle, and
+//!   `tests/guards.rs` holds the `TestCoinbases` port's balances to Go's)
+//!   and the property tests (row
+//!   and credit invariants after every
 //!   operation of random sequences, the UTXO queries against the rows,
 //!   failed operations writing nothing, reopens, record round trips, the
 //!   dependency order of `UnminedTxs`, ADR-0019's filter rules, the guard

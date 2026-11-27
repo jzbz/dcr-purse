@@ -114,7 +114,10 @@
 //
 // Every exported function of wallet/udb and every exported method of
 // Manager, Store and the types they return that reads or changes state,
-// at the pin:
+// at the pin (TestVocabularyCoversEveryEntryPoint, coverage_test.go, finds
+// every exported package function and *Manager and *Store method of the
+// pinned source named in an operation's calls, or listed there with the
+// reason it is not):
 //
 //	Go entry point                         operation
 //	Initialize, InitializeWatchOnly, Open  setup (seed or xpub); Open again in rt.reopen

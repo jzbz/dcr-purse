@@ -3,6 +3,7 @@
   "name": "create from a seed, open, account 0's keys",
   "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "pubpass": "public", "privpass": "private", "rand": "0101010101010101010101010101010101010101010101010101010101010101", "clock": 1794990000},
   "ops": [
+    {"op": "rt.checkpoint", "name": "created"},
     {"op": "udb.coin_types"},
     {"op": "udb.hd_keys_from_seed", "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"},
     {"op": "udb.hd_keys_from_seed", "seed": "b46bc6502a30beb92f0aebc776403c3dbf11bfb68305967c36dac9ef8d641567"},
@@ -52,6 +53,7 @@
     {"op": "mgr.account_branch_extended_pub_key", "account": 0, "branch": 2147483648},
     {"op": "mgr.account_branch_extended_pub_key", "account": 2147483647, "branch": 0},
     {"op": "mgr.account_branch_extended_pub_key", "account": 5, "branch": 0},
+    {"op": "rt.checkpoint", "name": "before-reopen"},
     {"op": "rt.reopen"},
     {"op": "mgr.is_locked"},
     {"op": "mgr.account_extended_pub_key", "account": 0},

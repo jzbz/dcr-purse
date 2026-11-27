@@ -48,7 +48,16 @@
   `RandomUTXO` and `Spender` are ported, and `crates/purse-udb/tests/measure.rs`
   times `SelectInputs` and `RandomUTXO` on both sides with the transaction
   store's own code on the Rust side, so the run can be made; it has not
-  been. The schema is unchanged.*
+  been. The schema is unchanged.* *2026-11-26: the dedicated-machine run
+  (M2) was made, on the project owner's word that the machine was quiet
+  (ADR-0014, addendum "The store's run of record"; bench ledger, entry of
+  that date): ADR-0014's row for Phases 2 and 3 met on every clause, a
+  balance query 33,966 times faster and a range query 1.82 times at
+  their lowest, and no figure slower than Go, the commit rows included
+  (the worst, the tip-block commit, at 0.617 of Go's time). Its balance,
+  range and commit figures still run the measurement's own composition
+  of the transaction-store rows; only input selection and `RandomUTXO`
+  run the transaction store's code. M3 is not done and stays owed.*
 - **Raised 2026-11-23, decided 2026-11-24 (project owner):** Decision
   item 5 says its divergences show in nothing a client can read; the
   credit slice found one that does (QUIRKS.md QK-0782), after the same
@@ -939,6 +948,10 @@ to allow it is Open point 4.
   transaction-store slice, with a PARITY.md line and Go's state shown
   beside dcr-purse's, and is reproduced until then; QK-0785 stays
   reproduced (Rule 1), since no consensus-valid chain reaches it.*
+  *2026-11-26: the next slice, the selection slice, fixed QK-0734 as
+  decided: stake validation drops the unmined copy, PARITY.md,
+  `purse-udb` transaction store, item (23); see the dated note of the
+  same slice at Decision item 5 above.*
 - **Scale and platforms.** The largest wallet was 2.4 GiB (the 1m store
   after ingest); Windows and macOS, other file systems and spinning disks
   were not measured; neither was memory use, nor readers running against a
@@ -1756,7 +1769,11 @@ decides exit criteria there); cold reads (the page cache was not dropped);
 the spike's 1m size; stake, coinbase, unmined, stake-invalidation and
 reorganisation paths, and input selection, which need the transaction
 store; the transaction store's own code (Phase 3); memory; bytes written
-on the Rust side; Windows, macOS and other file systems.
+on the Rust side; Windows, macOS and other file systems. *2026-11-26: the
+dedicated machine's figures, with input selection and `RandomUTXO`
+through the transaction store's code: ADR-0014, addendum "The store's
+run of record". The rest of this list still holds, the transaction
+store's own write path and queries (M3) included.*
 
 **Open points**, each for the owner, with a recommendation: *All three
 decided as recommended (project owner, 2026-11-21); each is marked, and
@@ -1781,7 +1798,12 @@ the addendum of that date records them.*
   transaction-store slice, so that input selection is measured too, and
   not before (ADR-0014, addendum of that date); not made.* *2026-11-24:
   that slice, the selection slice, has ported input selection and added
-  its timings to the harness; the run is not made.*
+  its timings to the harness; the run is not made.* *2026-11-26: made
+  on the dedicated machine, on the project owner's word that it was
+  quiet (ADR-0014, addendum "The store's run of record"; bench ledger,
+  entry of that date): N met at 33,966x for a balance and 1.82x for a
+  range query at their lowest, and no figure slower than Go, the worst
+  the tip-block commit at 0.617 of Go's time. M2 is settled; M3 is not.*
   The several-fold rows are far outside the noise seen here. The commit
   rows, which are bound by the machine's sync time, are the ones a
   dedicated run could move.
@@ -1790,7 +1812,10 @@ the addendum of that date records them.*
   the same test calling `purse-udb`'s transaction-store functions instead
   of its own composition, and with stake, unmined and reorganisation
   operations added to the workload. Recommended: yes, as part of Phase
-  3's exit.
+  3's exit. *2026-11-26: not done. The run of record of that date (M2)
+  times input selection and `RandomUTXO` through the transaction store's
+  code, but its rows and its balance and range queries are still the
+  test's own composition, so it does not stand in for this one.*
 
 ## Addendum, 2026-11-21 — R1 to R4 and M1 to M3 accepted, and Phase 2 closed (project owner)
 
@@ -1839,12 +1864,16 @@ added to it.
      "Phase 1's run of record"); this one stays owed.* *On 2026-11-24
      the owner said when: after the next transaction-store slice, so that
      input selection is measured too, and not before (ADR-0014, addendum
-     of that date). It has not been made.*
+     of that date). It has not been made.* *2026-11-26: made after that
+     slice, on the project owner's word that the machine was quiet;
+     ADR-0014's row met on every clause (ADR-0014, addendum "The store's
+     run of record").*
    - M3: the store is measured again when Phase 3 writes the transaction
      store, as part of Phase 3's exit, with the same test calling
      `purse-udb`'s transaction-store functions instead of its own
      composition, and with stake, unmined and reorganisation operations
-     added to the workload.
+     added to the workload. *2026-11-26: not done; it stays owed at
+     Phase 3's exit.*
 3. **The store's file name** is `wallet.redb` (ADR-0018 Open point BK1);
    item 5 of the addendum of 2026-11-19 "Decisions of the project owner"
    carries the dated pointer.
@@ -1860,7 +1889,8 @@ added to it.
    Phase 2 checks only as the set of outputs dcrwallet may choose
    (Phase 3); the dedicated-machine run (M2, before
    Phase 3's exit, when the owner says; *2026-11-24: after the next
-   transaction-store slice, M2 above*); the measurement with the
+   transaction-store slice, M2 above*; *2026-11-26: made, M2 above*);
+   the measurement with the
    transaction store (M3, Phase 3's exit); the large model run and the
    seed sweep below (the nightly job of item 9, which does not exist); the
    fuzz soaks (before the store's PARITY row moves to pinned, item 9); the
@@ -1872,7 +1902,11 @@ added to it.
    schema version, and a redb file-format migration, which is not built;
    in the measurement, input selection, coinbase and stake-invalidation
    paths, cold reads, the 1m size, memory, store open, backup and
-   recovery times) stay listed as not covered.
+   recovery times) stay listed as not covered. *2026-11-26: input
+   selection is now in the measurement, timed through the transaction
+   store's code on the dedicated machine (ADR-0014, addendum "The store's
+   run of record"), its random choices compared only for the selection
+   of everything; the rest of that list stays not covered.*
 5. **The cursor conformance test's guards.** The guards loosened in the
    change that added these records (`MIN_COMPARED_PER_SKIPPED` from ten
    to six, four for the per-record-table corpus where it was five, and

@@ -1355,7 +1355,14 @@
 //! too, and not before (decided, project owner, 2026-11-24; ADR-0014,
 //! addendum of that date). It has not been made; with the slices above
 //! ported, nothing it waited for is missing, and `tests/measure.rs` holds
-//! the selection and `RandomUTXO` figures it is to time.
+//! the selection and `RandomUTXO` figures it is to time. *(Made
+//! 2026-11-26, on the project owner's word that the machine was quiet:
+//! ADR-0014, addendum "The store's run of record", and the bench ledger's
+//! entry of that date. Of its figures only the selections and
+//! `RandomUTXO` run this module's code; the rest still use the
+//! measurement's own composition of the transaction-store rows, so
+//! measuring this module's write path and queries (ADR-0003 Open point
+//! M3, at Phase 3's exit) is still owed.)*
 //!
 //! *As first written:* once `pk_script_locs` is at the dcroxide pin (it is
 //! since 2026-11-23, dcroxide `1587ca1`): `AddCredit`, the credit

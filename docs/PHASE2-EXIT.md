@@ -281,6 +281,7 @@ the export comparison and the query answers are held in CI.
 - Stake, coinbase, unmined, stake-invalidation and reorganisation paths,
   and input selection.
 - A dedicated machine. ADR-0014 §4 decides exit criteria there.
+  *(2026-11-26: measured there, with input selection: the note below.)*
 - Cold reads, the spike's 1m size, memory, store open, backup and crash
   recovery times.
 - ADR-0014's row for Phases 2 and 3: "≥N times faster on balance, range
@@ -300,7 +301,17 @@ the store's dedicated-machine run and its measurement with Phase 3's
 transaction store are not made.* *On 2026-11-24 the project owner said
 when the store's dedicated-machine run is made: after the next
 transaction-store slice, so that input selection is measured too, and not
-before (ADR-0014, addendum of that date). It has not been made.*
+before (ADR-0014, addendum of that date). It has not been made.* *On
+2026-11-26 the store's dedicated-machine run (M2) was made after that
+slice, on the project owner's word that the machine was quiet
+(ADR-0014, addendum "The store's run of record"; bench ledger, entry of
+that date): ADR-0014's row for Phases 2 and 3 met on every clause, a
+balance 33,966 times faster and a range query 1.82 times at their
+lowest, and no figure slower than Go (the worst, the tip-block commit,
+at 0.617 of Go's time). Input selection and `RandomUTXO` are timed
+through the transaction store's code; the other figures still use the
+test's own composition of the transaction-store rows and queries, so
+the measurement with Phase 3's transaction store (M3) is not made.*
 
 ## What else the Phase 2 section lists
 
@@ -332,7 +343,8 @@ are open:
    store's targets, and the nightly model run. None is part of the exit
    sentence. ADR-0003's owner decision item 9 ties the fuzz soak to the
    store's PARITY row moving to pinned. *Still not done at the close;
-   carried forward: below.*
+   carried forward: below.* *(2026-11-26: the dedicated-machine run was
+   made; the fuzz soak and the nightly model run are still not done.)*
 
 **Closed (project owner, 2026-11-21).** The owner accepted every open
 point of items 1 and 2 as recommended and closed Phase 2 on these terms
@@ -357,7 +369,9 @@ point of items 1 and 2 as recommended and closed Phase 2 on these terms
      (ADR-0014, addendum "Phase 1's run of record"); this one is not
      made and stays owed, before Phase 3's exit;* *on 2026-11-24 the
      owner said when: after the next transaction-store slice, and not
-     before (ADR-0014, addendum of that date); not made;*
+     before (ADR-0014, addendum of that date); not made;* *made on
+     2026-11-26 after that slice, the row met on every clause (ADR-0014,
+     addendum "The store's run of record");*
    - the measurement with the transaction store's own code (M3): Phase
      3's exit;
    - the large model run and the cursor conformance test's seed sweep:
@@ -377,4 +391,7 @@ point of items 1 and 2 as recommended and closed Phase 2 on these terms
    file-format migration, which is not built; in the measurement, input
    selection, coinbase and stake-invalidation paths, cold reads, the 1m
    size, memory, store open, backup and recovery times) stays listed as
-   not covered.
+   not covered. *2026-11-26: input selection is now in the measurement,
+   timed through the transaction store's code on the dedicated machine
+   (ADR-0014, addendum "The store's run of record"); the rest stays not
+   covered.*

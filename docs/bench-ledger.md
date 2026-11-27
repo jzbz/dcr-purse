@@ -936,6 +936,185 @@ coinbase, unmined and reorganisation paths and input selection; store
 open, backup and crash recovery; memory; other platforms and file
 systems.
 
+*2026-11-26: the same command on the dedicated machine, with input
+selection and `RandomUTXO` added, is the entry below; this entry's
+figures stand as the shared desktop's.*
+
+### 2026-11-26 — `purse-store` against dcrwallet's udb on the dedicated machine, with input selection
+
+The store's run of record: ADR-0003 Open point M2, and ADR-0014 §4's row
+for Phases 2 and 3 on the dedicated machine, made after the
+transaction-store slice that ported input selection, as the addendum of
+2026-11-24 to ADR-0014 decided. Recorded in ADR-0014's addendum "The
+store's run of record" and by dated notes in ADR-0003.
+
+- **Machine:** d1 with no other job running on it, which counts as the
+  dedicated machine (ADR-0014, addendum of 2026-11-21, item 2); the run
+  was made on the project owner's word that the machine was quiet. A
+  `top` snapshot before the first session showed the processors 97.9%
+  idle, three processes of a desktop application at 23.9%, 19.1% and
+  4.8% of one CPU, a browser and the desktop compositor at 4.8% each,
+  and `top` itself; one after the third session showed 98.0% idle, two
+  kernel worker threads at 38.3% and 9.6%, four browser processes at
+  4.8% each, and `top`. One-minute load average 0.51 at the first
+  session's start (five- and fifteen-minute 0.40 and 0.38), and 1.03,
+  1.14 and 1.08 at the ends of the three sessions (five- and
+  fifteen-minute 0.99 and 0.70 at the last): about one runnable task,
+  the measured processes themselves. The whole test was pinned with
+  `taskset -c 12-15` as in the entry above (four cores of one die; their
+  SMT siblings not reserved; nothing pinned away from them), and both
+  sides inherited that pinning. 2026-11-26, 05:04:43 to 05:07:20,
+  05:07:20 to 05:09:57 and 05:09:58 to 05:12:35 UTC.
+- **Commits:** dcr-purse `d61c5d4`, a clean checkout, which includes the
+  slice that ported input selection, `RandomUTXO` and `Spender`
+  (`4c8a134`); dcroxide `1587ca1`; redb 5.0.0; Rust 1.100.0, `cargo test
+  --release` (the workspace's release profile). Go: dcrwallet `54b85b33`
+  (`v5.0.1-0.20261105142009-54b85b336077`) over bbolt v1.3.12, built with
+  Go 1.27.4 (`go1.27.4-X:nodwarf5`). The release test binary and the Go
+  side were built before the sessions, by an untimed run of
+  `same_data_and_answers_on_both_sides`.
+- **Workload:** the entry above's, from the same fixed seed and the same
+  in all three sessions: simnet, four BIP0044 accounts, 40,000 blocks
+  (300 at the tip), 100,075 wallet transactions (70,209 receives, 29,866
+  sends), 72,242 recorded addresses, 58,382 unspent outputs at the end.
+  The canonical exports of the two databases were equal line for line in
+  every session; Go's export file had 257,160 lines and the MD5
+  `f93cdfa1b0ab61df772186ace4d7d4ef` in all three (the entry above gives
+  the same line count and no MD5); and every timed query's check value
+  was equal to the other side's in every round. The test asserts both,
+  and all three sessions passed.
+- **Command** (three times, back to back; each exited 0 with `test
+  result: ok. 1 passed`):
+
+  ```text
+  PURSE_STORE_BENCH_DIR=<scratch directory> PURSE_REQUIRE_ORACLE=1 \
+    taskset -c 12-15 cargo test --release -p purse-udb --locked --test measure -- \
+    --ignored --nocapture --test-threads 1
+  ```
+
+  The method is the entry above's: three rounds a session, alternating
+  which side goes first; a query repeats at least 5 times and until a
+  second has passed (at most 200), and a round reports its median; the
+  history sync is timed once per side per session. The figures are the
+  median of the 9 round medians per side (3 for the history sync) and
+  their range, recomputed from the three sessions' `results.tsv` and
+  equal to the pooled file and to every session's `table.md`; durations
+  are rounded half up from the exact medians, ratios computed from the
+  unrounded ones.
+- **What the figures measure.** As the header of
+  `crates/purse-udb/tests/measure.rs` states, the transaction-store rows
+  (`blocks`, `history`, `tx_mined`, `credits`, `debits`, `unspent`,
+  `balances`, `balance_heights`, `acct_history`) are still written by the
+  measurement's own composition, and the balance and range queries read
+  them through it (the spike's code on `purse-store`'s typed tables): on
+  those rows the figures measure the schema and the store, plus
+  `purse-udb`'s address manager as built. Only input selection
+  (`MakeInputSource` with `SelectInputs`) and `RandomUTXO` run
+  `purse-udb`'s transaction-store code, over the rows the workload
+  writes. This run therefore settles M2 and gives input selection's first
+  figures. It is not M3 (ADR-0003 Open point M3: the same test calling
+  `purse-udb`'s transaction-store functions for the writes and the
+  queries, with stake, unmined and reorganisation operations added, as
+  part of Phase 3's exit), which is not done and stays owed.
+- **Selection's randomness.** Both sides seed their random stream from
+  the operating system, so their random choices differ from call to
+  call. Only the selection of every output of account 0 (target 0) is
+  compared as a set, and the one-coin and 50-coin selections are checked
+  for covering their target (the header of `measure.rs`). The 1,000
+  `RandomUTXO` calls are checked by how many found an output, a count
+  the two sides must agree on (the `random_utxo/minconf=1` check in
+  `measure.rs`'s `rust_hot` and in storebench's `hot.go`). Those four
+  figures time the same operation over the same rows on both sides, not
+  the same choices.
+- **Raw:** per session, `results.tsv`, `notes.txt`, `table.md` and Go's
+  export `export-go.txt`; the test logs `session-1.log` to
+  `session-3.log`; `top-before.txt` and `top-after.txt`; `run-facts.txt`;
+  and `pooled.tsv`, the pooled figures; not retained.
+
+| figure | Go median (range) | Rust median (range) | Rust/Go | Rust/Go by session | Rust/Go, entry above (shared desktop) |
+|---|---|---|---|---|---|
+| balance, account 0, minconf 1 | 94.54 ms (87.90–96.24 ms) | 1.45 µs (900 ns–1.49 µs) | 1.53e-5 | 1.53e-5, 1.55e-5, 1.06e-5 | 9.94e-6 |
+| balance, account 0, minconf 6 | 88.04 ms (86.60–92.24 ms) | 1.57 µs (980 ns–1.63 µs) | 1.78e-5 | 1.80e-5, 1.84e-5, 1.21e-5 | 1.13e-5 |
+| balance, account 3, minconf 1 | 87.66 ms (86.71–92.15 ms) | 930 ns (850 ns–1.36 µs) | 1.06e-5 | 1.06e-5, 1.10e-5, 1.05e-5 | 9.76e-6 |
+| balance, account 3, minconf 6 | 86.99 ms (86.45–92.28 ms) | 930 ns (850–950 ns) | 1.07e-5 | 1.05e-5, 1.08e-5, 1.05e-5 | 9.86e-6 |
+| balance, all accounts, minconf 1 | 87.29 ms (86.85–92.37 ms) | 2.57 µs (2.34–2.88 µs) | 2.94e-5 | 2.94e-5, 2.98e-5, 2.94e-5 | 2.72e-5 |
+| range: last 1,000 blocks, backward | 6.81 ms (6.78–6.86 ms) | 3.74 ms (3.59–3.95 ms) | 0.549 | 0.553, 0.545, 0.546 | 0.536 |
+| range: 1,000 blocks mid-chain, forward | 6.68 ms (6.60–6.74 ms) | 3.64 ms (3.62–3.72 ms) | 0.545 | 0.554, 0.545, 0.540 | 0.538 |
+| range: 100 most recent transactions | 216.0 µs (213.1–222.0 µs) | 111.6 µs (108.1–115.7 µs) | 0.517 | 0.523, 0.508, 0.513 | 0.507 |
+| range: whole history | 385.8 ms (382.1–388.4 ms) | 188.7 ms (180.0–193.2 ms) | 0.489 | 0.499, 0.490, 0.487 | 0.487 |
+| 1,000 lookups by script, `Manager.Address` | 66.79 ms (66.67–67.19 ms) | 36.72 ms (36.69–36.82 ms) | 0.550 | 0.551, 0.550, 0.548 | 0.546 |
+| 1,000 lookups by script, `AddrAccount` | 592.0 µs (589.4–614.5 µs) | 305.2 µs (287.0–341.6 µs) | 0.516 | 0.515, 0.549, 0.490 | 0.552 |
+| 1,000 `LookupAccount` | 171.6 µs (170.3–174.5 µs) | 88.43 µs (87.59–97.55 µs) | 0.515 | 0.556, 0.515, 0.515 | 0.529 |
+| 1,000 `AccountProperties` | 858.4 µs (828.3–895.5 µs) | 208.9 µs (205.0–217.4 µs) | 0.243 | 0.245, 0.243, 0.240 | 0.252 |
+| commit: tip block, p50 | 13.78 ms (13.62–13.92 ms) | 8.50 ms (7.86–8.71 ms) | 0.617 | 0.617, 0.584, 0.625 | 0.627 |
+| commit: record one address, p50 | 11.02 ms (10.61–12.77 ms) | 5.57 ms (5.39–5.84 ms) | 0.506 | 0.498, 0.521, 0.505 | 0.534 |
+| ingest: history sync, per block | 485.9 µs (485.8–490.5 µs) | 280.0 µs (279.3–282.0 µs) | 0.576 | 0.575, 0.576, 0.575 | 0.590 |
+| selection: every output of account 0, minconf 1 | 183.0 ms (182.3–185.3 ms) | 69.29 ms (67.32–70.15 ms) | 0.379 | 0.379, 0.380, 0.372 | — |
+| selection: one coin from account 0, minconf 1 | 107.7 µs (106.4–115.5 µs) | 8.57 µs (8.20–8.70 µs) | 0.0796 | 0.0768, 0.0798, 0.0800 | — |
+| selection: one coin from account 3, minconf 1 | 149.5 µs (146.4–156.5 µs) | 27.70 µs (25.47–31.14 µs) | 0.185 | 0.185, 0.191, 0.182 | — |
+| selection: 50 coins from account 0, minconf 0 | 13.83 ms (13.62–14.02 ms) | 5.47 ms (5.43–5.50 ms) | 0.396 | 0.398, 0.395, 0.399 | — |
+| 1,000 `RandomUTXO`, minconf 1 | 2.98 ms (2.86–3.05 ms) | 1.62 ms (1.61–1.66 ms) | 0.545 | 0.548, 0.540, 0.553 | — |
+
+The selections are `MakeInputSource` with `SelectInputs` for the targets
+named: 0 (every output), one coin (100,000,000 atoms) and 50 coins
+(5,000,000,000 atoms); account 3 is the last and smallest account. On
+every row the ranges do not overlap, and in every session Rust was the
+faster on every row; the closest is the tip-block commit, Go's fastest
+round (13.62 ms) 1.56 times Rust's slowest (8.71 ms). The tip-block
+commit's p90 was 15.77 ms (15.45–16.28 ms) on Go and 10.22 ms
+(9.52–10.35 ms) on Rust. File sizes after the history sync, the same in
+all three sessions: bbolt 217,260,032 bytes, redb 159,780,864 bytes, as
+in the entry above. Go's history sync wrote 879,853,568 to 882,814,976
+bytes (`write_bytes`); the Rust side's bytes were not counted.
+
+**Against ADR-0014's row for Phases 2 and 3** (N = 1,000 for a balance
+query, N = 1.5 for a range query, no slower than Go on ADR-0003's
+workload: ADR-0014, addendum of 2026-11-21, item 1), as dcrwallet's time
+over purse-store's from the medians above:
+
+- *A balance at least 1,000 times faster:* met. The lowest of the five
+  balance figures is the balance of all accounts, 33,966 times faster;
+  the five lie between 33,966x and 94,263x, and no session's figure is
+  below 33,574x.
+- *A range query at least 1.5 times faster:* met. The lowest of the four
+  range figures is the last 1,000 blocks backward, 1.82 times faster
+  (1.8217); the four lie between 1.82x and 2.04x, no session's figure is
+  below 1.80x (1,000 blocks mid-chain forward, the first session), and
+  Go's fastest round over Rust's slowest is at least 1.71x on every range
+  figure.
+- *No slower than Go:* met on all 21 figures. The worst ratio is the
+  tip-block commit, Rust's time 0.617 of Go's (1.62 times faster), and
+  0.625 in its worst session.
+
+**Against the entry above** (the shared desktop, lightly loaded, at
+dcr-purse `a5cdb88` with uncommitted changes and dcroxide `2074168`),
+for the sixteen figures both entries have: Go's balances 86.99 to
+94.54 ms here against 88.98 to 93.59 ms there, and Rust's 930 ns to
+2.57 µs against 880 ns to 2.42 µs. Rust's two balances of account 0 were
+900 to 990 ns (minconf 1) and 980 ns to 1.07 µs (minconf 6) in four of
+the nine rounds, the first round of each session and the third of the
+third, and 1.45 to 1.49 µs and 1.57 to 1.63 µs in the other five; their
+ratios, 1.53e-5 and 1.78e-5, are 54% and 58% above the entry above's
+(9.94e-6 and 1.13e-5), and the other three balances' ratios 8% to 9%
+above. The lowest balance figure was 36,800x there and is 33,966x here;
+the lowest range figure 1.86x there (1,000 blocks mid-chain, forward)
+and 1.82x here (the last 1,000 blocks, backward, 1.87x there). Of the
+eleven other figures, the four range ratios and `Manager.Address` are
+0.4% to 2.4% above the entry above's, and the other six 1.6% to 6.6%
+below. No cause of these differences was examined. No 15%-warn or
+25%-fail gate (ADR-0014 §4, "Regressions") was applied: this is the
+store's first dedicated-machine run, and no earlier one exists to
+compare with.
+
+**What this entry does not show.** M3: the transaction store's own
+write path and its balance and range queries (the test composes those
+rows and queries itself), and stake, coinbase, unmined,
+stake-invalidation and reorganisation paths, all owed at Phase 3's exit;
+selections whose random choices are the same on both sides; cold reads
+(the page cache was not dropped); the spike's 1m size; store open,
+backup and crash recovery; memory; the Rust side's bytes written; more
+than 4 threads, other processors, other platforms and file systems.
+
 ## purse-txrules and purse-txauthor
 
 The crates' ignored `tests/bench.rs` time their main entry points against

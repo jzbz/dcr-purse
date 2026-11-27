@@ -9,7 +9,8 @@
   value, fixed from measurements; items 13 to 22 are not yet established
   *(item 22's query results were measured on 2026-11-20 on the shared
   desktop and N was set from them on 2026-11-21; the run of record is
-  still owed: the dated note under item 22)*.
+  still owed: the dated note under item 22)*. *2026-11-26: that run of
+  record was made: the addendum "The store's run of record".*
   The owner's decisions on the Phase 1 speed row and the first
   measurements' findings (2026-11-19) are the addendum of that date, "The
   Phase 1 speed row and the first ledger entry".
@@ -38,6 +39,17 @@
   dedicated-machine run for the row of Phases 2 and 3 is made: after the
   next transaction-store slice, so that input selection is measured too,
   and not before; it has not been made: the addendum of that date.*
+  *2026-11-26: the store's dedicated-machine run for the row of Phases 2
+  and 3 was made, after that slice, on the project owner's word that the
+  machine was quiet: every clause of the row met, a balance 33,966 times
+  faster at the lowest, a range query 1.82 times, and none of the 21
+  figures slower than Go, the worst Rust's time 0.617 of Go's (the
+  tip-block commit). It settles ADR-0003's Open point M2; its balance,
+  range and commit rows still run the measurement's own composition of
+  the transaction store's rows, and only input selection and
+  `RandomUTXO` run the transaction store's code, so the measurement with
+  that store's own functions (ADR-0003 Open point M3, at Phase 3's exit)
+  is not done and stays owed: the addendum "The store's run of record".*
 - **Date:** 2026-11-19
 
 ## Context
@@ -293,7 +305,12 @@ At 40,002 addresses, R3, R6 and R7 are estimated to take the rescan from
   when and where the owner says (addendum of that date).* *2026-11-24
   (project owner): that run after the next transaction-store slice, so
   that input selection is measured too, and not before (addendum of that
-  date); not made.*
+  date); not made.* *2026-11-26: made on the dedicated machine after that
+  slice; the row met on every clause, a balance 33,966x and a range query
+  1.82x faster at their lowest, no figure slower than Go (the worst 0.617,
+  the tip-block commit); M3, the measurement through the transaction
+  store's own functions, stays owed (addendum "The store's run of
+  record").*
 
   *2026-11-21: Phase 1's row met on every clause on the dedicated machine
   (addendum "Phase 1's run of record").*
@@ -448,7 +465,11 @@ shared desktop while other work ran on it (ADR-0003, addendum
 figures on 2026-11-21 (addendum of that date, item 1); the run of record
 on the dedicated machine (item 2 of that addendum) has not been made.*
 *It is to be made after the next transaction-store slice, and not before
-(project owner, 2026-11-24; addendum of that date).*
+(project owner, 2026-11-24; addendum of that date).* *Made 2026-11-26
+(addendum "The store's run of record"): (22) is measured on the
+dedicated machine for the store with the measurement's own composition
+of the transaction store's rows; the measurement through the
+transaction store's own functions (ADR-0003 Open point M3) is not.*
 
 ## Addendum, 2026-11-19 — The Phase 1 speed row and the first ledger entry
 
@@ -570,7 +591,9 @@ apart from the dated pointers added to it.
    Phase 1 run was made (addendum "Phase 1's run of record"); the store's
    is not made and stays owed.* *2026-11-24: the store's is to be made
    after the next transaction-store slice, and not before (addendum of
-   that date).*
+   that date).* *2026-11-26: the store's was made after that slice
+   (addendum "The store's run of record"); the measurement with Phase
+   3's transaction store (M3) is not done and stays owed.*
 2. **What counts as the dedicated machine.** A run on the shared desktop
    on which the measurements so far were taken (the bench ledger's
    machine d1) counts as the dedicated-machine run when nothing else is
@@ -583,7 +606,8 @@ apart from the dated pointers added to it.
      and the run was made: the addendum below.*
    - The row of Phases 2 and 3 is not yet measured on such a run.
      *On 2026-11-24 the owner said when: after the next transaction-store
-     slice (addendum of that date).*
+     slice (addendum of that date).* *Measured on such a run on
+     2026-11-26: the addendum "The store's run of record".*
 
 This addendum records decisions; it measures nothing.
 
@@ -661,7 +685,8 @@ unchanged, 2.260 against 1.997 in the first entry (13.2%) and 2.16 on
 (the store against dcrwallet's udb; ADR-0003 Open point M2, item 1 of the
 addendum above). It stays owed, before Phase 3's exit. *2026-11-24: to
 be made after the next transaction-store slice, and not before (the
-addendum below).* Not measured by
+addendum below).* *2026-11-26: made (the addendum "The store's run of
+record").* Not measured by
 this run: other machines and processors, other architectures and
 operating systems, more than 4 threads, and GitHub's runners, on which
 the CI gate runs.
@@ -680,7 +705,8 @@ text above stays as written, apart from the dated pointers added to it.
 
 - The run is authorised for that point and has not been made; no timing
   figure is recorded by this addendum, and the row of Phases 2 and 3 is
-  still not measured on a run of record.
+  still not measured on a run of record. *2026-11-26: made at that
+  point (the addendum "The store's run of record").*
 - The decision names when. It does not name the machine; what counts as
   the dedicated machine stays as item 2 of the addendum of 2026-11-21
   defines it.
@@ -710,4 +736,106 @@ transaction store's own code on the Rust side, its answers checked
 against Go's in every round (the selection of everything as a set; the
 others, whose random choices follow each side's operating-system-seeded
 stream, for covering their target). The run of record is not made; no
-timing of these figures is recorded.
+timing of these figures is recorded. *2026-11-26: made, with these
+figures' first timings: the addendum below.*
+
+## Addendum, 2026-11-26 — The store's run of record
+
+On 2026-11-26, on the project owner's word that the machine was quiet,
+the run of record for the row of Phases 2 and 3 (the store against
+dcrwallet's udb; ADR-0003 Open point M2; item 1 of the addendum of
+2026-11-21, "Decisions of the project owner") was made at the point the
+addendum of 2026-11-24 names: after the transaction-store slice that
+ported input selection (`4c8a134`), measured at dcr-purse `d61c5d4`, a
+clean checkout. It was made under item 2 of the addendum of 2026-11-21:
+on the bench ledger's machine d1 with no other job running on it (the
+entry lists what a `top` snapshot before and after the sessions showed),
+the dedicated-machine run that item 4 ("Exit criteria"; "Regressions"
+puts exit criteria on a dedicated machine) calls for. It is the ledger's
+entry "2026-11-26 — `purse-store` against dcrwallet's udb on the
+dedicated machine, with input selection": three sessions of the command
+of the entry of 2026-11-20 back to back, 05:04:43 to 05:12:35 UTC, the
+whole test pinned to four cores, 9 round medians per side for each
+figure (3 for the history sync), one-minute load average 0.51 at the
+start and 1.03 to 1.14 at the sessions' ends (the measured processes
+themselves). Its workload, data checks and method are those of 2026-11-20
+(ADR-0003, addendum "`purse-store` against dcrwallet on the same
+workload"), with five figures added: four input selections
+(`MakeInputSource` with `SelectInputs`) and 1,000 `RandomUTXO` calls.
+
+| clause | criterion | 2026-11-20, shared desktop | 2026-11-26, dedicated machine | verdict |
+|---|---|---|---|---|
+| balance query | ≥ 1,000x faster | 36,800x at the lowest (all accounts); five figures 36,800x to 102,500x | 33,966x at the lowest (all accounts); five figures 33,966x to 94,263x | met |
+| range query | ≥ 1.5x faster | 1.86x at the lowest (1,000 blocks mid-chain, forward); four figures 1.86x to 2.05x | 1.82x at the lowest (the last 1,000 blocks, backward); four figures 1.82x to 2.04x | met |
+| no slower than Go on ADR-0003's workload | Rust/Go ≤ 1.00 on every figure | worst 0.627 (tip-block commit), 16 figures | worst 0.617 (tip-block commit), 21 figures | met |
+
+The first two rows give dcrwallet's time over purse-store's, the third
+Rust's time over Go's, from the pooled medians of each entry. Every
+session's own figures give the same verdicts: the lowest balance figure
+in any session 33,574x, the lowest range figure 1.80x (1,000 blocks
+mid-chain, forward, the first session) and the worst ratio 0.625 (the
+tip-block commit, the third). On no figure do the two sides' ranges
+overlap. **The row of Phases 2 and 3 is met on every clause on the
+dedicated machine, for what this run measures.**
+
+**What this run measures, and what it does not.** As the header of
+`crates/purse-udb/tests/measure.rs` states, the transaction-store rows
+are still written by the measurement's own composition, and the balance
+and range queries read them through it, so those figures, the lookups
+and the commit and history-sync figures measure the schema and the
+store, plus the address manager as built. Only input selection and
+`RandomUTXO` run `purse-udb`'s transaction-store code. The run therefore
+settles M2 and
+gives input selection's first figures: 2.53 to 12.57 times faster than
+Go over the four selections, and `RandomUTXO` 1.84 times. It does not
+measure the transaction store's own write path or its balance and range
+queries, nor stake, coinbase, unmined, stake-invalidation and
+reorganisation operations: that is M3 (ADR-0003 Open point M3, the same
+test calling `purse-udb`'s transaction-store functions with those
+operations added, as part of Phase 3's exit), which is not done and
+stays owed. Both sides seed selection's random stream from the operating
+system, so only the selection of every output is compared, as a set;
+the other three selections are checked for covering their target and
+`RandomUTXO` by how many of its calls found an output, a count the two
+sides must agree on (the `random_utxo/minconf=1` check in `measure.rs`
+and in storebench's `hot.go`), and those four figures time the same
+operation over the same rows, not the same choices.
+
+**Against the shared desktop's figures of 2026-11-20.** The lowest
+balance figure was 36,800x there and is 33,966x here; the lowest range
+figure 1.86x there and 1.82x here (the last 1,000 blocks backward, 1.87x
+there); the worst ratio 0.627 there and 0.617 here, both the tip-block
+commit. Rust's balances of account 0 measured 1.45 and 1.57 µs at the
+median against 930 ns and 1.01 µs there, their round medians lying near
+either value (the ledger entry gives them); the other balance ratios are
+8% to 9% above those of 2026-11-20, and of the eleven figures that are
+not balances, five ratios are 0.4% to 2.4% above and six 1.6% to 6.6%
+below. Between the two runs the machine went from lightly loaded to
+quiet, and dcr-purse from `a5cdb88` with uncommitted changes to
+`d61c5d4` and dcroxide from `2074168` to `1587ca1`; what accounts for
+the differences was not examined.
+
+**Not applied: the 15%-warn and 25%-fail ratio gates** (item 4,
+"Regressions"): this is the store's first dedicated-machine run, so no
+earlier one exists to compare it with. Not measured by this run: M3, as
+above; cold reads; the spike's 1m size; store open, backup and crash
+recovery; memory; bytes written on the Rust side; more than 4 threads,
+other machines and processors, other architectures, operating systems
+and file systems.
+
+**Places amended with this addendum:** the Status line, the note under
+item 4 ("Exit criteria", the row of Phases 2 and 3), the note under item
+22, items 1 and 2 of the addendum of 2026-11-21 "Decisions of the
+project owner", the closing paragraph of the addendum "Phase 1's run of
+record", and the first item and the closing note of the addendum of
+2026-11-24, by dated pointers; ADR-0003 (Status line, "What this does
+not show" and Open points M2 and M3 of its addendum of 2026-11-20, and
+items 2 and 4 of its addendum of 2026-11-21); `docs/bench-ledger.md`
+(the entry of 2026-11-26, and a dated note under the entry of
+2026-11-20); `docs/PHASE2-EXIT.md`; `docs/PHASE0-EXIT.md` (the D2 row of
+its decision table, point 4 of "Verdict" and the list of what the close
+defers); the project brief (Phase 2's Status and §9 D2); the ADR index;
+the README (`purse-store`'s row); `purse-udb`'s crate `txstore`, the
+paragraph on the run of record.
+
+This addendum records a measurement; it decides nothing.

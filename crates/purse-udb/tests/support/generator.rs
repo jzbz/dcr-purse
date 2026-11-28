@@ -1117,3 +1117,361 @@ pub fn generate_change_as(
         "ops": ops,
     })
 }
+
+/// The Unix time of Go's zero `time.Time` (January 1 of year 1, UTC),
+/// which udb stores for a birthday whose `Time` was never set
+/// (`wallet/udb/txmined.go:361`, `uint64(bs.Time.Unix())`).
+pub const GO_ZERO_TIME_UNIX: i64 = -62_135_596_800;
+
+/// How a creation script ([`generate_creation`]) makes and dates its
+/// wallet, as udb sees it. The restore and new-seed flows other than
+/// [`CreationFlow::RestoreGenesis`] write the birth row `dcrwallet --create`
+/// writes (`walletsetup.go` `createWallet`, its one `SetBirthState` at
+/// line 255, the gRPC `CreateWallet` writing the same rows but for
+/// QK-0247): every field it leaves unset is Go's zero value, a time of
+/// [`GO_ZERO_TIME_UNIX`] included. [`CreationFlow::RestoreGenesis`] and the
+/// watching-only flows write none, as `dcrwallet --createtemp` and
+/// `dcrwallet --create` of a watching-only wallet do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CreationFlow {
+    /// A seed's wallet with no birthday written: `Initialize`, no
+    /// operation, so the birth row is the one the upgrades write at
+    /// creation (the genesis block, set from neither). It is the wallet
+    /// `dcrwallet --createtemp` makes (`createSimulationWallet`,
+    /// `walletsetup.go:270-311`, `wallet.Create` at :305, no
+    /// `SetBirthState`); `dcrwallet --create` never leaves it, its restore
+    /// without a birthday being [`CreationFlow::RestoreNoBirthday`].
+    RestoreGenesis,
+    /// A restored seed with neither a birthday nor a birth block given:
+    /// `SetBirthState` with `SetFromHeight` and every other field zero
+    /// (`walletsetup.go:198-204`; the gRPC `CreateWallet`'s default too,
+    /// `internal/rpc/rpcserver/server.go:2737-2742`).
+    RestoreNoBirthday,
+    /// A restored seed with a birth block given: `SetBirthState` with
+    /// `SetFromHeight` and the height, the time Go's zero value
+    /// (`walletsetup.go:186-191`).
+    RestoreHeight,
+    /// A restored seed with a birthday given: `SetBirthState` with
+    /// `SetFromTime` and the time, the height zero (`walletsetup.go:180-185`).
+    RestoreTime,
+    /// A new seed: `UpgradeToSLIP0044CoinType`, then `SetBirthState` at
+    /// the clock less one day with `SetFromTime` (`walletsetup.go:192-197`,
+    /// 231-236 and 255).
+    NewSeed,
+    /// `InitializeWatchOnly` from account 0's extended public key under the
+    /// legacy coin type, no operation (`createWatchingOnlyWallet`,
+    /// `walletsetup.go:328`, writes no birthday).
+    WatchLegacy,
+    /// `InitializeWatchOnly` from account 0's extended public key under the
+    /// SLIP0044 coin type, no operation.
+    WatchSlip0044,
+}
+
+impl CreationFlow {
+    /// Whether the flow makes a watching-only wallet.
+    pub fn watching(self) -> bool {
+        matches!(
+            self,
+            CreationFlow::WatchLegacy | CreationFlow::WatchSlip0044
+        )
+    }
+}
+
+/// Every [`CreationFlow`], in declaration order.
+pub const CREATION_FLOWS: [CreationFlow; 7] = [
+    CreationFlow::RestoreGenesis,
+    CreationFlow::RestoreNoBirthday,
+    CreationFlow::RestoreHeight,
+    CreationFlow::RestoreTime,
+    CreationFlow::NewSeed,
+    CreationFlow::WatchLegacy,
+    CreationFlow::WatchSlip0044,
+];
+
+/// The number of (network, flow) pairs of the creation set: every flow on
+/// every network but regnet's SLIP0044 watching-only one, regnet's two
+/// coin types being one.
+pub const CREATION_NETWORK_FLOWS: usize = 4 * CREATION_FLOWS.len() - 1;
+
+/// The seed a creation script makes its wallet from (for the watching-only
+/// flows, the seed its account extended public key is derived from).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CreationSeed {
+    /// 16 random bytes, the shortest seed udb accepts.
+    Bytes16,
+    /// 32 random bytes, the length `dcrwallet --create` generates.
+    Bytes32,
+    /// 64 random bytes, the longest seed udb accepts.
+    Bytes64,
+    /// 32 bytes, the first of them zero, whose purpose key (`m/44'`) is
+    /// stored by hdkeychain's `Child` with a leading zero byte stripped
+    /// (QK-0028 one level above [`CreationSeed::StrippedCoinType`]), so
+    /// that both coin type keys derive from the stripped key: a seed of
+    /// `tests/wallet_diff.rs`'s leading-zero search, at the purpose depth.
+    LeadingZero,
+    /// 32 bytes whose coin type key, of the coin type the flow ends on, is
+    /// stored by hdkeychain's `Child` with a leading zero byte stripped
+    /// (QK-0028), so that account 0 derives from the stripped key.
+    StrippedCoinType,
+}
+
+/// Every [`CreationSeed`], in declaration order.
+pub const CREATION_SEEDS: [CreationSeed; 5] = [
+    CreationSeed::Bytes16,
+    CreationSeed::Bytes32,
+    CreationSeed::Bytes64,
+    CreationSeed::LeadingZero,
+    CreationSeed::StrippedCoinType,
+];
+
+/// The public passphrase of a creation script.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CreationPubPass {
+    /// Empty, which udb accepts.
+    Empty,
+    /// Printable ASCII of 1 to 24 characters.
+    Ascii,
+    /// Text beyond ASCII (UTF-8 of two- and three-byte characters).
+    Unicode,
+}
+
+/// Every [`CreationPubPass`], in declaration order.
+pub const CREATION_PUBPASSES: [CreationPubPass; 3] = [
+    CreationPubPass::Empty,
+    CreationPubPass::Ascii,
+    CreationPubPass::Unicode,
+];
+
+/// The coin type a creation flow's wallet ends on.
+fn creation_coin(flow: CreationFlow, chain: &ChainParams) -> u32 {
+    match flow {
+        CreationFlow::NewSeed | CreationFlow::WatchSlip0044 => chain.slip0044_coin_type,
+        _ => chain.legacy_coin_type,
+    }
+}
+
+/// A seed of `kind` for `flow` on `chain`.
+fn creation_seed(
+    rng: &mut SplitMix64,
+    kind: CreationSeed,
+    flow: CreationFlow,
+    chain: &ChainParams,
+) -> Vec<u8> {
+    match kind {
+        CreationSeed::Bytes16 => rng.bytes(16),
+        CreationSeed::Bytes32 => rng.bytes(32),
+        CreationSeed::Bytes64 => rng.bytes(64),
+        CreationSeed::LeadingZero => {
+            use purse_udb::addrmgr::ExtendedKey;
+            // About one seed in 256 qualifies.
+            loop {
+                let mut seed = rng.bytes(32);
+                seed[0] = 0;
+                let Ok(master) = ExtendedKey::new_master(&seed, &chain.hd) else {
+                    continue;
+                };
+                let Ok(purpose) = master.child(44 | 0x8000_0000) else {
+                    continue;
+                };
+                if purpose.serialized_priv_key().expect("private").len() < 32 {
+                    return seed;
+                }
+            }
+        }
+        CreationSeed::StrippedCoinType => {
+            use purse_udb::addrmgr::ExtendedKey;
+            let coin = creation_coin(flow, chain);
+            // About one seed in 256 qualifies.
+            loop {
+                let seed = rng.bytes(32);
+                let Ok(master) = ExtendedKey::new_master(&seed, &chain.hd) else {
+                    continue;
+                };
+                let Ok(purpose) = master.child(44 | 0x8000_0000) else {
+                    continue;
+                };
+                let Ok(c) = purpose.child(coin | 0x8000_0000) else {
+                    continue;
+                };
+                if c.serialized_priv_key().expect("private").len() < 32 {
+                    return seed;
+                }
+            }
+        }
+    }
+}
+
+/// A creation script: a wallet made by `flow` on `network` from a seed of
+/// kind `seed`, with a public passphrase of kind `pubpass`, run through
+/// `Initialize` (or `InitializeWatchOnly`) and the operations of the flow
+/// (ADR-0001 section 8, same-seed creation). The private passphrase is
+/// drawn as [`passphrase`] draws one, never empty; a watching-only wallet
+/// has none. Arguments follow `tools/oracle/cmd/oprunner/ops_store.go`
+/// (`udb.set_birth_state`).
+pub fn generate_creation(
+    rng: &mut SplitMix64,
+    id: usize,
+    network: &str,
+    flow: CreationFlow,
+    seed: CreationSeed,
+    pubpass: CreationPubPass,
+) -> Value {
+    let chain = ChainParams::by_name(network).expect("network");
+    let clock: i64 = 1_794_990_000;
+    let seed_bytes = creation_seed(rng, seed, flow, &chain);
+    let pubpass_text = match pubpass {
+        CreationPubPass::Empty => String::new(),
+        CreationPubPass::Ascii => (0..1 + rng.below(24))
+            .map(|_| char::from(0x20 + u8::try_from(rng.below(95)).expect("small")))
+            .collect(),
+        CreationPubPass::Unicode => ["pässwörd ✓", "公开 ✓", "ключ\u{a0}é"]
+            [usize::try_from(rng.below(3)).expect("small")]
+        .to_owned(),
+    };
+    let mut privpass = passphrase(rng);
+    if privpass.is_empty() {
+        privpass.push('x');
+    }
+    let ops = match flow {
+        CreationFlow::RestoreGenesis | CreationFlow::WatchLegacy | CreationFlow::WatchSlip0044 => {
+            vec![]
+        }
+        CreationFlow::RestoreNoBirthday => vec![json!({
+            "op": "udb.set_birth_state",
+            "from_height": true,
+            "time": GO_ZERO_TIME_UNIX,
+        })],
+        CreationFlow::RestoreHeight => vec![json!({
+            "op": "udb.set_birth_state",
+            "height": rng.below(1_000_000),
+            "from_height": true,
+            "time": GO_ZERO_TIME_UNIX,
+        })],
+        CreationFlow::RestoreTime => vec![json!({
+            "op": "udb.set_birth_state",
+            // Up to about five years before the clock.
+            "time": clock - i64::try_from(rng.below(158_000_000)).expect("small"),
+            "from_time": true,
+        })],
+        CreationFlow::NewSeed => vec![
+            json!({"op": "mgr.upgrade_to_slip0044_coin_type"}),
+            json!({"op": "udb.set_birth_state", "time": clock - 86_400, "from_time": true}),
+        ],
+    };
+    let mut setup = json!({
+        "network": network,
+        "pubpass": pubpass_text,
+        "privpass": privpass,
+        "rand": hex(&rng.bytes(32)),
+        "clock": clock,
+    });
+    match flow {
+        CreationFlow::WatchLegacy | CreationFlow::WatchSlip0044 => {
+            let coin = creation_coin(flow, &chain);
+            setup["xpub"] = json!({"seed": hex(&seed_bytes),
+                                   "path": ["44'", format!("{coin}'"), "0'"]});
+            setup["privpass"] = json!("");
+        }
+        _ => setup["seed"] = json!(hex(&seed_bytes)),
+    }
+    json!({
+        "format": "purse-opscript 1",
+        "name": format!("creation {id}: {network} {flow:?} {seed:?} {pubpass:?}"),
+        "setup": setup,
+        "ops": ops,
+    })
+}
+
+/// The flow of a script [`generate_creation`] made, read back from it.
+pub fn creation_flow(script: &Value) -> CreationFlow {
+    let setup = &script["setup"];
+    if !setup["xpub"].is_null() {
+        let chain =
+            ChainParams::by_name(setup["network"].as_str().expect("network")).expect("network");
+        return if setup["xpub"]["path"][1] == format!("{}'", chain.legacy_coin_type) {
+            CreationFlow::WatchLegacy
+        } else {
+            CreationFlow::WatchSlip0044
+        };
+    }
+    let ops = script["ops"].as_array().expect("ops");
+    match ops.first() {
+        None => CreationFlow::RestoreGenesis,
+        Some(o) if o["op"] == "mgr.upgrade_to_slip0044_coin_type" => CreationFlow::NewSeed,
+        Some(o) if o["from_height"] == true && o.get("height").is_none() => {
+            CreationFlow::RestoreNoBirthday
+        }
+        Some(o) if o["from_height"] == true => CreationFlow::RestoreHeight,
+        Some(_) => CreationFlow::RestoreTime,
+    }
+}
+
+/// The creation matrix on `network` (ADR-0001 section 8, same-seed
+/// creation): on simnet, whose scrypt cost is N = 2, every seed kind with
+/// every public passphrase kind in each of the five seed flows, and every
+/// seed kind in each watching-only flow (the public passphrase kinds in
+/// turn); on the other networks, whose scrypt is dcrwallet's full
+/// N = 262144, two scripts per seed flow and one per watching-only coin
+/// type, the seed kinds and public passphrase kinds in turn, so that each
+/// seed kind appears at least twice. Regnet's two coin types are one (1,
+/// `chaincfg/regnetparams.go`), so both its watching-only scripts are
+/// [`CreationFlow::WatchLegacy`], as [`creation_flow`] reads them back.
+/// Each entry is (flow, seed kind, public passphrase kind).
+pub fn creation_matrix(network: &str) -> Vec<(CreationFlow, CreationSeed, CreationPubPass)> {
+    let mut out = Vec::new();
+    if network == "simnet" {
+        for flow in CREATION_FLOWS.iter().filter(|f| !f.watching()) {
+            for seed in CREATION_SEEDS {
+                for pass in CREATION_PUBPASSES {
+                    out.push((*flow, seed, pass));
+                }
+            }
+        }
+        for flow in CREATION_FLOWS.iter().filter(|f| f.watching()) {
+            for (k, seed) in CREATION_SEEDS.iter().enumerate() {
+                out.push((*flow, *seed, CREATION_PUBPASSES[k % 3]));
+            }
+        }
+        return out;
+    }
+    // Offsets per network, so the three costly networks pair the kinds
+    // differently.
+    let off = match network {
+        "regnet" => 0,
+        "testnet3" => 1,
+        _ => 2,
+    };
+    let flows = CREATION_FLOWS
+        .iter()
+        .flat_map(|f| if f.watching() { vec![*f] } else { vec![*f, *f] });
+    for (k, mut flow) in flows.enumerate() {
+        if network == "regnet" && flow == CreationFlow::WatchSlip0044 {
+            flow = CreationFlow::WatchLegacy;
+        }
+        out.push((
+            flow,
+            CREATION_SEEDS[(k + off) % 5],
+            CREATION_PUBPASSES[(k + off) % 3],
+        ));
+    }
+    out
+}
+
+/// The networks of the creation set, in its order: the three whose scrypt
+/// is costly first, then simnet.
+pub const CREATION_NETWORKS: [&str; 4] = ["regnet", "testnet3", "mainnet", "simnet"];
+
+/// The creation set: [`creation_matrix`] on each of [`CREATION_NETWORKS`],
+/// each entry a [`generate_creation`] script drawn from `rng`, named by its
+/// position.
+pub fn creation_set(rng: &mut SplitMix64) -> Vec<(String, Value)> {
+    let mut out = Vec::new();
+    for network in CREATION_NETWORKS {
+        for (flow, seed, pass) in creation_matrix(network) {
+            let id = out.len();
+            let script = generate_creation(rng, id, network, flow, seed, pass);
+            out.push((format!("creation {id}"), script));
+        }
+    }
+    out
+}

@@ -7,8 +7,10 @@
 //!
 //! It reads the scripts Go's `tools/oracle/cmd/oprunner` reads and writes
 //! the same per-operation records (ADR-0002 sections 3 and 4) and, at the
-//! end, the logical export of its store. After every operation, and before
-//! every export (each `rt.checkpoint`'s and the final one), it checks the
+//! end, the logical export of its store. After the setup's creation
+//! (`purse_udb::initialize` or `initialize_watch_only`) and opening, after
+//! every operation, and before every export (each `rt.checkpoint`'s and
+//! the final one), it checks the
 //! store as `txstore::verify_backup` does (every row decoded, the chain,
 //! record and transaction tables' consistency checks, ADR-0018 BK4); a
 //! store that fails is a fault, so every state a script passes through,
@@ -27,8 +29,10 @@
 //! hex}`), resolved inside the operation's transaction with Go's texts.
 //!
 //! Its randomness comes from a SplitMix64 stream keyed by `setup.rand`:
-//! reproducible from run to run, but not Go's stream (the draw orders of
-//! the two sides are not aligned yet, ADR-0002 open item 2), so the
+//! reproducible from run to run, but not Go's stream (ADR-0002 open item
+//! 2; creation and opening draw in Go's order and sizes, which
+//! `creation_draws_on_gos_stream` in `tests/oracle.rs` checks on Go's
+//! stream, but this runner does not feed the manager that stream), so the
 //! differential compares exports under the masked profile.
 //!
 //! The transaction store's random operations (`store.random_utxo`,
@@ -239,6 +243,10 @@ pub struct Run {
     /// name and its text (also written as `<name>.pe` in the run's
     /// directory, as Go's runner writes it).
     pub checkpoints: Vec<(String, String)>,
+    /// The bytes the setup drew (`initialize` or `initialize_watch_only`
+    /// and the opening), as Go's run reports its `setup_drawn`. This
+    /// runner's stream is not Go's, so only the count is comparable.
+    pub setup_drawn: u64,
 }
 
 /// Go's kind names, by `purse_errors::Kind` code.
@@ -451,7 +459,7 @@ impl Args<'_> {
 /// Go's `keySpec`: an encoded extended key, or `{"seed", "path"}` (a
 /// master key from the seed, then each child, `'` marking a hardened
 /// index); neutered unless `private`.
-fn key_spec(v: &Value, chain: &ChainParams, private: bool) -> Result<ExtendedKey, String> {
+pub fn key_spec(v: &Value, chain: &ChainParams, private: bool) -> Result<ExtendedKey, String> {
     let key = if let Some(s) = v.as_str() {
         ExtendedKey::new_key_from_string(s, &chain.hd)
             .map_err(|e| fault(format!("extended key: {e}")))?
@@ -1263,7 +1271,14 @@ fn network(name: &str) -> Result<ChainParams, String> {
 /// The store's consistency checks as `txstore::verify_backup` runs them
 /// (every row decoded, the chain's, the record tables' and the transaction
 /// tables' with their decoded part, ADR-0018 BK4), on a read transaction.
-fn consistent(tx: &purse_store::ReadTx) -> purse_store::Result<()> {
+/// [`run`] holds the store to them after the setup's creation and opening,
+/// after every operation and before every export; tests that drive the
+/// creation entry point outside the runner call it too.
+///
+/// # Errors
+///
+/// The first check that refuses the store.
+pub fn consistent(tx: &purse_store::ReadTx) -> purse_store::Result<()> {
     tx.check_rows()?;
     tx.check_chain()?;
     tx.check_records()?;
@@ -1393,40 +1408,32 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
     let store = Store::create(&path).map_err(|e| fault(format!("create store: {e}")))?;
     let drawn = Arc::new(AtomicU64::new(0));
     let mut create_rng = source(&mut rng, &drawn);
-    let created: Result<(), RunErr> = store.update(|tx: &mut WriteTx<'_>| {
-        match &wallet_key {
-            WalletKey::Seed(seed) => Manager::create(
-                tx,
-                &chain,
-                seed,
-                &pub_pass,
-                &priv_pass,
-                &mut *create_rng,
-                &Limits::DEFAULT,
-            ),
-            WalletKey::Xpub(key) => Manager::create_watch_only(
-                tx,
-                &chain,
-                key,
-                &pub_pass,
-                &mut *create_rng,
-                &Limits::DEFAULT,
-            ),
-        }
-        .map_err(RunErr::Udb)?;
-        // Go's Initialize creates the transaction store in the same
-        // transaction.
-        txstore.create(tx).map_err(RunErr::Udb)
-    });
-    match created {
-        Ok(()) => {}
-        Err(RunErr::Udb(e)) => {
-            return Err(fault(format!(
-                "setup: {}",
-                e.render(purse_errors::DAEMON_SEPARATOR)
-            )));
-        }
-        Err(RunErr::Store(e)) => return Err(fault(format!("setup: store: {e}"))),
+    // Go's setup: udb.Initialize or udb.InitializeWatchOnly, the address
+    // manager and the transaction store in one transaction.
+    let created = match &wallet_key {
+        WalletKey::Seed(seed) => purse_udb::initialize(
+            &store,
+            &chain,
+            seed,
+            &pub_pass,
+            &priv_pass,
+            &mut *create_rng,
+            &Limits::DEFAULT,
+        ),
+        WalletKey::Xpub(key) => purse_udb::initialize_watch_only(
+            &store,
+            &chain,
+            key,
+            &pub_pass,
+            &mut *create_rng,
+            &Limits::DEFAULT,
+        ),
+    };
+    if let Err(e) = created {
+        return Err(fault(format!(
+            "setup: {}",
+            e.render(purse_errors::DAEMON_SEPARATOR)
+        )));
     }
     let mut runner = Runner {
         path,
@@ -1466,7 +1473,17 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             )));
         }
     }
+    // The wallet the creation entry point committed, before any operation
+    // (a script without operations is otherwise checked only before its
+    // final export).
+    if let Some(store) = runner.store.as_ref() {
+        let tx = store.read().map_err(|e| fault(format!("read: {e}")))?;
+        consistent(&tx)
+            .map_err(|e| format!("setup: the store fails the consistency checks: {e}"))?;
+        tx.close().map_err(|e| fault(format!("close: {e}")))?;
+    }
 
+    let setup_drawn = runner.drawn.load(Ordering::Relaxed);
     let ops = s
         .get("ops")
         .and_then(Value::as_array)
@@ -1508,6 +1525,7 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         results,
         export: text,
         checkpoints: runner.checkpoints,
+        setup_drawn,
     })
 }
 

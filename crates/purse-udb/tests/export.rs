@@ -15,7 +15,6 @@ use purse_errors::Kind;
 use purse_export_check::{REGISTRY as CHECK_REGISTRY, parse};
 use purse_snacl::{Limits, OsRandom};
 use purse_store::{Hash32, Store, VspTickets};
-use purse_udb::Manager;
 use purse_udb::addrmgr::ChainParams;
 use purse_udb::export::{COVERED, ExportOptions, REGISTRY, export};
 use support::scratch;
@@ -37,21 +36,16 @@ fn wallet() -> (Store, ChainParams) {
     let chain = ChainParams::by_name("simnet").expect("simnet");
     let dir = scratch("export");
     let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
-    store
-        .update(|tx| {
-            Manager::create(
-                tx,
-                &chain,
-                &[7; 32],
-                b"public",
-                b"private",
-                &mut OsRandom,
-                &Limits::DEFAULT,
-            )
-            .expect("create");
-            Ok::<_, purse_store::Error>(())
-        })
-        .expect("commit");
+    purse_udb::initialize(
+        &store,
+        &chain,
+        &[7; 32],
+        b"public",
+        b"private",
+        &mut OsRandom,
+        &Limits::DEFAULT,
+    )
+    .expect("initialize");
     (store, chain)
 }
 

@@ -13,8 +13,12 @@
 //! API returns and what the logical export shows, never the bytes of a
 //! bbolt bucket (brief section 3, W2).
 //!
-//! It holds the address manager's creation from a seed, its opening, the
-//! wallet lock, the coin type (its private key and the SLIP0044 upgrade),
+//! It holds the creation of a wallet ([`initialize()`] and
+//! [`initialize_watch_only()`], Go's `Initialize` and
+//! `InitializeWatchOnly`: the address manager and the transaction store in
+//! one write transaction), the address manager's creation from a seed, its
+//! opening, the wallet lock, the coin type (its private key and the
+//! SLIP0044 upgrade),
 //! BIP0044 and imported xpub accounts, addresses (derivation and
 //! recording, the used and returned indexes, lookups, private keys and
 //! redeem scripts), imported keys and scripts, `Encrypt`/`Decrypt`,
@@ -43,8 +47,8 @@
 //!
 //! | Go (`wallet/udb`) | Rust | Status |
 //! |---|---|---|
-//! | `Initialize` (address manager part: `createAddressManager`) | [`Manager::create`] | ported |
-//! | `InitializeWatchOnly` (`createWatchOnly`) | [`Manager::create_watch_only`] | ported (an extended private key is refused where Go stores it, QK-0762, decided by the project owner on 2026-11-22) |
+//! | `Initialize` | [`initialize()`]: [`Manager::create`] (Go's `createAddressManager`), then [`txstore::TxStore::create`] (`createStore`), in one write transaction | ported (an existing wallet refused first with Go's bucket error; the upgraded state written directly, ADR-0013) |
+//! | `InitializeWatchOnly` | [`initialize_watch_only()`]: [`Manager::create_watch_only`] (`createWatchOnly`), then [`txstore::TxStore::create`], in one write transaction | ported (an extended private key is refused where Go stores it, QK-0762, decided by the project owner on 2026-11-22) |
 //! | `Open` (address manager part: `loadManager`) | [`Manager::open`] | ported |
 //! | `HDKeysFromSeed`, `CoinTypes` | [`addrmgr::hd_keys_from_seed`], [`addrmgr::coin_types`] | ported |
 //! | `ValidateAccountName`, `IsImportedVoting` | [`addrmgr::validate_account_name`], [`addrmgr::is_imported_voting`] | ported |
@@ -130,7 +134,7 @@
 //!
 //! | Go (`wallet/udb`) | Rust | Status |
 //! |---|---|---|
-//! | `Initialize`, `InitializeWatchOnly` (transaction store part: `createStore`, and the rows upgrades 10, 11, 15 and 26 add) | [`txstore::TxStore::create`], run in the creating transaction after [`Manager::create`] or [`Manager::create_watch_only`], as Go's `Initialize` runs both in one | slice 1 |
+//! | `Initialize`, `InitializeWatchOnly` (transaction store part: `createStore`, and the rows upgrades 10, 11, 15 and 26 add) | [`txstore::TxStore::create`], which [`initialize()`] and [`initialize_watch_only()`] run in the creating transaction after the address manager's part, as Go's `Initialize` runs both in one | slice 1 |
 //! | `Open` (transaction store part: the `Store` value) | `TxStore::new` | slice 1 |
 //! | `NewTxRecord`, `NewTxRecordFromMsgTx` | [`txstore::TxRecord::new`], [`txstore::TxRecord::from_msg_tx`] | slice 1 |
 //! | `Store.MainChainTip` | `main_chain_tip` | slice 1 (returns a `Result`, ADR-0012 Rule 2(c)) |
@@ -283,9 +287,20 @@
 //! with the manager's hasher under a prefix naming the account, which draws
 //! nothing (the hash only recognises an unlocked account's passphrase in
 //! memory; spec 02 section 12 hazard 3). Go's
-//! `Initialize` also runs its upgrades, which this crate does not, so the
-//! draw streams of the two sides are not yet aligned (ADR-0002 open item
-//! 2): comparisons use the masked profile.
+//! `Initialize` also runs its upgrades, which this crate does not; on a
+//! new wallet they draw nothing: given Go's stream, [`initialize()`] (or
+//! [`initialize_watch_only()`]) and then [`Manager::open`] draw the bytes
+//! Go's `Initialize` (or `InitializeWatchOnly`) and `Open` draw, 400 for a
+//! seed's wallet and 256 for one from an extended public key, the
+//! creation flows' operations (the SLIP0044 upgrade and the birthday) draw
+//! nothing on either side, and every salt, digest and sealed box of the
+//! final export is Go's, unmasked (`creation_draws_on_gos_stream` in
+//! `tests/oracle.rs`, one script per network and creation flow, 27). The
+//! address manager's later draws (accounts, imports, passphrases) have not
+//! been compared on Go's stream, and the test runner still gives the
+//! manager a stream of its own, not Go's, so comparisons use the masked
+//! profile (ADR-0002 open item 2, its dated note of 2026-11-27; pending
+//! owner).
 //!
 //! # The oracle operation scripts
 //!
@@ -309,7 +324,9 @@
 //! separator `":: "`. The test runner of this crate
 //! (`tests/support/runner.rs`) reads the same scripts and writes the same
 //! records over [`Manager`] and `purse-store`; it implements the ported
-//! operations (setup with a seed or an extended key; `udb.coin_types`,
+//! operations (setup with a seed or an extended key, through
+//! [`initialize()`] or [`initialize_watch_only()`] as Go's runner calls
+//! `udb.Initialize` or `udb.InitializeWatchOnly`; `udb.coin_types`,
 //! `udb.hd_keys_from_seed`,
 //! `udb.validate_account_name`, `udb.is_imported_voting`; every `mgr.`
 //! operation of the "ported" rows above; `rt.reopen`, `rt.clock_set`,
@@ -518,6 +535,44 @@
 //!   nothing, abandoned transactions and reopens (rows and export equal
 //!   across them); unit tests are in each module. The seeds and counts of
 //!   the campaigns are in `docs/PARITY.md`.
+//! - `tests/initialize.rs`: a creation that fails commits nothing, every
+//!   row of every table as it was, for an existing wallet (refused with
+//!   Go's bucket error before anything is drawn), each argument the address
+//!   manager refuses, a random source failing at a randomly chosen byte
+//!   and a scrypt cost over the limits, on all four networks (the failures
+//!   before a key derivation only, off simnet), and a random source failing
+//!   at each of the creation's requests to it in turn (simnet, wallets of
+//!   both kinds); a commit failing at each storage
+//!   operation in turn leaves, on reopen, either nothing or the whole
+//!   wallet, row for row the one the same creation writes without a
+//!   failure, and an error that left the whole wallet says the commit's
+//!   outcome is unknown ([`creation_outcome_unknown()`]). A unit test in `src/initialize.rs` checks the text for an
+//!   existing wallet, `I/O error:: item already exists: bucket already
+//!   exists`, and the oracle's Go test `TestInitializeOfACreatedDatabase`
+//!   (`tools/oracle/cmd/oprunner/initialize_test.go`) pins the same text
+//!   and kind, and a failed `Initialize` committing nothing, in the udb the
+//!   oracle runs: no script reaches either, since both runners' setups
+//!   start from an empty store.
+//! - Same-seed creation (ADR-0001 section 8): `tests/oracle.rs`
+//!   `same_seed_creation_matches_go` runs the creation matrix
+//!   (`creation_set` in `tests/support/generator.rs`) through both
+//!   runners on all four networks, records and export compared under the
+//!   masked observable profile: seeds of 16, 32 and 64 bytes, and two
+//!   whose keys hdkeychain stores stripped (QK-0028): one whose first byte
+//!   is zero and whose purpose key is stripped, and one whose coin type key
+//!   is; empty, ASCII and non-ASCII public passphrases; a seed's wallet
+//!   with no birthday written (`Initialize` alone, as `dcrwallet
+//!   --createtemp` leaves it), the birth rows `walletsetup.go` writes for
+//!   a restored seed with neither a birthday nor a birth block, with a
+//!   birth block and with a birthday, and for a new seed (after the
+//!   SLIP0044 upgrade, a birthday a day before the clock), and
+//!   watching-only wallets from account 0's extended public key of each
+//!   coin type; 85 scripts on simnet and 12 on each other network.
+//!   `creation_flows_write_walletsetups_birth_rows` checks Go's birth row
+//!   of each flow against `walletsetup.go`'s, `tests/frozen.rs` replays a
+//!   fixed set (`creation_vectors.txt`, 121 scripts), and
+//!   `creation_draws_on_gos_stream` checks the draws on Go's stream
+//!   (section "Randomness").
 //! - `tests/export.rs`: the export parses under `purse-export-check`, its
 //!   registry equals the parser's, it writes the auxiliary records in the
 //!   format's order, it refuses a store holding rows it does not export or
@@ -535,9 +590,13 @@
 pub mod addrmgr;
 pub mod agendas;
 pub mod export;
+pub mod initialize;
 pub mod treasury;
 pub mod txstore;
 pub mod vsp;
 
 pub use addrmgr::Manager;
 pub use export::export;
+pub use initialize::{
+    CreationStoreError, creation_outcome_unknown, initialize, initialize_watch_only,
+};

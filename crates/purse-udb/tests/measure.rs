@@ -16,7 +16,8 @@
 //! this crate's address manager ([`Manager`], the port of udb's) and
 //! transaction store ([`TxStore`]) over `purse-store`, every commit
 //! `Durability::Immediate`, fed with the same call sequence through their
-//! own functions: `TxStore::create` beside `Manager::create`, and per
+//! own functions: `purse_udb::initialize` (`Manager::create` and
+//! `TxStore::create` in one transaction, as `udb.Initialize`), and per
 //! block the hash computed from the decoded header and an empty version 2
 //! filter built (as `extendMainChain` does both, inside the timing on both
 //! sides), `extend_main_chain`, `get_block_meta_for_hash`, per transaction
@@ -1697,29 +1698,24 @@ fn must<T>(r: Result<T, AnyError>, what: &str) -> T {
     r.unwrap_or_else(|e| panic!("{what}: {e}"))
 }
 
-/// `setup` on the Rust side: the wallet from the seed (the address
-/// manager's rows and the transaction store's, as `udb.Initialize` creates
-/// both), the accounts, every address of the ranges; then every address
+/// `setup` on the Rust side: the wallet from the seed
+/// ([`purse_udb::initialize`], the address manager's rows and the
+/// transaction store's, as `udb.Initialize` creates both), the accounts, every address of the ranges; then every address
 /// checked.
 fn rust_setup(path: &Path, w: &Workload, chain: &ChainParams) -> (RustWallet, usize) {
     let store = Store::create(path).expect("create store");
-    let ts = TxStore::new(chain).expect("txstore");
-    store
-        .update(|tx| {
-            Manager::create(
-                tx,
-                chain,
-                &w.seed,
-                PUB_PASS,
-                PRIV_PASS,
-                &mut OsRandom,
-                &Limits::DEFAULT,
-            )
-            .expect("create manager");
-            must(ts.create(tx), "create the transaction store");
-            Ok::<_, StoreError>(())
-        })
-        .expect("commit creation");
+    must(
+        purse_udb::initialize(
+            &store,
+            chain,
+            &w.seed,
+            PUB_PASS,
+            PRIV_PASS,
+            &mut OsRandom,
+            &Limits::DEFAULT,
+        ),
+        "initialize",
+    );
     let mgr = open_manager(&store, chain);
     store
         .update(|tx| {
@@ -1766,7 +1762,7 @@ fn rust_setup(path: &Path, w: &Workload, chain: &ChainParams) -> (RustWallet, us
         RustWallet {
             store,
             mgr,
-            ts,
+            ts: TxStore::new(chain).expect("txstore"),
             chain: *chain,
         },
         mismatches,
@@ -2772,7 +2768,7 @@ struct SessionResult {
 
 /// One session over preset `p`. With `check`, the Rust side's store is
 /// held to the store's consistency checks ([`check_store`]) after the
-/// history sync and after each tip ingest, outside every timing; the
+/// setup, after the history sync and after each tip ingest, outside every timing; the
 /// measurement passes `false` so that no check runs between an ingest and
 /// the queries it times.
 fn run_session(
@@ -2864,6 +2860,9 @@ fn run_session(
             mismatches, 0,
             "the Rust address manager recorded other addresses"
         );
+        if check {
+            check_store(&rw.store, "the setup");
+        }
         let ing = rust_ingest(&rw, &w.sync);
         rust_pruned.push(ing.pruned as u64);
         let total = ing.sync_ns;
@@ -3073,8 +3072,8 @@ fn scratch(label: &str) -> PathBuf {
 /// The whole pipeline at a small size, one repetition of everything: the
 /// two databases' exports equal line for line, every query's answer
 /// equal in both rounds of each side, and the Rust side's store passing
-/// the store's consistency checks after the history sync and after each
-/// tip ingest.
+/// the store's consistency checks after the setup, after the history
+/// sync and after each tip ingest.
 #[test]
 fn same_data_and_answers_on_both_sides() {
     let dir = scratch("measure-small");
@@ -3269,6 +3268,7 @@ fn generator_accounts_are_the_address_managers() {
         mismatches, 0,
         "the address manager recorded other addresses"
     );
+    check_store(&rw.store, "the setup");
     rw.store.close().expect("close");
     let _ = fs::remove_dir_all(&dir);
 }

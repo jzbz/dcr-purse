@@ -23,7 +23,10 @@
 //	           dir/wallet.db, results go to dir/results.jsonl, each export
 //	           to dir/<name>.pe beside its snapshot dir/<name>.db. Returns
 //	           {format, results, exports: {name: summary}, results_sha256,
-//	           drawn}. A fault of the script (unknown operation or label,
+//	           drawn, setup_drawn}, drawn counting every byte read from
+//	           the injected stream and setup_drawn the part the setup
+//	           read (Initialize or InitializeWatchOnly, the upgrades,
+//	           Open). A fault of the script (unknown operation or label,
 //	           missing, malformed or unknown argument, an operation where
 //	           the script's structure forbids it) fails the command, and
 //	           so does a panic in the runner's own code; an error dcrwallet

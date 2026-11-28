@@ -1214,6 +1214,24 @@ backup of it, with `txstore::verify_backup`.
   tests and corpus records that reproduce QK-0054, QK-0060's re-created
   commitment entries, QK-0081, QK-0082, QK-0097, QK-0101, QK-0734,
   QK-0736, QK-0781 to QK-0789) passed.
+  *Dated note, 2026-11-27 (the creation entry point):* the runner's
+  setup now creates the wallet through `purse_udb::initialize` or
+  `initialize_watch_only` (Go's `udb.Initialize` and
+  `InitializeWatchOnly`), and the runner also checks the store after the
+  setup's creation and opening, before the first operation, so a script
+  without operations (37 of the creation set's 121: its 21 seed wallets
+  created by `Initialize` alone, with no birth row, and its 16
+  watching-only wallets) is checked there as well as before its final
+  export. The 121 creation scripts of `tests/data/creation_vectors.txt`
+  replayed without Go, and `same_seed_creation_matches_go` against Go at
+  `PURSE_TEST_SEED` 0, `0x7a3e0b01` and `0x7a3e0b02` (121 scripts, 105
+  operations each, every record and export equal, as first recorded in
+  PARITY.md), passed. `creation_draws_on_gos_stream`, which drives the
+  creation outside the runner, holds the store to the same check after
+  the creation, after each operation and before its export, and the
+  property tests of `tests/initialize.rs` hold every wallet a creation
+  leaves whole to it; both passed. No state the creation path writes was
+  refused, and no check was changed.
 - `every_state_of_go_s_reproduced_defects_passes_the_check`: each state
   above written by the store's operations alone, on a store of its own,
   with the rows that make it asserted, so that the check is held to

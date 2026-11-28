@@ -20,15 +20,39 @@ use super::scratch;
 
 /// Runs `script` through Go; returns the results and the final export.
 pub fn go_run(o: &mut Oracle, script: &Value, dir: &Path) -> (Vec<Value>, String) {
+    let (results, pe, _) = go_run_drawn(o, script, dir);
+    (results, pe)
+}
+
+/// The bytes a Go run drew from the injected stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GoDrawn {
+    /// The setup's part, `setup_drawn`: `Initialize` or
+    /// `InitializeWatchOnly`, the upgrades and `Open`.
+    pub setup: u64,
+    /// The whole run's, `drawn`: the setup and every operation.
+    pub total: u64,
+}
+
+/// [`go_run`], also returning the bytes Go drew from the injected stream.
+pub fn go_run_drawn(o: &mut Oracle, script: &Value, dir: &Path) -> (Vec<Value>, String, GoDrawn) {
     let res = o
         .try_call(
             "run",
             json!({"script": script, "dir": dir.to_str().expect("utf-8 path")}),
         )
         .unwrap_or_else(|e| panic!("oprunner failed: {} ({:?})", e.text, e.kind));
-    let results = res["results"].as_array().expect("results").clone();
+    // A script without operations gives Go's nil slice, `null`.
+    let results = match &res["results"] {
+        Value::Null => Vec::new(),
+        r => r.as_array().expect("results").clone(),
+    };
     let pe = std::fs::read_to_string(dir.join("final.pe")).expect("final.pe");
-    (results, pe)
+    let drawn = GoDrawn {
+        setup: res["setup_drawn"].as_u64().expect("setup_drawn"),
+        total: res["drawn"].as_u64().expect("drawn"),
+    };
+    (results, pe, drawn)
 }
 
 /// The exports of the `rt.checkpoint` records among Go's `results` of a
@@ -380,8 +404,16 @@ pub fn covered_digest(pe: &str) -> String {
 /// Runs one script on both sides and compares; returns Go's records.
 /// Every checkpoint export is compared, then the final one.
 pub fn differential(o: &mut Oracle, what: &str, script: &Value) -> Vec<Value> {
+    differential_drawn(o, what, script).0
+}
+
+/// [`differential`], also returning the bytes each side's setup drew: Go's
+/// `setup_drawn` and the Rust runner's [`runner::Run::setup_drawn`]. The
+/// two streams differ (ADR-0002 open item 2), so only the counts can be
+/// set side by side; nothing here compares them.
+pub fn differential_drawn(o: &mut Oracle, what: &str, script: &Value) -> (Vec<Value>, u64, u64) {
     let dir = scratch("diff");
-    let (go_results, go_pe) = go_run(o, script, &dir.join("go"));
+    let (go_results, go_pe, go_drawn) = go_run_drawn(o, script, &dir.join("go"));
     let rust = runner::run(script, &dir.join("rust"))
         .unwrap_or_else(|e| panic!("{what}: Rust runner: {e}"));
     assert_eq!(go_results.len(), rust.results.len(), "{what}: record count");
@@ -392,7 +424,32 @@ pub fn differential(o: &mut Oracle, what: &str, script: &Value) -> Vec<Value> {
     compare_checkpoints(what, &go_cps, &rust.checkpoints);
     compare_exports(what, &go_pe, &rust.export);
     let _ = std::fs::remove_dir_all(&dir);
-    go_results
+    (go_results, go_drawn.setup, rust.setup_drawn)
+}
+
+/// The lines of every section [`compare_exports`] compares, each under
+/// `profile`, by section name (`[derived]` restricted as there, but a
+/// detached block's credits and debits kept, so meant for stores without a
+/// reorganised chain, as a creation's). With
+/// [`Profile::EXACT`]`.observable()` the `~` values (salts, digests, sealed
+/// boxes) stay as they are, so equal lines of two exports mean the two
+/// stores drew the same bytes into the same places.
+pub fn covered_lines(pe: &str, profile: Profile) -> Vec<(String, Vec<String>)> {
+    let ex = parse(pe).unwrap_or_else(|e| panic!("export: {e}"));
+    COVERED
+        .iter()
+        .map(|name| {
+            let s = ex.section(name).expect("section present");
+            let types: Option<&[&str]> = (*name == "derived").then_some(&COVERED_DERIVED[..]);
+            let lines = s
+                .records
+                .iter()
+                .filter(|r| types.is_none_or(|t| t.contains(&s.types[r.ty].name.as_str())))
+                .map(|r| render_with(&s.types[r.ty], &r.values, profile))
+                .collect();
+            ((*name).to_owned(), lines)
+        })
+        .collect()
 }
 
 /// The hand-written scripts, by file name.

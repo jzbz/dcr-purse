@@ -1351,7 +1351,18 @@ section 9, each resting on the absence of a reader at the pin.
    `~` fields from run to run and compare masked; ADR-0002's runner already
    links a copy of udb under both seams. Whether `walletgen` should move
    onto that copy, so that the exact profile can be used for creation
-   differentials, is open.
+   differentials, is open. *(2026-11-27, a fact for this item, pending
+   owner; no profile changed: on the copied udb's injected stream,
+   `purse_udb::initialize` (or `initialize_watch_only`) and
+   `Manager::open` draw the bytes Go's creation and `Open` draw, the
+   creation flows' operations (the SLIP0044 upgrade and the birthday)
+   draw nothing on either side, and the two final exports are equal under
+   the exact observable profile, for one script per network and creation
+   flow of the creation set (27, the flows' operations run),
+   `creation_draws_on_gos_stream` in `crates/purse-udb/tests/oracle.rs`;
+   ADR-0002 open item 2, dated note of 2026-11-27. Same-seed creation
+   (`same_seed_creation_matches_go`) still compares masked, as section 8
+   names it.)*
 6. A crosscheck mode in the Go exporter (raw decodings against the read API
    on the same transaction, as design A proposed) is not built.
 7. The simnet harness for the states listed in section 12.

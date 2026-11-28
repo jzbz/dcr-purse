@@ -99,6 +99,18 @@
 //! `PURSE_UDB_AUX_SCRIPTS`) and the same in groups
 //! (`PURSE_UDB_AUX_GROUP_SCRIPTS`), whose members never tolerate that
 //! refusal.
+//!
+//! Same-seed creation (ADR-0001 section 8) runs the creation matrix
+//! (`support::generator::creation_set`: seed lengths and kinds, public
+//! passphrases, and the creation flows: `Initialize` alone, the birth rows
+//! `dcrwallet --create` writes for a restored and a new seed, and
+//! watching-only creation, on all four networks) through both runners'
+//! creation entry points, `same_seed_creation_matches_go`;
+//! `creation_flows_write_walletsetups_birth_rows` checks Go's birth row of
+//! each flow against `walletsetup.go`'s; `creation_draws_on_gos_stream`
+//! checks, as a diagnostic no comparison depends on, that the creation,
+//! the opening and the flow's operations draw Go's bytes in Go's order
+//! when both read Go's stream (ADR-0002 open item 2).
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -4128,4 +4140,374 @@ fn a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner() {
     let _ = std::fs::remove_dir_all(&dir);
     // Untolerated, Go's transaction rolls back: both sides agree.
     differential(&mut o, "untolerated vsp ticket refusal", &script(false));
+}
+
+/// The creation set's scripts on `network`, from `set`.
+fn creation_scripts_on<'a>(set: &'a [(String, Value)], network: &str) -> Vec<&'a (String, Value)> {
+    set.iter()
+        .filter(|(_, s)| s["setup"]["network"] == network)
+        .collect()
+}
+
+/// Same-seed creation (ADR-0001 section 8; the brief's Phase 3 exit): the
+/// creation matrix (`support::generator::creation_set`) on all four
+/// networks, drawn from `PURSE_TEST_SEED`: seeds of 16, 32 and 64 bytes,
+/// one whose first byte is zero and whose purpose key hdkeychain stores
+/// stripped, and one whose coin type key it stores stripped (QK-0028);
+/// empty, ASCII and non-ASCII public passphrases; a seed's wallet with no
+/// birthday written (`Initialize` alone, as `dcrwallet --createtemp`
+/// leaves it), the restores of `dcrwallet --create` with neither a
+/// birthday nor a birth block, with a birth block and with a birthday,
+/// its new seed (the SLIP0044 upgrade, then a birthday a day before the
+/// clock), each writing the birth row `walletsetup.go` writes
+/// (`creation_flows_write_walletsetups_birth_rows`), and watching-only
+/// wallets from account 0's extended public key of either coin type. Each
+/// runs through Go's `udb.Initialize` (or `InitializeWatchOnly`) and the
+/// Rust runner's `purse_udb::initialize` (or `initialize_watch_only`), and
+/// every record and the export compare under the masked observable
+/// profile (`compare::differential`), one network per thread, each with
+/// its own oracle process. The bytes each side's setup drew are reported
+/// beside each other; no comparison here depends on them
+/// (`creation_draws_on_gos_stream` is the test of the draws).
+#[test]
+fn same_seed_creation_matches_go() {
+    use support::generator::{
+        CREATION_NETWORK_FLOWS, CREATION_NETWORKS, CreationFlow, creation_flow, creation_set,
+    };
+    if oracle_or_skip("oprunner").is_none() {
+        return;
+    }
+    let mut rng = SplitMix64::from_env("purse-udb-creation");
+    let set = creation_set(&mut rng);
+    // Per network: (network, flow) -> scripts, (Go's setup draw, the Rust
+    // runner's) -> scripts, operations.
+    type Tally = (
+        BTreeMap<(String, CreationFlow), usize>,
+        BTreeMap<(u64, u64), usize>,
+        usize,
+    );
+    let per_network: Vec<Tally> = std::thread::scope(|s| {
+        let handles: Vec<_> = CREATION_NETWORKS
+            .iter()
+            .map(|net| {
+                let scripts = creation_scripts_on(&set, net);
+                s.spawn(move || {
+                    let mut o = oracle_or_skip("oprunner").expect("oracle");
+                    let mut t: Tally = Default::default();
+                    for (name, script) in scripts {
+                        let (results, go_drawn, rust_drawn) = support::compare::differential_drawn(
+                            &mut o,
+                            &format!("{name}: {script}"),
+                            script,
+                        );
+                        t.2 += results.len();
+                        *t.0.entry(((*net).to_owned(), creation_flow(script)))
+                            .or_default() += 1;
+                        *t.1.entry((go_drawn, rust_drawn)).or_default() += 1;
+                    }
+                    t
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("a network's thread"))
+            .collect()
+    });
+    let mut tally = BTreeMap::new();
+    let mut drawn: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+    let mut ops = 0;
+    for (t, d, n) in per_network {
+        tally.extend(t);
+        for (k, v) in d {
+            *drawn.entry(k).or_default() += v;
+        }
+        ops += n;
+    }
+    eprintln!(
+        "{} creation scripts, {ops} operations equal; by network and flow: {tally:?}; \
+         setup bytes drawn (Go, Rust runner) -> scripts: {drawn:?}",
+        set.len()
+    );
+    // Every network with every flow, but regnet, whose two coin types are
+    // one, has no SLIP0044 watching-only flow of its own.
+    assert_eq!(tally.len(), CREATION_NETWORK_FLOWS, "{tally:?}");
+    assert!(!tally.contains_key(&("regnet".to_owned(), CreationFlow::WatchSlip0044)));
+    assert_eq!(tally.values().sum::<usize>(), set.len());
+}
+
+/// The birth row each creation flow leaves in Go's export is the one
+/// `dcrwallet --create` writes for that flow, written out here from
+/// `walletsetup.go` at the pin rather than from the generator's
+/// operations: its one `SetBirthState` (line 255) of a
+/// `udb.BirthdayState` literal whose unset fields are Go's zero values, a
+/// zero hash and the zero `time.Time`, which udb stores as
+/// `uint64(bs.Time.Unix())` (`wallet/udb/txmined.go:361`), so
+/// -62135596800. A restore with neither a birthday nor a birth block sets
+/// `SetFromHeight` alone (lines 198-204); a birth block sets
+/// `SetFromHeight` and the height (186-191); a birthday sets `SetFromTime`
+/// and the time (180-185); a new seed sets `SetFromTime` and the clock
+/// less 24 hours (192-197). `Initialize` alone, as `dcrwallet
+/// --createtemp` and watching-only creation leave it, keeps the row the
+/// upgrades write: the genesis block, set from neither, at the zero time.
+/// Every simnet script of the creation set (the row does not depend on the
+/// scrypt cost; the other networks' rows are compared with Rust's by
+/// `same_seed_creation_matches_go`).
+#[test]
+fn creation_flows_write_walletsetups_birth_rows() {
+    use support::generator::{CREATION_FLOWS, CreationFlow, creation_flow, creation_set};
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    // `time.Time{}.Unix()`, written out rather than taken from the
+    // generator.
+    const ZERO_TIME: i64 = -62_135_596_800;
+    const ZERO_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    let mut rng = SplitMix64::from_env("purse-udb-creation-birth");
+    let set = creation_set(&mut rng);
+    let chain = ChainParams::by_name("simnet").expect("simnet");
+    let genesis = {
+        let ts = purse_udb::txstore::TxStore::new(&chain).expect("txstore");
+        let mut g = ts.genesis_hash().0;
+        g.reverse();
+        hex(&g)
+    };
+    let mut seen: BTreeMap<CreationFlow, usize> = BTreeMap::new();
+    for (name, script) in creation_scripts_on(&set, "simnet") {
+        let flow = creation_flow(script);
+        let op = script["ops"]
+            .as_array()
+            .expect("ops")
+            .iter()
+            .find(|o| o["op"] == "udb.set_birth_state");
+        let arg = |k: &str| op.expect("a birth state operation")[k].as_i64().expect(k);
+        let clock = script["setup"]["clock"].as_i64().expect("clock");
+        // (fromheight, fromtime, hash, height, time) as walletsetup.go sets
+        // them for the flow.
+        let (fh, ft, hash, height, time): (u8, u8, &str, i64, i64) = match flow {
+            CreationFlow::RestoreGenesis
+            | CreationFlow::WatchLegacy
+            | CreationFlow::WatchSlip0044 => (0, 0, &genesis, 0, ZERO_TIME),
+            CreationFlow::RestoreNoBirthday => (1, 0, ZERO_HASH, 0, ZERO_TIME),
+            CreationFlow::RestoreHeight => (1, 0, ZERO_HASH, arg("height"), ZERO_TIME),
+            CreationFlow::RestoreTime => (0, 1, ZERO_HASH, 0, arg("time")),
+            CreationFlow::NewSeed => (0, 1, ZERO_HASH, 0, clock - 24 * 3600),
+        };
+        let want = format!(
+            "birth set=1 fromheight={fh} fromtime={ft} hash={hash} height={height} time={time}"
+        );
+        let dir = scratch("creation-birth");
+        let (_, pe) = go_run(&mut o, script, &dir);
+        let got = pe
+            .lines()
+            .find(|l| l.starts_with("birth "))
+            .unwrap_or_else(|| panic!("{name}: no birth line"));
+        assert_eq!(got, want, "{name} ({flow:?}): Go's birth row");
+        *seen.entry(flow).or_default() += 1;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    eprintln!("simnet birth rows as walletsetup.go writes them, by flow: {seen:?}");
+    assert_eq!(seen.len(), CREATION_FLOWS.len(), "{seen:?}");
+}
+
+/// A diagnostic for ADR-0002 open item 2 (pending owner): whether
+/// creation draws what Go's draws, in Go's order and sizes, when both read
+/// the same stream. Go's runner seeds its injected stream (the ChaCha20
+/// stream of spec 23 section 5.6.2) with `setup.rand`; here
+/// `purse_udb::initialize` (or `initialize_watch_only`), then
+/// `Manager::open`, as Go's setup runs `udb.Open` after the creation, then
+/// the script's operations (the SLIP0044 upgrade and the birthday), read
+/// dcrd's generator keyed by the same 32 bytes (`Prng::from_seed`, as the
+/// Rust runner's random store operations do). It checks that the bytes
+/// the setup drew equal Go's `setup_drawn` and the bytes drawn in all
+/// equal Go's `drawn` (the operations drawing nothing on either side), and
+/// that the two final exports are equal unmasked (exact observable
+/// profile), where every salt, digest and sealed box is the bytes drawn
+/// for it, in its place; and that the unmasked lines are not the masked
+/// ones, so the comparison does reach drawn values. One script per
+/// network and flow of the creation set, one network per thread.
+///
+/// It records a fact and pins it: no comparison profile of the
+/// differential depends on it (the Rust runner keeps its own stream and
+/// compares masked, ADR-0002 open item 2, dated note of 2026-11-27).
+#[test]
+fn creation_draws_on_gos_stream() {
+    use dcroxide_crypto::rand::Prng;
+    use purse_export_check::Profile;
+    use purse_snacl::{Limits, RandomSourceError};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use support::generator::{
+        CREATION_NETWORK_FLOWS, CREATION_NETWORKS, creation_flow, creation_set,
+    };
+    if oracle_or_skip("oprunner").is_none() {
+        return;
+    }
+    let mut rng = SplitMix64::from_env("purse-udb-creation-draws");
+    let set = creation_set(&mut rng);
+    let compared: Vec<usize> = std::thread::scope(|s| {
+        let handles: Vec<_> = CREATION_NETWORKS
+            .iter()
+            .map(|net| {
+                let scripts = creation_scripts_on(&set, net);
+                s.spawn(move || {
+                    let mut o = oracle_or_skip("oprunner").expect("oracle");
+                    let mut seen = BTreeSet::new();
+                    for (name, script) in scripts {
+                        if !seen.insert(creation_flow(script)) {
+                            continue;
+                        }
+                        creation_on_gos_stream(&mut o, name, script);
+                    }
+                    seen.len()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("a network's thread"))
+            .collect()
+    });
+    eprintln!("creations compared on Go's stream, by network {CREATION_NETWORKS:?}: {compared:?}");
+    assert_eq!(compared.iter().sum::<usize>(), CREATION_NETWORK_FLOWS);
+
+    /// One script on both sides, on Go's stream.
+    fn creation_on_gos_stream(o: &mut purse_testutil::Oracle, name: &str, script: &Value) {
+        let setup = &script["setup"];
+        let net = setup["network"].as_str().expect("network");
+        let dir = scratch("creation-draws");
+        let (_, go_pe, go_drawn) = support::compare::go_run_drawn(o, script, &dir.join("go"));
+        let chain = ChainParams::by_name(net).expect("network");
+        let key: [u8; 32] = purse_testutil::unhex(setup["rand"].as_str().expect("rand"))
+            .try_into()
+            .expect("32 bytes");
+        let mut prng = Prng::from_seed(key);
+        let drawn = Arc::new(AtomicU64::new(0));
+        let counter = Arc::clone(&drawn);
+        let mut stream: purse_udb::addrmgr::BoxedRandom =
+            Box::new(move |buf: &mut [u8]| -> Result<(), RandomSourceError> {
+                prng.read(buf);
+                counter.fetch_add(buf.len() as u64, Ordering::Relaxed);
+                Ok(())
+            });
+        let store = purse_store::Store::create(&dir.join("wallet.redb")).expect("store");
+        let pub_pass = setup["pubpass"].as_str().expect("pubpass").as_bytes();
+        let priv_pass = setup["privpass"].as_str().expect("privpass").as_bytes();
+        let watching = !setup["xpub"].is_null();
+        if watching {
+            let xpub = runner::key_spec(&setup["xpub"], &chain, false).expect("key spec");
+            purse_udb::initialize_watch_only(
+                &store,
+                &chain,
+                xpub.string().as_bytes(),
+                pub_pass,
+                &mut *stream,
+                &Limits::DEFAULT,
+            )
+            .expect("initialize_watch_only");
+        } else {
+            let seed = purse_testutil::unhex(setup["seed"].as_str().expect("seed"));
+            purse_udb::initialize(
+                &store,
+                &chain,
+                &seed,
+                pub_pass,
+                priv_pass,
+                &mut *stream,
+                &Limits::DEFAULT,
+            )
+            .expect("initialize");
+        }
+        let created = drawn.load(Ordering::Relaxed);
+        // The runner's consistency checks (`runner::consistent`), which
+        // this diagnostic drives outside the runner: after the creation,
+        // after each operation and before the export.
+        let check = |what: &str| {
+            let tx = store.read().expect("read");
+            runner::consistent(&tx).unwrap_or_else(|e| {
+                panic!("{name}: the store fails the consistency checks after {what}: {e}")
+            });
+            tx.close().expect("close");
+        };
+        check("the creation");
+        // Go's setup then opens the wallet (`udb.Open`), which draws the
+        // passphrase hasher's key.
+        let mgr = {
+            let mut tx = store.read().expect("read");
+            purse_udb::Manager::open(&mut tx, &chain, pub_pass, stream, Limits::DEFAULT)
+                .expect("open")
+        };
+        let setup_drawn = drawn.load(Ordering::Relaxed);
+        // Then the flow's operations, each in its own write transaction as
+        // Go's runner runs a top-level operation.
+        for op in script["ops"].as_array().expect("ops") {
+            match op["op"].as_str().expect("op") {
+                "mgr.upgrade_to_slip0044_coin_type" => {
+                    store
+                        .update(|tx| {
+                            mgr.upgrade_to_slip0044_coin_type(tx).expect("upgrade");
+                            Ok::<_, purse_store::Error>(())
+                        })
+                        .expect("commit");
+                }
+                "udb.set_birth_state" => {
+                    let state = purse_store::BirthState {
+                        set_from_height: op["from_height"] == true,
+                        set_from_time: op["from_time"] == true,
+                        hash: purse_store::Hash32::default(),
+                        height: op["height"]
+                            .as_u64()
+                            .map_or(0, |h| u32::try_from(h).expect("height")),
+                        time: op["time"].as_i64().unwrap_or(0),
+                    };
+                    store
+                        .update(|tx| {
+                            purse_udb::txstore::set_birth_state(tx, &state).expect("birth");
+                            Ok::<_, purse_store::Error>(())
+                        })
+                        .expect("commit");
+                }
+                other => panic!("{name}: operation {other} outside the creation flows"),
+            }
+            check(op["op"].as_str().expect("op"));
+        }
+        drop(mgr);
+        check("the operations, before the export");
+        let rust_drawn = drawn.load(Ordering::Relaxed);
+        let opts = purse_udb::export::ExportOptions {
+            pub_pass: Some(pub_pass),
+            priv_pass: (!watching).then_some(priv_pass),
+            acct_pass: &[],
+            exporter: "creation_draws_on_gos_stream",
+            limits: Limits::DEFAULT,
+            digest: false,
+        };
+        let rust_pe = {
+            let tx = store.read().expect("read");
+            purse_udb::export::export(&tx, &chain, &opts).expect("export")
+        };
+        drop(store);
+        let what = format!("{name} ({net}, {:?})", creation_flow(script));
+        // The differential's masked comparison first.
+        support::compare::compare_exports(&what, &go_pe, &rust_pe);
+        let exact = Profile::EXACT.observable();
+        let go = support::compare::covered_lines(&go_pe, exact);
+        let rust = support::compare::covered_lines(&rust_pe, exact);
+        let masked = support::compare::covered_lines(&go_pe, Profile::MASKED.observable());
+        for ((sec, g), (_, r)) in go.iter().zip(&rust) {
+            assert_eq!(g, r, "{what}: [{sec}] differs unmasked on Go's stream");
+        }
+        assert_ne!(go, masked, "{what}: nothing drawn reaches the export");
+        eprintln!(
+            "{what}: setup drawn Go {}, Rust {setup_drawn} ({created} creating, {} opening); \
+             in all Go {}, Rust {rust_drawn} ({} operations); exports equal unmasked",
+            go_drawn.setup,
+            setup_drawn - created,
+            go_drawn.total,
+            script["ops"].as_array().expect("ops").len(),
+        );
+        assert_eq!(go_drawn.setup, setup_drawn, "{what}: setup bytes drawn");
+        assert_eq!(go_drawn.total, rust_drawn, "{what}: bytes drawn in all");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

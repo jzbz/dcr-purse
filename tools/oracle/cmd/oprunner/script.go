@@ -395,6 +395,10 @@ type runResult struct {
 	// ResultsSHA256 is the SHA-256 of results.jsonl.
 	ResultsSHA256 string `json:"results_sha256"`
 	Drawn         uint64 `json:"drawn"`
+	// SetupDrawn is the part of Drawn the setup read: Initialize (or
+	// InitializeWatchOnly), its upgrades and Open, before the first
+	// operation.
+	SetupDrawn uint64 `json:"setup_drawn"`
 }
 
 func cmdRun(raw json.RawMessage) (any, error) {
@@ -443,7 +447,7 @@ func run(s *Script, dir string) (res *runResult, err error) {
 		}
 	}()
 
-	res = &runResult{Format: resultsFormat, Exports: make(map[string]any)}
+	res = &runResult{Format: resultsFormat, Exports: make(map[string]any), SetupDrawn: rand.Drawn()}
 	for i, raw := range s.Ops {
 		rec, exp, err := r.top(i, raw)
 		if err != nil {

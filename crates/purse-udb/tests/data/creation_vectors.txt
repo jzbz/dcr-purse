@@ -1,0 +1,485 @@
+# Generated operation-script vectors of purse-udb's wallet creation (records in
+# the format of docs/adr/0002-operation-script-format.md).
+#
+# The scripts are tests/support/generator.rs's, from the fixed seed 0x5eedf40200000c00
+# (crates/purse-udb/tests/frozen.rs, creation_set). Every result line is a line of
+# the results.jsonl that tools/oracle/cmd/oprunner, built with go1.27.4, wrote
+# for the script line above it, running dcrwallet 54b85b336077587eaf20112dc695355ce06fc76e's wallet/udb;
+# each covered line is the SHA-256 of what the export comparison compares in Go's
+# final export (tests/support/compare.rs, covered_digest: the metas, then every
+# section the Rust producer covers under the masked observable profile).
+# Regenerate with:
+#   PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen \
+#       -- --ignored regenerate_creation_vectors
+# which also checks that the Rust runner agrees. Do not edit by hand.
+# scripts: 121
+# entries: 105
+# body-sha256: 86c80a17b8c9ac010e18535ec80481ef673ba6cc091e3853e450310af31c7f77
+name creation 0
+script {"format":"purse-opscript 1","name":"creation 0: regnet RestoreGenesis Bytes16 Empty","ops":[],"setup":{"clock":1794990000,"network":"regnet","privpass":"x","pubpass":"","rand":"6f4326dacd16597b6aa78300efe98cc37b96be6c9258f514ffa33deb962bf857","seed":"3fb89637d8660b8d28ce3576a1f3c950"}}
+covered cd00c4a8bd821675d33d3f7c6479378df37b579710d52c167be8bbc86ef1acad
+name creation 1
+script {"format":"purse-opscript 1","name":"creation 1: regnet RestoreGenesis Bytes32 Ascii","ops":[],"setup":{"clock":1794990000,"network":"regnet","privpass":"kH9p>S80_BG`l(!DO+rBD.","pubpass":"5b2$2uPb8+Bz-/|","rand":"fc0c385541fe7fca7dd2f5254182ea537a7635f3a214c9f7f51406609e298d03","seed":"4d60d73312d0877ae8909d56d7a79996f85de1daf77f1ded1acd671cb1e5968f"}}
+covered 314b3cbbeaefcf77d42f47ef23f514072a8bc06699ecbcc309e4ba2d9f4116b5
+name creation 2
+script {"format":"purse-opscript 1","name":"creation 2: regnet RestoreNoBirthday Bytes64 Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"regnet","privpass":"_9#Fgk}k","pubpass":"pässwörd ✓","rand":"2b03a0887fa266dbf5e7bdca420491840f5f64d38485d1ffbd75f645b96ab03f","seed":"05d47a5292648a06b48c6a4c07b44b43444056389df58089b173e796325f214a145251b68d455afba56d969e87197635b998a598afc3d74e5881c54d2b85e8d2"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered f715d1ee0eb7a096a023a7162dea0f6f4c7c58a062f9e6aa79b7ac65c518e078
+name creation 3
+script {"format":"purse-opscript 1","name":"creation 3: regnet RestoreNoBirthday LeadingZero Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"regnet","privpass":"iI.Ym02U@Q,t","pubpass":"","rand":"405a56d722134e82f473274fb73c098808a9210993281da51e4365f662e7c760","seed":"002dc7bd21dbc6d8c872ec55db7332d22dfcd6300ed04d8cf607bcd2fc900509"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 0daa7f25ce8695d0e0c6473fa3a6ac92df02a8f74bb1bfdbd2cddcf3e8e582ce
+name creation 4
+script {"format":"purse-opscript 1","name":"creation 4: regnet RestoreHeight StrippedCoinType Ascii","ops":[{"from_height":true,"height":698182,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"regnet","privpass":"pässwörd ✓","pubpass":"{m;YHWe\\[K3k|wLD\">QYg5","rand":"68dfac9c51d822d414029f3a546788a026b8004872ce0e28fa067fb29a9eaf60","seed":"e8e5a03b5dd43de924c18d4c397954989d471e345ce1b9df7181c84f9d764ea7"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered b8856dafacfab52d54763df7836e48ce69022d1d1d960aad9d16c984c8f8fab4
+name creation 5
+script {"format":"purse-opscript 1","name":"creation 5: regnet RestoreHeight Bytes16 Unicode","ops":[{"from_height":true,"height":294252,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"regnet","privpass":"|W;$$y@`t2<O","pubpass":"公开 ✓","rand":"a0c7b2d98aac946e8ae8833b3769d88eb87aa2528bc36aaf23c3a6c74cb5c873","seed":"0c325f21643b81151890e3a450e61c3e"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered c00c85e496793830bc3cbcb1e77104ed62d37c416b18af959602e8d929527cb9
+name creation 6
+script {"format":"purse-opscript 1","name":"creation 6: regnet RestoreTime Bytes32 Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1681457279}],"setup":{"clock":1794990000,"network":"regnet","privpass":"$L\"","pubpass":"","rand":"8b1bfcc3a0586750e2ef9cbbcb8880bab78722d953a128496b15bbf5fc8b7de6","seed":"2c783213c4c22f040056b0906cf5f3236bafca9d164cc483eb2e76e5ff1d569e"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 89a2ad65d44837d48787acaad6c22d57b6aed9756318efcf58541cf1ca058e2b
+name creation 7
+script {"format":"purse-opscript 1","name":"creation 7: regnet RestoreTime Bytes64 Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1656444475}],"setup":{"clock":1794990000,"network":"regnet","privpass":"x","pubpass":"lay+KIdQ[","rand":"8e18daff9be69e9dd77a6c3a0ce2bad23ae5278932a6e1cc7b41a6c3710b698a","seed":"73be6faab1b494ae9621998232e0a6112ac419c8ab2b817201d7a4f6f2eb060a47207de0cc771000e31cd79be5e6fa79230c382cfa49b604e33008e083e619c6"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 94b10fc43233eb515ff202745532b17017ecb0ef02fd18a5799b8aac4f06e662
+name creation 8
+script {"format":"purse-opscript 1","name":"creation 8: regnet NewSeed LeadingZero Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"regnet","privpass":"pbH1f","pubpass":"ключ é","rand":"e846f3c094fa61ff0efaf7c80f6eef3db9dac5d436bb0049a1beaa8e276ea406","seed":"00001ace610c2a5911d7e2d8ff20a2cb4e41444d3812e5f620dd868c7c861d3f"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 31e00a351c69117ea4a8bc9dc6f96c48b744880cf987fd9dfae6147931cb1723
+name creation 9
+script {"format":"purse-opscript 1","name":"creation 9: regnet NewSeed StrippedCoinType Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"regnet","privpass":"ir&c[D*Ed#2r","pubpass":"","rand":"b15bf424729230c38fc0ab28e7f1bfa6bbc3ecaa76dbfa5118081db097b5d217","seed":"235c6d2eda1866430fd9409bd87bf8b4c9a42e36d48a87aebb7e59d67aae8d73"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered a61b7c22a786e14fac368653390050b42b139fa52d85dc94ea0c35890841aac1
+name creation 10
+script {"format":"purse-opscript 1","name":"creation 10: regnet WatchLegacy Bytes16 Ascii","ops":[],"setup":{"clock":1794990000,"network":"regnet","privpass":"","pubpass":"PGsvnJ4Uj=TZ$|nV,S","rand":"bc5888bdc3f82d340650bcd745e6613392fb12362c02181d108442e25e093a0c","xpub":{"path":["44'","1'","0'"],"seed":"641eea1b92b9c85eb679b32ec9681c71"}}}
+covered 800b60053b1358f303ebd6c50d540cea512a7ff2235913c530d45929531f92fb
+name creation 11
+script {"format":"purse-opscript 1","name":"creation 11: regnet WatchLegacy Bytes32 Unicode","ops":[],"setup":{"clock":1794990000,"network":"regnet","privpass":"","pubpass":"公开 ✓","rand":"75c093a2ba93da75d5740af0b4c0d232b97e7358474cf28f308a6b6b6c03af31","xpub":{"path":["44'","1'","0'"],"seed":"deb9d74b0ba0ac3c6c6f9218272dac60d08a9de1ba29a2117064a5a34bdd047f"}}}
+covered 005c66ccf8b29c243a4b6b95f78ce0abcb876b163f87e887a2965a2b99d1918f
+name creation 12
+script {"format":"purse-opscript 1","name":"creation 12: testnet3 RestoreGenesis Bytes32 Ascii","ops":[],"setup":{"clock":1794990000,"network":"testnet3","privpass":"OLkDDI%","pubpass":"XGg^~rOoyHkPAcG1.P7","rand":"bc8de7dcb6399b064213095217db49b522e49450a9de65786c730214c150fee7","seed":"ac6ba096eeb8b5ff9aed1173b584577a8e79bd6729d9faa05eef1b4b907cc35d"}}
+covered 56dfbbe938773cede0e16d2e5099e26c5b1ac665061e74ecf67896128fd163e6
+name creation 13
+script {"format":"purse-opscript 1","name":"creation 13: testnet3 RestoreGenesis Bytes64 Unicode","ops":[],"setup":{"clock":1794990000,"network":"testnet3","privpass":"\"J=''2b4Q$]?8{","pubpass":"公开 ✓","rand":"a59e570e1da11954477f78b30635af46655809eeae78d811cafd5fc487b751b5","seed":"f19f2de3944f66cc6860af8ac43fefbf83182ac682e290642284e06ce776c6cf87e59773ebc9b56cd517b3ddf982dfed7cdb94bdb9567aecf690bbb5321bd324"}}
+covered ab0edb0d04bd5c89729ac02646d4626fc5a76d9531fcd3230a04c4bae5f3885f
+name creation 14
+script {"format":"purse-opscript 1","name":"creation 14: testnet3 RestoreNoBirthday LeadingZero Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"y4Pr\\A#ya<O3","pubpass":"","rand":"567066c2f8cf8aafcad36c625bde9b2237e23929f9b539eaa534d2216f1aeabe","seed":"00b31d8221369dd2d3a812638bc1df2495ed4294006de430bff16502366303d5"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 51c0c2274ad75d5189c8e39201f8d795d963942253a2887b90835e2562e66ab8
+name creation 15
+script {"format":"purse-opscript 1","name":"creation 15: testnet3 RestoreNoBirthday StrippedCoinType Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"testnet3","privpass":" c*'XJ5|[LU,3U{(80","pubpass":"PQjOXIz~H57]0#<1VuLxQ0J","rand":"c57152af559df50e1fccdad603db99b927fea27d9234bd7220dedc459048f294","seed":"cf89f47bff2ec60e8def93047fced03b70c5f6a72148a1cbb0c49f57215aeb6f"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered bbb488887defff1be8923c3079f7cba714328c510196dc96ea8f7857258841a8
+name creation 16
+script {"format":"purse-opscript 1","name":"creation 16: testnet3 RestoreHeight Bytes16 Unicode","ops":[{"from_height":true,"height":565579,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"Cu.hUGqQgyhKdGAqyq~'9uxE","pubpass":"pässwörd ✓","rand":"3b5a92f1c5b6e993c2129345345284203187a591bb9b10d221ff300230b37fa0","seed":"2c204a134c5b88a717d9f4acd705aa12"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 7897002391faa75a5334e10475a500a05be80d5f502fd31b707febe845e08899
+name creation 17
+script {"format":"purse-opscript 1","name":"creation 17: testnet3 RestoreHeight Bytes32 Empty","ops":[{"from_height":true,"height":67623,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"TR-CgUY*n","pubpass":"","rand":"72fbe20aa4627119d3d3bf512f4a9229f09ec49083f20aa90661ee0f95151389","seed":"e608c8e5db95248f56285928991236ffcfbf2edfa78d2a49ff4f98204592f4df"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered cd2640b3f94cc7e3ce24197980ae9e9bd981cd3d52aa55fd21bd171e73a3dac6
+name creation 18
+script {"format":"purse-opscript 1","name":"creation 18: testnet3 RestoreTime Bytes64 Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1744785466}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"}Bh^UCxi`]|lf3R'RRU","pubpass":"nXm)43Rq/.&'{qJ}xt`~","rand":"8cc1f12b3b00a8e13dd5b8411e819e731789e6c045812538e1025ef32b5ebc13","seed":"91fad83f51209ba14ca9afbf5f02d932795f041d6a9db171748c8ffc3db63bed6cdae9329c8ae0194f52a9940b4205f0ac941b7a3d19348d2262913ccff6e1f3"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered ce0f7ee02cd0c5be44c61b54b4a686ecb50cba3fef2d2c07689c53de25bf6a61
+name creation 19
+script {"format":"purse-opscript 1","name":"creation 19: testnet3 RestoreTime LeadingZero Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1710092860}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"pässwörd ✓","pubpass":"ключ é","rand":"1faf1fd7974c0aa911270741882a0e9da7a7d6500b18045739e2f33bedc97986","seed":"00626e804116e8f6858ee2dbafe57a59998d35b42eb4c2989722d2836bf8d44b"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered c73506cab81068980b1dc4b94603341b79f8b5d45da2e00be79554ed1a833a10
+name creation 20
+script {"format":"purse-opscript 1","name":"creation 20: testnet3 NewSeed StrippedCoinType Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"\"","pubpass":"","rand":"8db105be947224517ebeb9c0a0a025bc213f3e86f443705ac7e9012dfe0d857a","seed":"100c314217e646b8e0c70521044a413f89b3ab770fa1fc75600bfe19b6385b53"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 549e994cea8a48f8d8e86362a37c37598ac96d057deda7d0cbe7c1be117b8582
+name creation 21
+script {"format":"purse-opscript 1","name":"creation 21: testnet3 NewSeed Bytes16 Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"testnet3","privpass":"N69uM3ds'l","pubpass":"As.VWqPKu$1-<*q2","rand":"740d785a9fcc15d7c754968348e339b1d920b2dc4aa8aaf3604e90f3f5c7d2fa","seed":"326b49eb3fc47dd6072974b9aafa4828"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered d8c95759c90e01acee929ee5bc610a485bdaa2d6cb1b617078ddca5bd117a7bc
+name creation 22
+script {"format":"purse-opscript 1","name":"creation 22: testnet3 WatchLegacy Bytes32 Unicode","ops":[],"setup":{"clock":1794990000,"network":"testnet3","privpass":"","pubpass":"pässwörd ✓","rand":"8e004861f6f91ef9fa196b25a8b04fe8d2a802d09454a797981766d6faa64ab1","xpub":{"path":["44'","11'","0'"],"seed":"79862a03e7ec5e1c7a7e0d5d7d8491cfaa37657253e7aab9b7bfa4c717df51f9"}}}
+covered 535e62b5ad41761fe4cd98412524e1a9ecf6dae26cf17fafe753aa5876bb473a
+name creation 23
+script {"format":"purse-opscript 1","name":"creation 23: testnet3 WatchSlip0044 Bytes64 Empty","ops":[],"setup":{"clock":1794990000,"network":"testnet3","privpass":"","pubpass":"","rand":"cb8dc95663007546fd5cfba80c227936d74c9335733b52ac86765b032c7558d6","xpub":{"path":["44'","1'","0'"],"seed":"a4c73df28fd8eba3657af60982e7e69f6b7e8dab6e324c436dbc74e478e92bdabc7eeff9e53a4c3c912bfde36149f09a402ba2b8e9733e7261c477234508a530"}}}
+covered 83d23ef51e44455b6db946afb1a8b85307b8ec5419c61be7e3edde7bd5c324ad
+name creation 24
+script {"format":"purse-opscript 1","name":"creation 24: mainnet RestoreGenesis Bytes64 Unicode","ops":[],"setup":{"clock":1794990000,"network":"mainnet","privpass":"'Rn)#t","pubpass":"pässwörd ✓","rand":"4cd421c962a3eaddb6728b109448cedb02dee6b6b75335c1fe7109781fb3fbc2","seed":"0b709ba97b28de78a233220f92823361071a9cc38a8c5aa771ccf692ed6b2ec19b1164183025d9e885b79bb22351192a3079c36f8dbcd6b7595168e20dede495"}}
+covered b26374259dee25625166c1e5a7d8a7773b1ab7fbbf340f7b87b39a9790726ae3
+name creation 25
+script {"format":"purse-opscript 1","name":"creation 25: mainnet RestoreGenesis LeadingZero Empty","ops":[],"setup":{"clock":1794990000,"network":"mainnet","privpass":"gWcnal*z ","pubpass":"","rand":"df13bb4190302b866a9dd8ad4f59ee78cf7919dfff3e59287a150e80176010f3","seed":"00cdca207f7a16d4a720ffad3bb5094d674839e575552981aee29779b183eb50"}}
+covered acc9bf0c4e31ad9b15bd3fbb5fe7d6127892a7f8e353930259a75289cada06ff
+name creation 26
+script {"format":"purse-opscript 1","name":"creation 26: mainnet RestoreNoBirthday StrippedCoinType Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"/XASJ'f^}5PEM\"\"LF LellP^","pubpass":"!7i{G'6H`@2@q~]aS(","rand":"1fe91ddc448990be587a492642d42c6e697899a4e308252a70d3e69191dc2b9a","seed":"6cf856fa9e9d0709b4e7c2c052c9ffb4dd87637fb4913ab1cb948a25feb03734"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered fb7fe9ea46480d66b5657e53056c011bcbcf3b270228accc0736f126f167daf0
+name creation 27
+script {"format":"purse-opscript 1","name":"creation 27: mainnet RestoreNoBirthday Bytes16 Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"5USl6_0,hV6p@&.M0+8mZU","pubpass":"ключ é","rand":"60a1314b165068cd40df32d836d2c0f302972103288d252a895f22f8a1198497","seed":"d769c4317cf5cbca5d3298e59277f0bb"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 99de9f552028808a5eb4edb045f2948f784cacfa7de26c965f15abaa2a758c44
+name creation 28
+script {"format":"purse-opscript 1","name":"creation 28: mainnet RestoreHeight Bytes32 Empty","ops":[{"from_height":true,"height":185964,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"zYn8/^q^5L`v6Cn","pubpass":"","rand":"77a70e3a80f0a516e85d3f612928cb0163d3e0264487574553791951b6fbf574","seed":"33bf4f4c99963702b7323dfee2d14166007baeaa1f0ac498e5be866fe7c89ac2"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered e4cf58cb91964a8c8e42bee964152f605c5d6ac04fff417e71c11653045cffb9
+name creation 29
+script {"format":"purse-opscript 1","name":"creation 29: mainnet RestoreHeight Bytes64 Ascii","ops":[{"from_height":true,"height":143377,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"x","pubpass":"oVu4{1_%7'W&#rf7(G,gJ","rand":"9ea4fc2122a045ed8c753d78660ac5bea1a3915ef57bfffcaa86b4ef2f392ffd","seed":"106ada736b3621f388be486b700fad11d1193ae835e4043145d6069b6276d8c69aa96a9522c7c7930e870a0f60896779b170cbef6be1d187ec0380814be170cd"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 623d14724973e59f72dfc13eefe7df7486962e37719ccc67be2a1ccb8a0f4281
+name creation 30
+script {"format":"purse-opscript 1","name":"creation 30: mainnet RestoreTime LeadingZero Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1743503475}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"- z6HO%9N&Y+J","pubpass":"公开 ✓","rand":"a1aca561ff86c29019ac22b14025d723f465eb136ed51426dadbfbd5cb0ddcd3","seed":"001433182c8802bc0b2276d43c80687fa5770cc26f6c36b6ddb9da1d4c6007b5"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 0960faf7a58b4cc9ba64bee4d219e884d5f8a8a0ed49a8071c54c3e8d74e64f6
+name creation 31
+script {"format":"purse-opscript 1","name":"creation 31: mainnet RestoreTime StrippedCoinType Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1665918663}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"'eXd#kR1%","pubpass":"","rand":"726de92b7f922f336189fa51ff0ae1c0d6020a3b24919de7fb6a3834930352b9","seed":"ba68aacae02c993eaf074551b2acf441e5d561a8200898edc748aaca04c4ccfc"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 04b2e44b4786c569f5856c2f674bc0dbe582ae55e2b85f78b10587b176a3abb5
+name creation 32
+script {"format":"purse-opscript 1","name":"creation 32: mainnet NewSeed Bytes16 Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"pässwörd ✓","pubpass":"X==dO\"7<|<;F&aSI0^zw","rand":"61f97ffd398a4353e226426059850b73a3211b774012c8fb471622891a038ee6","seed":"2e19e0b76c10e29e7e9ae5f8afa3d8be"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 26300f8b4479b2c4a0db5e46ee6580b25bbe94e5ed28d9ec20c2e30b8ba6517c
+name creation 33
+script {"format":"purse-opscript 1","name":"creation 33: mainnet NewSeed Bytes32 Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"mainnet","privpass":"pässwörd ✓","pubpass":"ключ é","rand":"3cd7e653e2a1aab7b9a85fb03a70d538c99042c74751209d5c180af90c60683f","seed":"89b174daef6b141389b004dd6a0297b36cb6c9dd04f574525c6f825ba23cd541"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 72081e3a51fc910b1714f62da151d4a37aa0cd0d172f07da2aaf41492e20e6a6
+name creation 34
+script {"format":"purse-opscript 1","name":"creation 34: mainnet WatchLegacy Bytes64 Empty","ops":[],"setup":{"clock":1794990000,"network":"mainnet","privpass":"","pubpass":"","rand":"ea91931b2bf4677a94496706125cc68b5845618f6d11d9b4fe160b5e8a2d3619","xpub":{"path":["44'","20'","0'"],"seed":"18412df7690b27f844f73e69fd8cac4e032ed5750e27783941eafac7f09d67890d25c6d744191a557b55846ea67914eff0e4bd743add2edfe03b62b5ca96e0df"}}}
+covered 2c3e2443938b1b8a6d6e324846f26a121dde6f124ef3358862b6d90373789c8b
+name creation 35
+script {"format":"purse-opscript 1","name":"creation 35: mainnet WatchSlip0044 LeadingZero Ascii","ops":[],"setup":{"clock":1794990000,"network":"mainnet","privpass":"","pubpass":"=j(W4W@Pxf&b[","rand":"39b22c05a657d531e011a368ecd88bce0ce0ca6d557a8afb3781877c8767278b","xpub":{"path":["44'","42'","0'"],"seed":"009c70caf055cbaac073f6eafebdc8da27311d82c757bd38d450fdb829013d37"}}}
+covered c80cfdc39442d880e1a36c97de16099f15f64269b6f6f2932b02e28f2edad379
+name creation 36
+script {"format":"purse-opscript 1","name":"creation 36: simnet RestoreGenesis Bytes16 Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"jAj~K{-a","pubpass":"","rand":"3843e542c8d6d63d7b570af9de27e59fb6a2bd4352b74eaff1d6b44157f3c279","seed":"8ee5d2dc44e04fd2a0c3dc84130ae275"}}
+covered 49d577ec94565b791fa411860458193d6b6a9d80b014d1f01653a6733b73d026
+name creation 37
+script {"format":"purse-opscript 1","name":"creation 37: simnet RestoreGenesis Bytes16 Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":".\\_","pubpass":"JZ]Wn0M9>&jc}3","rand":"8f287cea54093c240b8888c15fc4c4c2a2ea70a03f87133ffb8e5d3603626f91","seed":"b3f0e43dd1532d723feb7a7350f19b7e"}}
+covered 049161a8275890b074c534d39dc3d11b97b79420c4f49fd835044b243b968b00
+name creation 38
+script {"format":"purse-opscript 1","name":"creation 38: simnet RestoreGenesis Bytes16 Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"#\\9+0MFu1q","pubpass":"pässwörd ✓","rand":"e2b9e07ddeb655c08f07e9c1ad325c1dbd23032f1eb1c336e0fdef558d869120","seed":"ebacc4d55a3dadb2a9ac706256f79165"}}
+covered 4d9c4bb300a1b08ca5b0472a7c1d968398a9c641c4fda5e23ae18bf9e0946acf
+name creation 39
+script {"format":"purse-opscript 1","name":"creation 39: simnet RestoreGenesis Bytes32 Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"","rand":"b10245c6246776bf70b2e5feb2c024e0b40a28f631ab02bf2606ab8e1c6aefa9","seed":"3b265606e25b44982a6f3604a05ae17f93fd571716966009224ae045e89a1053"}}
+covered 23db6bc453cc39113c7457253a4ccadfc663219d5686c1891ca84bbdc3124ef3
+name creation 40
+script {"format":"purse-opscript 1","name":"creation 40: simnet RestoreGenesis Bytes32 Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"*","rand":"851d96442472f2067a3eab05d713981db8cb28ab197967dc6320302d68958ea1","seed":"947e8252fee3f57f6b90e1574270c6e520bb358e40c6a02bc85fe64ba9e0427b"}}
+covered 99bee1d34f6bc22bc0062546130933131bbf446ca578e22a1ae4faeaab07aac0
+name creation 41
+script {"format":"purse-opscript 1","name":"creation 41: simnet RestoreGenesis Bytes32 Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"3qi{Cd0H6o0Hk%a#<b8hE$q}","pubpass":"ключ é","rand":"b56a4e7a64c873d6c6437158e0cd8a4ec826755d65ae92c6b3eea0cd0eb330dc","seed":"ce136dc1120368933f4a0314572631e410cd9e26c0d76c17e04ff573e222c22f"}}
+covered bc359e2083f3a25ac366a18158095b839f9bdd28085b09f61102a1d4d16d920e
+name creation 42
+script {"format":"purse-opscript 1","name":"creation 42: simnet RestoreGenesis Bytes64 Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":" (Q;~,M]XQ?W\"O-ZgsJdQj\"","pubpass":"","rand":"ccc1a059bc7ea2166213c3815aa53069fbf6553c05eb60c81c7568f45558d21e","seed":"a1ebccc32d4ecb32b7d852aeb2e22fd1a9f0ffa1ecfbd692e188dd2c48d183a0db1bc8549dfbf4fbbb67e6ba2a3ea0466be70d32d842c6ff1ea258eeda96afd3"}}
+covered a1f0a32d7bc53457a18d4643caf32c3abdf415b2ff5580fe3b602ea8e4d9f23a
+name creation 43
+script {"format":"purse-opscript 1","name":"creation 43: simnet RestoreGenesis Bytes64 Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"N$G","rand":"eab72315e6693e6c709b4c40c0ad39584e7176738f7cb08da739ee1b459aff62","seed":"5c786d8482d81b2f978f078787d223f5bc655607e4183746f8b43ead2cf7eafac735e8e50c7e93f6ab44e08aaa8e79ce35031b5610853a3a89044d64d3e4a202"}}
+covered 0aa1e477d291a58e5db3f7bde2d017bcb4f33fd5ffc00c41a53c9900c150eba6
+name creation 44
+script {"format":"purse-opscript 1","name":"creation 44: simnet RestoreGenesis Bytes64 Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"rJC.<xE/ vtl$+","pubpass":"ключ é","rand":"84eb42fa581a7191bf925f47ba3790a9a79275f918d274618db8e20047df5b14","seed":"333834bd1c07afc0c39284b22c068b50ee13482939de5f0959e6d23ecc1a16a0d55c37cf7b2359db10f2c75936bb28c3bbd8f98174a3fae4f972aff83ddd95d7"}}
+covered 139217db9cd346bbdcbb1d425a5ecf654b9752d092d3cd8d8b81f52064e941f1
+name creation 45
+script {"format":"purse-opscript 1","name":"creation 45: simnet RestoreGenesis LeadingZero Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"JV'$pK<MM}o09x&L","pubpass":"","rand":"4de1a465581354107f847ac2055fa10f8ba51bd39ac11a884e8b2a8c2d2482d0","seed":"00bf2fa30184742e3666068ecea22348a7b36cee8687da54f547f6baddf57582"}}
+covered 9028265a16df95c8bb6d896963cb5e1dad2c96483a15dcdbba4636c66e32677d
+name creation 46
+script {"format":"purse-opscript 1","name":"creation 46: simnet RestoreGenesis LeadingZero Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":".v`'s/M^T(Z WtL\"|{UJw`iB","rand":"e566bd1f7cffd0e682ed7bbca605910c36aa40342accac891dee1ff7b4e13619","seed":"004fcccbcd3718373081d4d37660e17f6367a5835cbb9eadadf9636526270992"}}
+covered defd3685f6751db7f3921d5ee81b5dc125cc3072e8a2280f17b4ba4804cc9a1c
+name creation 47
+script {"format":"purse-opscript 1","name":"creation 47: simnet RestoreGenesis LeadingZero Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"47q]L@ip(nX?~_E)>L9\"am4","pubpass":"公开 ✓","rand":"e87b608c7268969ac2a6e7b6efe1298c0cf9d8d48b55eb2eb207dd48ed47502f","seed":"00f8c8ee3ba65b108506ff7af6ef950b6bb7ad4bf2a0f5b76624756aec03b0ea"}}
+covered 27a297c9cf59d550b3ee9ae09af5fce9f31477a6d2ce80401d45d06c6e214692
+name creation 48
+script {"format":"purse-opscript 1","name":"creation 48: simnet RestoreGenesis StrippedCoinType Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"0s^bW[!:)P>!^vo","pubpass":"","rand":"0ba17a3456d799243fdc7309a25088464e1eb6684b28195519eb0d985f5796b6","seed":"37a4253e92067fda78505eb9010a966ae1da8261ed16acc6aeaf64baed8d6701"}}
+covered fec014cb1c745428eabe3a7e49c397c73b0a86bcd492ae2033d244b4c71f1ed1
+name creation 49
+script {"format":"purse-opscript 1","name":"creation 49: simnet RestoreGenesis StrippedCoinType Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"Oq\"Q<6LFE/Uaa&M5-0x3eOl","pubpass":"u/\"hg3<ei","rand":"6969ffcbda0821c1f1a1eebed1dfb49661e2247e58e7ea721a068d4ff6150db1","seed":"fa829d21af70715fcbcb221a6fc818abdf511c24c17d8ba407c8d89aee03ea89"}}
+covered b6a68494576eb5686ca14a014cfc2392d39a5741101dda46f3d184cea7a56bba
+name creation 50
+script {"format":"purse-opscript 1","name":"creation 50: simnet RestoreGenesis StrippedCoinType Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"公开 ✓","rand":"e64eb67628c0440aa028a88151c1b15f62aac30f23134c40d12483a41f53826e","seed":"47755bb71c91ec7326c4e77bb82e03b47ae818b1c98f850a61ba65e9300bdb8c"}}
+covered 0fa9d5a2a9e8935e9d6ce59e93dc54a95088d9b1d66556d4dbe90f5a9e414bb7
+name creation 51
+script {"format":"purse-opscript 1","name":"creation 51: simnet RestoreNoBirthday Bytes16 Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"^UUg","pubpass":"","rand":"1088b4fd2db6fbe76a071f0c1cbb081fd9d54c3373001a503fdb622fd154ec27","seed":"b7e495694d8ec098408a1ca8c345101a"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered ebf56392789f498333f2f266b6ca785e9894f320461e15b5a390e4fb1f9e8423
+name creation 52
+script {"format":"purse-opscript 1","name":"creation 52: simnet RestoreNoBirthday Bytes16 Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"XTwo@P!","pubpass":"yD","rand":"e31ccc7a04b5233dfc61b60c9483382c35fb958b5db959c131d9c1eede57d16a","seed":"9f55adf84ba47599b4f8cefbe853fe2e"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered b1a47f46fadfbc04fe9fea005ef4029b070c8591fb781babf0f6953e14485b46
+name creation 53
+script {"format":"purse-opscript 1","name":"creation 53: simnet RestoreNoBirthday Bytes16 Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":";Kp <g%[G9Kq~","pubpass":"ключ é","rand":"77f5e5016494e0e152264b075a741233f361f350e122ed7b5665bd830b45d84a","seed":"ea6c901f6330dbe640fee41749aab4a8"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 8e4ad287147836c9ae92fa1ecc7f3411f30a221ad2ee5b07e9a3c3d6f85aa99b
+name creation 54
+script {"format":"purse-opscript 1","name":"creation 54: simnet RestoreNoBirthday Bytes32 Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"hiW{%X_/KT)>hDTf&7!/l5G","pubpass":"","rand":"9857f0ccff4e855b2150b1e13a62113f37c221ee37e6ba090f0b82f24344b015","seed":"dadc58d18cfa23f6864f2797ed8c588cea654a3815d078efe12728a255691820"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered d0484aa4125c2f1d6b3f7097d6962bc7ad61930ec20bad801ac456868cce30f5
+name creation 55
+script {"format":"purse-opscript 1","name":"creation 55: simnet RestoreNoBirthday Bytes32 Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"<XV=jQ","rand":"8289fd037af6476a2bd193dcf489240eb49006829657c0b0d1f137f9d1e3fed4","seed":"1ea236ca1ae8a94b1ea0aa25154aa1cfb87ee9c9c7a5bfcbc7d74a418ee7b63d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 99421469e1b2fabb110968de2dfa570b43832fa3c70f281d32e3039028c2b91c
+name creation 56
+script {"format":"purse-opscript 1","name":"creation 56: simnet RestoreNoBirthday Bytes32 Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"公开 ✓","rand":"5e5a182e294d67313e51e7e3ea938945fe3070f4618b5b1b996f282357f7e0db","seed":"65b795b18e0e4754fa20c651fdc11752f4ad07d9b7d73dfa7464cb87a44185ee"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 9f730bb6d7d965c2dfb7e88acbbfcf50746d40314218439555e29f093a8c5a29
+name creation 57
+script {"format":"purse-opscript 1","name":"creation 57: simnet RestoreNoBirthday Bytes64 Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"f&|4-syqbfiR~A","pubpass":"","rand":"eacf0aa52c298e0ea7a9de5f6847c1dbdca1dfa59b1c2e1482708c8c5fd8a2d2","seed":"ef26d075c775c7f795519b7ba512a0dd804bdd9d180fbe60f0db783347408abd6c7e68fcae6f57156b548dc3210e941a68cc1398790ed20751f6ad5536da7991"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 6c77c88f4fe3b67cb1ddcaf4fc24fb7d9026fe71c3e2e6ea248f90875f2c2a48
+name creation 58
+script {"format":"purse-opscript 1","name":"creation 58: simnet RestoreNoBirthday Bytes64 Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"I","pubpass":"pal}v+z\"NflC@ge5","rand":"ec1a6b296ea5c5c3e8784a854f2d5e791913ac8aa1eb1c88a6f8a7ea782c5b1f","seed":"2e2c4897cafa9db4e15f5d9d1fb0094743c053292c6c06b98754f3c1e02b460747e14167732db94e769acc392971d7aebe8c86efe905ae7c5b3b2f263ddbddd0"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 38b7d14d1d5e0c22d7e1aa795700a82ad912bea187506a71ea0da129bc82d22f
+name creation 59
+script {"format":"purse-opscript 1","name":"creation 59: simnet RestoreNoBirthday Bytes64 Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"m","pubpass":"公开 ✓","rand":"3c0f5ac23c13fa3e63555384302e075ee3aa1c23c31b3a934bd5dac4543dcaca","seed":"33953e62398930d296370fda414eb30d8e9cb199fa6b2cd92af9eea6402eb3fc7a0366a48e3dc5df63cd3075b3847970dfaa73aad3f93435eb1563409e13ba82"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered a60a42edd64fe32f897d5c1c2787b70ef4a963523ae0d4f12a0d828569f54b84
+name creation 60
+script {"format":"purse-opscript 1","name":"creation 60: simnet RestoreNoBirthday LeadingZero Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"~)v;^2Q@&>(dW,l7;w","pubpass":"","rand":"d982fd77cc81bae7653c01c15e8900f56940cc160b53dad22162eef40889dd15","seed":"001cd8d4c13ecefd441a123a27cf50519b06cab2a2d5ba76485d48fc4e3f415a"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 16d071111fad4563479b0234308871d8195c29fe13027210c86a0feef4904c2f
+name creation 61
+script {"format":"purse-opscript 1","name":"creation 61: simnet RestoreNoBirthday LeadingZero Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"FOlB`S@f(R;2~k3*}(Vd^6-","rand":"4b1ba8710b08d37032d64d135a3033737698827a1b7c869df95b5aa2d04b08fc","seed":"00c8d97e6d08654fb18663de9feeb68f586c3c66a54586e108d365413f4bd401"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered b99cb98c314d4458e72c7174054a2029b73c131018120248640b7e4653135f6c
+name creation 62
+script {"format":"purse-opscript 1","name":"creation 62: simnet RestoreNoBirthday LeadingZero Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"公开 ✓","rand":"ea482bdfc0790eb41f1279f64db160181bcca11fda685e73ac07af02a785b3d4","seed":"00a1374221ab05f0b9510c29ed6c8fe42ab330c9f764fc6155625ac0b941baf0"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 0d5c0f4c20c6e45e5b3109c24dffcaebfdaae317ec93b738508c44361c4829b7
+name creation 63
+script {"format":"purse-opscript 1","name":"creation 63: simnet RestoreNoBirthday StrippedCoinType Empty","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"(*:uCO?.H6D@+rXBSz","pubpass":"","rand":"8f6600542573cbcacb7a7d2382190b5459c16531156d79bd466b0f29e23f4e33","seed":"c4e41dcaf7d46c30c5d2282f3efe50973dd5d585dc25a3ee8b51a96952a029a9"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 5cff763c909270f1c336b4964fb8faf718669ebbb08e75a41d7d975d6bcf418c
+name creation 64
+script {"format":"purse-opscript 1","name":"creation 64: simnet RestoreNoBirthday StrippedCoinType Ascii","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"M-J;","rand":"cc7a616921c1d9d0d5e9245fb4271e62e0f495bb8d317c535118a8ec8738b79d","seed":"87335b411df3df51c48a340ba06787a971362b6ae6ec7a8c4160dcd13da84656"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 10e9f82b95b8aa75c7d26b7a4b69c2ff9e383b4ae112f80c6d97ea98671a3868
+name creation 65
+script {"format":"purse-opscript 1","name":"creation 65: simnet RestoreNoBirthday StrippedCoinType Unicode","ops":[{"from_height":true,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"8LoJD2yoj0+DH\"Ytpw6\\.%b","pubpass":"ключ é","rand":"9338219bcfd6e3534c5e0806eb97b07aca9d121286c1d5b84df86cf9958626ed","seed":"780b7d1418d1a5cd409b9b25349533300bc04d27e539e1a8e802db4a864e7c47"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered a253694d6cf96bf6e86d054f644c1eff58e59178544c7bc700e38c14ff89a223
+name creation 66
+script {"format":"purse-opscript 1","name":"creation 66: simnet RestoreHeight Bytes16 Empty","ops":[{"from_height":true,"height":321811,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"E=D%3rJYY!S-","pubpass":"","rand":"bdd2d467db5f6fe9a0c2cad8070e0d804cbf0b3aa400108ef557c694cbbb0ed4","seed":"b6756cc17318d2131476d1b507f71967"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered ce030b3133f20a5ad2ded5654a31c0f52fbb12debdb8ad7ba53f255a187d1e2f
+name creation 67
+script {"format":"purse-opscript 1","name":"creation 67: simnet RestoreHeight Bytes16 Ascii","ops":[{"from_height":true,"height":299340,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"c|]d(z)&71KB&]srm#*","rand":"53031a791af4f33d7006bb838c578e48ac89f04f849f815aa1a5fc1cbf0b052f","seed":"52e91b44266aca12d4771200a5559e2d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered c125aed4a8d2b261ed04dc9a02b9200f4767581ef0442316ff1d6952a0ed333e
+name creation 68
+script {"format":"purse-opscript 1","name":"creation 68: simnet RestoreHeight Bytes16 Unicode","ops":[{"from_height":true,"height":187162,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"\"ov}-%{&K13!Suf9czAm^","pubpass":"ключ é","rand":"f785bbe51f30aa083b0e622463f2b4e922ec366391653b3f98b6d7c5d782ebc7","seed":"775cc22f42def2f14b12feff3c7421c8"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 3c8b47fe80bf332c5fa018959ca536c9ab2c58e93eb8f8f1eded10870438b152
+name creation 69
+script {"format":"purse-opscript 1","name":"creation 69: simnet RestoreHeight Bytes32 Empty","ops":[{"from_height":true,"height":561452,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"","rand":"6657b927ff6470b07b8ed758eab1ac66e90ad689ef44cef688db28cfe078e5ea","seed":"0b974b47d906cf2e59ee704678591f117116486fa4e6acd96b71b21e7659ff90"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered c0cd6540fb2c54faf7a96f6befb8f115154e9e4c5af210a194f5f262d70767a6
+name creation 70
+script {"format":"purse-opscript 1","name":"creation 70: simnet RestoreHeight Bytes32 Ascii","ops":[{"from_height":true,"height":571695,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"?<,b.>6;[","rand":"658aeb6a13dc04b035dc4685830bbca2d7315a817e3f96e8c4c10b08bcf5d01a","seed":"8f221bae8c93e2d0771845f28c630ae11436e8c37cf4f15f75ced335eb2b463d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 609b7c234504f09a722d775d77f4d213ae0a85c9835d2140cf640c35c2b4f2ab
+name creation 71
+script {"format":"purse-opscript 1","name":"creation 71: simnet RestoreHeight Bytes32 Unicode","ops":[{"from_height":true,"height":42774,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"p^bBC'.HnyQnd,<","pubpass":"ключ é","rand":"bb72d46dcb6f76cffed15874c41acdfca880be63aba7ea775fbf87c662e39514","seed":"10b6268ef4dcf2e6feeb4ba9ffae2b099d2322bb8ff75df0470630300d4fce9d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 4f2235f7f593c32c0755c0d22c35f80bca3b54844e833e0d5c030d86b6c9a002
+name creation 72
+script {"format":"purse-opscript 1","name":"creation 72: simnet RestoreHeight Bytes64 Empty","ops":[{"from_height":true,"height":36214,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"","rand":"b3b4c8877ef41ddf82f5b81971ea06fb7321c7e107516a35ed15e6310b98a990","seed":"08ad8eb8f6b74153a457530ee42f57e3e58966e359ab53d9e7cf068853501a28efa58b69bff96a9df1f4e8e5662dbe1998b6f3a6bf809a33a07815188107bc0f"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered acb05f4ce909c5713f0ecc143ac1ae11f6ed6ba6a5f4cef52d66e57a941175e7
+name creation 73
+script {"format":"purse-opscript 1","name":"creation 73: simnet RestoreHeight Bytes64 Ascii","ops":[{"from_height":true,"height":983513,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"ZUpvk\\{_en(\"0>?3","pubpass":"$>v8UW&UZLb:@$","rand":"7e8b0e6ef0ad9746b084881840c45db3224ec02ef814c6c34f7dc1119c2b5564","seed":"ad92b236ccaef3b4c30c8c6f8e5728a775cd765c044d0d2b70f585b925f24d9a3f5b36d07d75d1bd2d1e3aa05e1a6bdbeb89a30a2ab3071bb93be5303773ac3f"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered a073f254eea02dc131b53044c5dd9652263eb690171dc6be9065b3df5005e5b4
+name creation 74
+script {"format":"purse-opscript 1","name":"creation 74: simnet RestoreHeight Bytes64 Unicode","ops":[{"from_height":true,"height":124212,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"公开 ✓","rand":"3be1aea2ed2214ff21622fb9c6460cbf8d3383b57bd414d1fde0d919791a5066","seed":"e2108cba8768a189f2e534375334778667a15aaa2a3ccb736806f3da746d67867e76b7096e144cfc9e5d05ff4d5438f2e92d0ddd2421b7d2e99e48496593a92c"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 641395bcfec47aa01faa4c0f5afe07aa0729d82eda4c5159d25d3c06f5903ab6
+name creation 75
+script {"format":"purse-opscript 1","name":"creation 75: simnet RestoreHeight LeadingZero Empty","ops":[{"from_height":true,"height":430232,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"iuwRp,a$jV0IVHo*gNh","pubpass":"","rand":"c4b797eb04b6a7a6c689603ceacba2d987060241a785d44b6c9fd458344e4b7f","seed":"0061500569e9e02e32ea3aba8700b6b80109e2e1ab499e88bfd1f54897f0b53b"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 2c7618b828022beca4d122726aac5dd73767a3dd3f381ae65a3cfe78d18ac0f2
+name creation 76
+script {"format":"purse-opscript 1","name":"creation 76: simnet RestoreHeight LeadingZero Ascii","ops":[{"from_height":true,"height":6784,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"r,U,kZgxW>B&aRF)pclMxxr","pubpass":"+tA5Ew`r(1.KPw^5U","rand":"7d61409e5fce34efaf46fa9c37799cbf1b82b26e200278ffabd2c2ce9e9563a3","seed":"008964523e607dda102299a41cbf6284b5c879f367486ea69656188cc9a41542"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 3dbae0809e78a807e7dc9163ab667b82d630b9593bf353c4b3c593e9bb7448f1
+name creation 77
+script {"format":"purse-opscript 1","name":"creation 77: simnet RestoreHeight LeadingZero Unicode","ops":[{"from_height":true,"height":757207,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"7]a6+AR#a AG=","pubpass":"ключ é","rand":"4f9a5d10b51820f11f5f4c6f17dfb52098dd4acb998f49efc174e2013f5c8678","seed":"00a70a1ff0aabf5ead2ff9a7b7cac89359654b39bf3b12dab283be4133e49c52"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 548255f246e8df4a34298ae9d643d284f1d6bd5db825e8f7e74fa2ec00aa349b
+name creation 78
+script {"format":"purse-opscript 1","name":"creation 78: simnet RestoreHeight StrippedCoinType Empty","ops":[{"from_height":true,"height":732468,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"`_0qCbRi","pubpass":"","rand":"18db3f2b9979548e23ebbb019ba21bfe901f9325f6f17d406ffa1553e8311465","seed":"8d518871deb2fb5b95c16fb172f4a86a03298e4ae5ae4f2b16194fe2ade96207"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 248bf8c999ab7ac612977e37404c99f3732b7df9511a66c17ba291e57010039f
+name creation 79
+script {"format":"purse-opscript 1","name":"creation 79: simnet RestoreHeight StrippedCoinType Ascii","ops":[{"from_height":true,"height":497162,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"?i!4KQIt4=uGii;l=ts$C(","pubpass":"}@_I ou;pF!P5]LS!%Uh","rand":"d5c4fecc5cc6f06608345903baf321caa40673db5e0cdf8cd8a1e619787ec07d","seed":"b60b277da238ed27e7b4ede41397d85c3507b5375ab9537119adb1bb8a6d99e8"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 1f4979c6d3b1d4366c9f1e8afbba5ecf7b137325ee51f5e897f01ceddb23c793
+name creation 80
+script {"format":"purse-opscript 1","name":"creation 80: simnet RestoreHeight StrippedCoinType Unicode","ops":[{"from_height":true,"height":878617,"op":"udb.set_birth_state","time":-62135596800}],"setup":{"clock":1794990000,"network":"simnet","privpass":"nUs?ygJ`'E0oZ.0G#bkk+VsJ","pubpass":"公开 ✓","rand":"90e72ff9a60337af1f07d481d40aefec0dddbe0a7c6b566c8f68b2de91cb3030","seed":"528bda997eb104ba0dade499c4674a49c3b468065f93c0e5b83adf66504f6d92"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered fd2c21f80e5da9eeb70868f5bdb470e6374646d35cc6186d890b4590a6264ff1
+name creation 81
+script {"format":"purse-opscript 1","name":"creation 81: simnet RestoreTime Bytes16 Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1640122937}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"","rand":"0e485f56f4c83f18883a776bbf72164c8954b6ac8bc7f74a9724ec4f63d9805d","seed":"52e26dcaff6474a32cfc16a4f1a8d3f7"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered abe6c1be4a0a3a565f7b50b1b50d4f6d9a82de8c0c19893326585af5f61050ad
+name creation 82
+script {"format":"purse-opscript 1","name":"creation 82: simnet RestoreTime Bytes16 Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1721735516}],"setup":{"clock":1794990000,"network":"simnet","privpass":"*yNU","pubpass":"gYx=iuZlW$+m)\\l#JG<n>fZ4","rand":"5aba556ae56453a1e6410adc7ec0d67a4cab5e3f772bf148577f96099ac08b51","seed":"a7aebbf8df55108d12396916f2ad192a"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 1f2cb183c75ce0dbc61cf3d2c700cb332bb8dad28eddceb91b60c49e891bbff3
+name creation 83
+script {"format":"purse-opscript 1","name":"creation 83: simnet RestoreTime Bytes16 Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1698878302}],"setup":{"clock":1794990000,"network":"simnet","privpass":"h(m+}","pubpass":"pässwörd ✓","rand":"06444c6a39845e56c799d7a9339d18f004aeac0ae523ed1fdf43ad57a0f29885","seed":"044b79e1ed108b9a5e97b10f38072cc2"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 2753571ef116557d9513acf807b588d858cbddb5ac1e718701163a2038915240
+name creation 84
+script {"format":"purse-opscript 1","name":"creation 84: simnet RestoreTime Bytes32 Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1751881372}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"","rand":"d57a4f5134d0b36ee28c4bf2c49f66fdae617e850d9a924af6a6177988ffc280","seed":"29725767a4e2b2d056fed34d72f3a98e0bd459c083693bdbd27690fdb15f393a"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 91da18a9ff8df6aa226d74c2de271683de6a935a003f5a42023f9cce2d81c159
+name creation 85
+script {"format":"purse-opscript 1","name":"creation 85: simnet RestoreTime Bytes32 Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1756114594}],"setup":{"clock":1794990000,"network":"simnet","privpass":"&y%;26-g<+","pubpass":">]","rand":"0e9053801f58b43674cabb9ba20f01ed83b046c4278632ae94bad76b16cfd943","seed":"2d065a922b1357ebbc6f06876df4abd35a960ac0c439e63b9b26b0c7c3929d2d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 40b538c6098016613e09f6e805adfe6c7f642ddf878716315e6e3885c7dfe419
+name creation 86
+script {"format":"purse-opscript 1","name":"creation 86: simnet RestoreTime Bytes32 Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1776988985}],"setup":{"clock":1794990000,"network":"simnet","privpass":"=,m0C","pubpass":"pässwörd ✓","rand":"639b418f109c744df1d84629085833c79bbdd36119b957ce33ef015d3a957ba5","seed":"471546c529fa1dc024bd1fe0da6c1bcb2798b6b0e3e47659af3a6f4226424899"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 3e7fe9b22c20069ec5f30255f804c2cf34aa2e68580c2593db6481efe9c3d3bf
+name creation 87
+script {"format":"purse-opscript 1","name":"creation 87: simnet RestoreTime Bytes64 Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1724587328}],"setup":{"clock":1794990000,"network":"simnet","privpass":".@F*#g1S[3-jb.0+u","pubpass":"","rand":"6406244ab578187c5db6781ee8f98ec3261a58392a4d212621564738e0198a53","seed":"ec1d85616070a6cec98c2a100419f8fa4548f1f130162da23726c30da829dd8983ea227aef4a3cac07f59feb22e0dc46671352cfeda83c017d91299870a43baa"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered a1d5e19bcc166c441c1006b113b41188cda91d2ce34424f4c2e4b83569909e39
+name creation 88
+script {"format":"purse-opscript 1","name":"creation 88: simnet RestoreTime Bytes64 Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1724734609}],"setup":{"clock":1794990000,"network":"simnet","privpass":"K@zww\\","pubpass":" iDp OCfD<i/`!&K$&J7m","rand":"a6041a3373edf677fbd716dadcdbe089bf97d35d00be1b458b50ae11276ac494","seed":"2e0c96a97a5b4ab02e30ee3cb66161a8b7f984e98f072ca692c0aa73cb0b48d731f37d160e3ab9e7c91c15c7e2a7a8f73dd45b97c0ea51a1b437ed977eb56037"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered d2cd5bc713adbd13d2f341eb52482e470a34c2af4192e3e5cc781139856d650f
+name creation 89
+script {"format":"purse-opscript 1","name":"creation 89: simnet RestoreTime Bytes64 Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1698695763}],"setup":{"clock":1794990000,"network":"simnet","privpass":"&g]>J\\:Q+R('vj|ZJ","pubpass":"pässwörd ✓","rand":"b80bfc7ad58b87006848a5b6168cbfb4b1d42b24ec2f7edbc3ceac49c7d1b5c1","seed":"e80d77c81d74f34b1cf4312c6b1018b3778ea42b3523ff8d6f42a5f6dba51d2791c35397b524cb7645dcd9e131f228769a1cdf76463a660dd1e31db78da5f97d"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 976a486ab5a72d7c2bfe76f580aed1e854a833a9015d2b805c7ed3cf434f6188
+name creation 90
+script {"format":"purse-opscript 1","name":"creation 90: simnet RestoreTime LeadingZero Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1739354129}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"","rand":"1699c29a58c6e716a7aaee6baa6e3aa7ff02406d0e5f38431505e683984eff44","seed":"005d012f9d7e94a509201baaa86463b2e03cd855677ee3765aae687d6850e001"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 99b741541a46d854dabc6dedf1635edea574b5a79ec078664bf790401b23d48f
+name creation 91
+script {"format":"purse-opscript 1","name":"creation 91: simnet RestoreTime LeadingZero Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1679492450}],"setup":{"clock":1794990000,"network":"simnet","privpass":"I]q6}T!F]*88<UgE/GE\\kbYu","pubpass":":)tfKvwHwM31r%RkqA-F-w","rand":"eaff78715cac2f528c18de6490f3748c08c7982fbc023f330d1b94dbd0723f48","seed":"00dc0b1b35910c368535d6e693a8b450aa2c7adbdff4501c5bc7f9ef1bfb31d6"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 3f84b00c271717f43fa0096bec91b4b9d49a83f6fbeb48ec789fcbaf469c23b4
+name creation 92
+script {"format":"purse-opscript 1","name":"creation 92: simnet RestoreTime LeadingZero Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1673501405}],"setup":{"clock":1794990000,"network":"simnet","privpass":"6i-T[","pubpass":"ключ é","rand":"a53440c39751aba15fbe54879b9c2be4eeebd152fb6bbd411e3c897f8335aa66","seed":"00f1bf78404aa2c1196dadf8ba954540414bd4592f5ca9100a1ddb99a3d10ea4"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered decd5a4470a589b2a0b945c568b70ff29d41ccc9e62f2bc52709f16ae9d70ae0
+name creation 93
+script {"format":"purse-opscript 1","name":"creation 93: simnet RestoreTime StrippedCoinType Empty","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1655436954}],"setup":{"clock":1794990000,"network":"simnet","privpass":"L&Ba","pubpass":"","rand":"32de7f3c6f08593e5515c544add1dd8c62e747f66773d42785e1a2ce72b99ef6","seed":"2f619a12ac49c67cff8d22d17808a77ac37a20ee8b25cce422f14be1f8e04019"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 370393e65baf6483fa936c112fc577aa849ec8f0a3e67891d073b4f5e11eb9d2
+name creation 94
+script {"format":"purse-opscript 1","name":"creation 94: simnet RestoreTime StrippedCoinType Ascii","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1657380777}],"setup":{"clock":1794990000,"network":"simnet","privpass":"u#R*.","pubpass":"BBS","rand":"93d088440238cd52cd7bc6a38c0e17c05aa36e24fc255257437e5044e5dad9cc","seed":"2efcbbc6db365cb80892910d274446871bb9afebe5ae1842844a4c6306f9ab18"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered a43cdf8dccb6d04612ce1cd85c9464aeb2680755f699ed096a614e8bc2c404d0
+name creation 95
+script {"format":"purse-opscript 1","name":"creation 95: simnet RestoreTime StrippedCoinType Unicode","ops":[{"from_time":true,"op":"udb.set_birth_state","time":1689935266}],"setup":{"clock":1794990000,"network":"simnet","privpass":"e}CdDu7","pubpass":"ключ é","rand":"af4f5e085c4274c716abeee5254173e44610dbe28a2dda2eedc63617bcd615b3","seed":"3a4a65bb6249bbc261719b2bac469d1859f1599f9836f235f2bc38475bdd9102"}}
+result {"i":0,"ok":null,"op":"udb.set_birth_state"}
+covered 38de3bc4c341c8b512f611585b5b05f129e594c8555fb53a57c267ea17de0554
+name creation 96
+script {"format":"purse-opscript 1","name":"creation 96: simnet NewSeed Bytes16 Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"G@Q)r`Pa-UQ<]ybT\";/J'rf","pubpass":"","rand":"1a6edb0fa8797ecdb2b5af69bd613ce2065e4a532789ef694f49888792669d38","seed":"4ea21b9b8a6391d74ab39db237235f69"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered fcacc82e143669875a6f9cb71bcaae3731849ad0e44c232afacecdecff897235
+name creation 97
+script {"format":"purse-opscript 1","name":"creation 97: simnet NewSeed Bytes16 Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"D4+/`x[","rand":"6e87151ba54b19435451ddc0f7c475590644bccf5a65034dec4e444b37f935ea","seed":"8e7bd921e450066807ea5f30ed3536f3"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered afdb5b26dd584b4b5249cb35538daabf05e740ebcd3e4fbe37e5ad4b74963827
+name creation 98
+script {"format":"purse-opscript 1","name":"creation 98: simnet NewSeed Bytes16 Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"x","pubpass":"pässwörd ✓","rand":"d78e6497c0921dcb0ebd444ad0630a19f2ece297c80de5d5e0597fb169b15a82","seed":"b2699ecee154d3c68f24d8181a821e36"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered ba5bca866caa6d934cc989c79f22efe4538394771a3d6797f001db135632f7de
+name creation 99
+script {"format":"purse-opscript 1","name":"creation 99: simnet NewSeed Bytes32 Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"fp}_A%^)Ou4RYP_6HPA","pubpass":"","rand":"f0c8fdf3692f36b498cc343e42840385c742da47d68d4137ffa5e07d369d7247","seed":"0cc196ab0972522422d2e31b4005c875152ca61bec9739d52b8dd0ff4973ef54"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 9401534e449b6f9b7777d8a10c4da204823790b2fdc9a9ac38d761788b5a67bc
+name creation 100
+script {"format":"purse-opscript 1","name":"creation 100: simnet NewSeed Bytes32 Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"X\"v`{l","pubpass":"F'o@@`h0","rand":"15f8bcde0d1548204d74141ea63ed217d0bfbe04dc83a2bdf336789c91df154f","seed":"ad1560cbeb534e7ee8bcb1997b36b816486e4b92697a677b9d54caf0294e0ef0"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered b1f58cfe2eb9bd031fd716cbd4c5362531998a981aa49fcf3dea4f64cd96cea7
+name creation 101
+script {"format":"purse-opscript 1","name":"creation 101: simnet NewSeed Bytes32 Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"$j9J^d{}C~pD","pubpass":"公开 ✓","rand":"19395a4f72bbc726857411a264b4aa334297180a13b8b2babf3966b6ad2645f1","seed":"d9cd5c19a91a7f4d46609a25c4e2790454a43787c8586ec93d8dee29791aba2f"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 555f6342e91db1c78e4ccf84611e5f5021edb565bf9bbeb28ce705cb9239ac91
+name creation 102
+script {"format":"purse-opscript 1","name":"creation 102: simnet NewSeed Bytes64 Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"o|/C$AJ!7f.=CsIi?6","pubpass":"","rand":"790d31493d5ceb694475e366e560eb85320791635be5d698a75edc0a17ebf2b6","seed":"c933ea3bf8a8fd7ee8dd235d017bc130277aa53dc20a27e16ad64525692ae2d912f3b1e06993cccf8ae1fb6756bc3c4a4a4a730532614638f82907918a7c71c0"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered e877fa1552abb4262b389268f33bdcd423bcb7774f0c004bc0fd9e82aa28cc72
+name creation 103
+script {"format":"purse-opscript 1","name":"creation 103: simnet NewSeed Bytes64 Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"S9D<@z$)U]B7+7+g^Zm;a2","rand":"cf89850ec4d100f9a66be91e72ce89f4e98b09002cdfa5e09cab72cb7a37fc4f","seed":"e10581ec05366a527ae80f344ac6c656610a3c3c2898788bcd70fd03d45aa9adab843ccfb8bbd7f0c290d23f39e53b84d3ba98cc2325e0187d502103ce97cf88"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered bf555f325cdbd727debfa59c5eb9610e332d459032bdfda0116dcd06d17aee14
+name creation 104
+script {"format":"purse-opscript 1","name":"creation 104: simnet NewSeed Bytes64 Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"9L`92N@3[S?}d","pubpass":"公开 ✓","rand":"73b6d514fd101d3a43b287b1785e4e94212556de1b06eed96c3c9842ab7121fb","seed":"146006b371cae01ca7275a253b5079a93ac97bf5197aa60eac3a45c6f9449500f48a0fdea9407961a517f16789c245e5427bba0f21c2df14a783f0ffc3dbbb50"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered ecd0e144e313e8cbbc0790649677ed9dd636279f674c9d485e0e490e689b506e
+name creation 105
+script {"format":"purse-opscript 1","name":"creation 105: simnet NewSeed LeadingZero Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"HgTerZp9TF<@}j7pXLLVWJk&","pubpass":"","rand":"2ca2770a6051ba0a43137362ea911611b9bf512208f5d3672f487160795c0b01","seed":"00ed19320b09ea68ccee35ab46ed905d764033c74c3f1e42dcdf4c5feb646258"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 32b90fdaa537f7bdbd01520eb0a440f072b4078d788734ef3d38008d596c54cf
+name creation 106
+script {"format":"purse-opscript 1","name":"creation 106: simnet NewSeed LeadingZero Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"dj8zU","rand":"79470489ac7315faa28c7a3f7688f7b3e8e8165f6a6fe23158092988df12d7e9","seed":"00b1a6e84c630379ffa62994079f613cdecc8c6ed0c76dda02d010be3ee2b0af"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 183d3af383516d5814f4b81e95c8bec3f56c880dc56c7af699dd22243f17db86
+name creation 107
+script {"format":"purse-opscript 1","name":"creation 107: simnet NewSeed LeadingZero Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"-@TQcV!ve","pubpass":"公开 ✓","rand":"44449689ffab75249e9d33243f13483427abe06b6f3cd81ca7478b4cb9b52e79","seed":"00e27a124104399c0024fe6b1daa9a8b6032af90b22f751d63f62142d4603b4f"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered b28732b97ab22e0194a6e6c57b19ef905e32b3e1c6d0cc902eb763ddba8ef879
+name creation 108
+script {"format":"purse-opscript 1","name":"creation 108: simnet NewSeed StrippedCoinType Empty","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"pässwörd ✓","pubpass":"","rand":"6b876177a97dd5b53a083e13f6dd728d400f758c777778a8e2cc40d5a8abffa0","seed":"0a1153ccb932bb05363bb0ca2a3c1a996706210a78d0cce0592c881a0ffcdd43"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered ab1522d737ede0a32edc68011173579bbc011590fc41dfd7434495e7f3bcf19c
+name creation 109
+script {"format":"purse-opscript 1","name":"creation 109: simnet NewSeed StrippedCoinType Ascii","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"zHlpI.DfEE{@+","pubpass":"'U;+^vu?G)?3qKzCO{8+sGW","rand":"620004c96e64c9514a2d3a8ddfcddbd4f06e4eba2fbc8e6627e051238a8c154d","seed":"8bb013d8f240909893569757aa460c91028215a03c383f18aa3fffa423c0519d"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 595924f9a6c28074e20bc69ff5283ebb7691a03abc4789c569ebccd9aee1845b
+name creation 110
+script {"format":"purse-opscript 1","name":"creation 110: simnet NewSeed StrippedCoinType Unicode","ops":[{"op":"mgr.upgrade_to_slip0044_coin_type"},{"from_time":true,"op":"udb.set_birth_state","time":1794903600}],"setup":{"clock":1794990000,"network":"simnet","privpass":"K?#+8~6|RbA@mJHj[=i","pubpass":"公开 ✓","rand":"191c6771204e75033f5c0a72cdcff2fb9ac2505d9faa7872a0263d22cfbd35b0","seed":"0f3cadebbe0137c4ece63eb90c36b57b0e67da4aa69ccdb8800b152c30601957"}}
+result {"i":0,"ok":null,"op":"mgr.upgrade_to_slip0044_coin_type"}
+result {"i":1,"ok":null,"op":"udb.set_birth_state"}
+covered 8870751a4b6168f01c88c439768a70971978c555c3bd4ccbab6a5f928c27bdb7
+name creation 111
+script {"format":"purse-opscript 1","name":"creation 111: simnet WatchLegacy Bytes16 Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"","rand":"aedb6e97ce8ee5ee452da4a9fdf9f917fd8d6ca3e45940aa38b5c844ca032919","xpub":{"path":["44'","115'","0'"],"seed":"42fa98b2d0f4aef713a66b5d4854a232"}}}
+covered 0878726ef4d9f8eca2f584328131e60058392af638b280650c5afb29d9259a1a
+name creation 112
+script {"format":"purse-opscript 1","name":"creation 112: simnet WatchLegacy Bytes32 Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"|?{&?bwrqCJl'Jahc'@U","rand":"77574e1bb126126126f34699c5414100978473513f165a8e9f3e0b4ed0cf6012","xpub":{"path":["44'","115'","0'"],"seed":"401c30cbc5df3716a1b7d1b3681c54d37598035557dc1dbc6ab5eb4fb1df0786"}}}
+covered 00307c85083616ad5f02a779d72e44c14e7ebb35c7cb4fbfe24fa0384dbbc9e3
+name creation 113
+script {"format":"purse-opscript 1","name":"creation 113: simnet WatchLegacy Bytes64 Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"ключ é","rand":"19e33e2ea022967c03027827982c4da868fb57b0e31cce2a5c6dbff93eba5291","xpub":{"path":["44'","115'","0'"],"seed":"a7ba8c2134c66984ecc56b46f2a71b189943469f5d9f9322c305be8856a7dbc70eaee04ee98b3a4bf9a2ed875291bb0961c2bb1674ec7d29a6def01c70b18e81"}}}
+covered 3572b545a24b3cfbb5a98ceed38ef76f1d39338dd040c2a78138e7c4ceb6a7ec
+name creation 114
+script {"format":"purse-opscript 1","name":"creation 114: simnet WatchLegacy LeadingZero Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"","rand":"dc7d62eae1e28e0e0a39e1fddb894aa365f8f796a0ca42506eec2f35aabe85bb","xpub":{"path":["44'","115'","0'"],"seed":"00804a44915407c0d8623e3515b93b84df156371514220daacfe83f7b7fe51ca"}}}
+covered a7882c219075e3d6505bcd3c0f1150254683e9d6942fa164fde718bc770549ea
+name creation 115
+script {"format":"purse-opscript 1","name":"creation 115: simnet WatchLegacy StrippedCoinType Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"Sm1&hU{&O7","rand":"1df4081b8520cbc0950162d1dfc80dc8a759137bbc8c6ed40fe151e30c21bc1c","xpub":{"path":["44'","115'","0'"],"seed":"7c48f0c4e23fc3961355afee53426afcc1d03b6f0e1a053e96534d6b255b07a7"}}}
+covered d787fe8b8a36e6c0f73f3b9a11d13880f2ff71a6165878503a06f945dc0baedc
+name creation 116
+script {"format":"purse-opscript 1","name":"creation 116: simnet WatchSlip0044 Bytes16 Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"","rand":"7fdd655d3e77d59aa0d0b3b5bbccf7d78b548c92ee5c6a3a6c892e4ab15f0345","xpub":{"path":["44'","1'","0'"],"seed":"ac7ef584e9536ebf744318f2cd20d435"}}}
+covered 7855e1f58566ff57ef8402d6c13af8ce6ccc09c3cf276ea651fd8ef66102b40e
+name creation 117
+script {"format":"purse-opscript 1","name":"creation 117: simnet WatchSlip0044 Bytes32 Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"F .ouE6G\"ez{|Yz","rand":"54ecf5b4c4b3d52f8521cbccb2b6f59502b15087b4b17ffb033a2536319184ac","xpub":{"path":["44'","1'","0'"],"seed":"213d32cec8c27800f40d4827627ebd752d40a942d504713213060710a8a3a31a"}}}
+covered e23f1e39d4e7869d454d41c5ef8a874ea234f3764ceba2b68c213abf7c50e75b
+name creation 118
+script {"format":"purse-opscript 1","name":"creation 118: simnet WatchSlip0044 Bytes64 Unicode","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"公开 ✓","rand":"9d2265a77595389d5bb89b77753343c3f99295f841e073368d31cda38f2d83ce","xpub":{"path":["44'","1'","0'"],"seed":"25a8307d06fb0d4ded29f1ecf58e9ff39f9467ee30d0bfe171bc66a69d4460aea02e4e037732e5ef3601bdb4fc7a50f350ca67a98439408cfe1aa7a008a6a62b"}}}
+covered 65724bdfaa959f235f0cdcb47f7b5187f790f78983847567d8236a5d69825442
+name creation 119
+script {"format":"purse-opscript 1","name":"creation 119: simnet WatchSlip0044 LeadingZero Empty","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"","rand":"98bcc2bcfc76775ffac2affe2bcfb504a0b09e37fcbf116c99bb4df3f6b2f9de","xpub":{"path":["44'","1'","0'"],"seed":"002b8ecc196cca99d6bdb99a61c3c68204810dc4af6c42c0b44911b13acb19d4"}}}
+covered 2e632fc2dffa48af751224a7365c74524af784bb130e28a2541b1a540dd81a71
+name creation 120
+script {"format":"purse-opscript 1","name":"creation 120: simnet WatchSlip0044 StrippedCoinType Ascii","ops":[],"setup":{"clock":1794990000,"network":"simnet","privpass":"","pubpass":"z]G$guJ)v&]617R,Pm","rand":"1d7ed55b67d93c085d82fb99e4e40f5971ab63ea54b1791061ca207daa919468","xpub":{"path":["44'","1'","0'"],"seed":"6b4a4f5accdeb9185bdee777fc4440f3e276a5ac085e7f676b8060e1d4f75045"}}}
+covered 2b381f20768c66b7d229902aa56fe0eceb9b2bf52c0524e188905fd80606639f

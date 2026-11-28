@@ -668,6 +668,28 @@ The differential is then:
    transaction store's random selections it does (addendum of
    2026-11-24): their results, `~r` values included, and their `drawn`
    are compared exactly; the address manager's draws stay masked.*
+   *Dated note, 2026-11-27 (a fact for the question whether the brief's
+   Phase 3 exit clause on same-seed creation is met by the masked profile
+   or waits on this item, pending owner; no comparison profile changed):
+   fed Go's stream, creation draws what Go's creation draws.
+   `creation_draws_on_gos_stream` (`crates/purse-udb/tests/oracle.rs`)
+   keys dcrd's generator with a creation script's `setup.rand`, runs
+   `purse_udb::initialize` (or `initialize_watch_only`), then
+   `Manager::open`, then the script's operations (the SLIP0044 upgrade and
+   the birthday) on it, and sets the result beside Go's run of the same
+   script (`Initialize` or `InitializeWatchOnly` with the upgrades, then
+   `Open` and the operations, on the stream that key seeds), for one
+   script per network and creation flow of the creation set (27): both
+   setups draw 400 bytes for a seed's wallet (368 creating, 32 for the
+   passphrase hasher's key at open) and 256 for a wallet made from an
+   account extended public key (224 and 32), the operations draw nothing
+   on either side, and the two final exports are equal unmasked, every
+   salt, digest and sealed box included. Go's upgrades draw nothing on a
+   new wallet. Not covered: the address manager's draws after setup
+   (accounts, imports, passphrases), which no test has set beside Go's on
+   one stream; and the Rust runner still gives the address manager a
+   stream of its own (section 6), so its comparisons stay masked. The
+   setup's count is reported by both runners (addendum of 2026-11-27).*
 3. Whether `rt.reopen` should also be exercised after every write in a
    generated mode (crash-consistency against Go's in-memory state).
 4. Chain-backend states (revocations of real chains, tspends, a
@@ -748,3 +770,20 @@ stands. Group members carry `drawn` on both sides.
 The keys are test inputs, never sent and never persisted; dcrwallet's
 behaviour is not changed by them, only the stream the copied `crypto/rand`
 yields at that point.
+
+## Addendum, 2026-11-27 — The setup's bytes drawn
+
+*Pending owner.* A run of `tools/oracle/cmd/oprunner` also
+returns `setup_drawn`: the part of `drawn` the setup read from the
+injected stream (`Initialize` or `InitializeWatchOnly`, the upgrades and
+`Open`), before the first operation. `results.jsonl` and every record are
+unchanged. The Rust runner reports the same count of its own setup
+(`Run::setup_drawn` in `crates/purse-udb/tests/support/runner.rs`:
+`purse_udb::initialize` or `initialize_watch_only`, then
+`Manager::open`). Its stream is not Go's, so only the counts can be set
+side by side: `same_seed_creation_matches_go` reports them for every
+creation script (equal on every script of the creation set: 400 bytes for
+a seed's wallet, 256 for one from an extended public key), and
+`creation_draws_on_gos_stream` runs the creation on Go's stream to compare
+the bytes themselves (open item 2, dated note of 2026-11-27). No
+comparison of the differential reads either count.

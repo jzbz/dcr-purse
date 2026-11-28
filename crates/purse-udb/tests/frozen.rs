@@ -45,6 +45,10 @@
 //! - `tests/data/aux_genvectors.txt`: the same for a fixed set of generated
 //!   auxiliary record scripts (`tests/support/auxgen.rs`, `generate_aux`,
 //!   every other one with its operations in groups by `group_aux`).
+//! - `tests/data/creation_vectors.txt`: the same for the creation set
+//!   (`tests/support/generator.rs`, `creation_set`: same-seed creation of
+//!   ADR-0001 section 8 over seed lengths and kinds, public passphrases and
+//!   the creation flows, on every network).
 //!
 //! A Go record of kind `Panic` is matched by any Rust error
 //! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
@@ -142,6 +146,12 @@ const AUX_SCRIPTS: usize = 8;
 const AUX_ENTRIES: usize = 524;
 /// The seed of the generated auxiliary record set.
 const AUX_SEED: u64 = 0x5eed_f402_0000_0009;
+const CREATION_VECTORS: &str = "creation_vectors.txt";
+/// The pinned number of creation scripts and of their result lines.
+const CREATION_SCRIPTS: usize = 121;
+const CREATION_ENTRIES: usize = 105;
+/// The seed of the creation set.
+const CREATION_SEED: u64 = 0x5eed_f402_0000_0c00;
 
 /// One script's vector.
 struct Vector {
@@ -659,31 +669,37 @@ fn regenerate_change_vectors() {
 fn replay_generated(file: &str, entries: usize, scripts: usize) {
     let vectors = read_vector_file(file, entries);
     assert_eq!(vectors.len(), scripts, "script count");
-    for v in vectors {
-        let dir = scratch("frozen-gen");
-        let rust = runner::run(&v.script, &dir).unwrap_or_else(|e| panic!("{}: {e}", v.name));
-        assert_eq!(
-            rust.results.len(),
-            v.results.len(),
-            "{}: record count",
-            v.name
-        );
-        for (g, r) in v.results.iter().zip(&rust.results) {
-            check_record(&v.name, g, r);
-        }
-        // Only the final export of a generated script is frozen.
-        assert!(rust.checkpoints.is_empty(), "{}: a checkpoint", v.name);
-        let ex = purse_export_check::parse(&rust.export).expect("Rust export parses");
-        check_privcheck(&ex).unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
-        check_rust_uncompared(&ex).unwrap_or_else(|e| panic!("{}: {e}", v.name));
-        assert_eq!(
-            covered_digest(&rust.export),
-            v.covered,
-            "{}: export",
-            v.name
-        );
-        let _ = std::fs::remove_dir_all(&dir);
+    for v in &vectors {
+        replay_generated_one(v);
     }
+}
+
+/// Replays one generated vector through the Rust runner: its records, then
+/// the covered digest of its final export.
+fn replay_generated_one(v: &Vector) {
+    let dir = scratch("frozen-gen");
+    let rust = runner::run(&v.script, &dir).unwrap_or_else(|e| panic!("{}: {e}", v.name));
+    assert_eq!(
+        rust.results.len(),
+        v.results.len(),
+        "{}: record count",
+        v.name
+    );
+    for (g, r) in v.results.iter().zip(&rust.results) {
+        check_record(&v.name, g, r);
+    }
+    // Only the final export of a generated script is frozen.
+    assert!(rust.checkpoints.is_empty(), "{}: a checkpoint", v.name);
+    let ex = purse_export_check::parse(&rust.export).expect("Rust export parses");
+    check_privcheck(&ex).unwrap_or_else(|e| panic!("{}: Rust export: {e}", v.name));
+    check_rust_uncompared(&ex).unwrap_or_else(|e| panic!("{}: {e}", v.name));
+    assert_eq!(
+        covered_digest(&rust.export),
+        v.covered,
+        "{}: export",
+        v.name
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The generated vectors are the set the generator makes from the fixed
@@ -761,6 +777,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 "transaction store"
             } else if file == AUX_VECTORS {
                 "auxiliary records"
+            } else if file == CREATION_VECTORS {
+                "wallet creation"
             } else {
                 "address manager"
             }
@@ -803,6 +821,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 TX_CMS_VECTORS => "regenerate_txstore_cms_vectors",
                 TX_SELECT_VECTORS => "regenerate_txstore_select_vectors",
                 AUX_VECTORS => "regenerate_aux_vectors",
+                CREATION_VECTORS => "regenerate_creation_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -1088,4 +1107,73 @@ fn aux_vectors_are_the_seeded_set() {
 #[ignore = "regenerates tests/data from the Go oracle"]
 fn regenerate_aux_vectors() {
     regenerate_generated(AUX_VECTORS, &aux_set(), AUX_SEED, "aux_set");
+}
+
+/// The creation set (`tests/support/generator.rs`, `creation_set`, from
+/// the fixed seed): the creation matrix of ADR-0001 section 8's same-seed
+/// creation on every network, as `same_seed_creation_matches_go` in
+/// `tests/oracle.rs` runs it from `PURSE_TEST_SEED`: on simnet every seed
+/// kind with every public passphrase kind in the five seed flows and every
+/// seed kind in the two watching-only flows (85 scripts), on regnet,
+/// testnet3 and mainnet two scripts per seed flow and one per
+/// watching-only coin type (12 each).
+fn creation_set() -> Vec<(String, Value)> {
+    support::generator::creation_set(&mut SplitMix64(CREATION_SEED))
+}
+
+/// Replays the creation vectors, one network per thread (the 36 scripts on
+/// the three networks of dcrwallet's full scrypt cost dominate).
+#[test]
+fn replay_creation_vectors() {
+    let vectors = read_vector_file(CREATION_VECTORS, CREATION_ENTRIES);
+    assert_eq!(vectors.len(), CREATION_SCRIPTS, "script count");
+    std::thread::scope(|s| {
+        for net in support::generator::CREATION_NETWORKS {
+            let mine: Vec<&Vector> = vectors
+                .iter()
+                .filter(|v| v.script["setup"]["network"] == net)
+                .collect();
+            s.spawn(move || mine.into_iter().for_each(replay_generated_one));
+        }
+    });
+}
+
+/// The creation vectors are the set the generator makes from the fixed
+/// seed, and every network holds every flow (regnet, whose two coin types
+/// are one, has no SLIP0044 watching-only flow of its own).
+#[test]
+fn creation_vectors_are_the_seeded_set() {
+    use support::generator::{CREATION_NETWORK_FLOWS, creation_flow};
+    let set = creation_set();
+    assert_seeded_set(CREATION_VECTORS, CREATION_ENTRIES, &set);
+    let flows: std::collections::BTreeSet<_> = set
+        .iter()
+        .map(|(_, s)| {
+            (
+                s["setup"]["network"].as_str().expect("network").to_owned(),
+                creation_flow(s),
+            )
+        })
+        .collect();
+    assert_eq!(flows.len(), CREATION_NETWORK_FLOWS, "{flows:?}");
+    let text = std::fs::read_to_string(data_dir().join(CREATION_VECTORS)).expect("read");
+    assert!(
+        text.lines()
+            .take_while(|l| l.starts_with('#'))
+            .any(|l| l.contains(DCRWALLET_PARITY_COMMIT)),
+        "the header names dcrwallet {DCRWALLET_PARITY_COMMIT}"
+    );
+}
+
+/// Regenerates the creation vectors from the oracle, checking that the
+/// Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_creation_vectors() {
+    regenerate_generated(
+        CREATION_VECTORS,
+        &creation_set(),
+        CREATION_SEED,
+        "creation_set",
+    );
 }

@@ -65,6 +65,7 @@ use purse_udb::addrmgr::{
 use purse_udb::export::{ExportOptions, export};
 use purse_udb::txstore::{TxRecord, TxStore};
 
+pub mod auxops;
 mod groups;
 mod txops;
 
@@ -189,6 +190,28 @@ pub const SUPPORTED: &[&str] = &[
     "store.random_utxo",
     "store.select_inputs",
     "store.spender",
+    "udb.set_vsp_ticket",
+    "udb.delete_vsp_ticket",
+    "udb.get_vsp_ticket",
+    "udb.get_vsp_tickets_by_fee_status",
+    "udb.get_vsp_host",
+    "udb.get_vsp_pub_key",
+    "udb.set_tspend_policy",
+    "udb.set_vsp_tspend_policy",
+    "udb.tspend_policy",
+    "udb.vsp_tspend_policy",
+    "udb.tspend_policies",
+    "udb.vsp_tspend_policies",
+    "udb.set_treasury_key_policy",
+    "udb.set_vsp_treasury_key_policy",
+    "udb.treasury_key_policy",
+    "udb.vsp_treasury_key_policy",
+    "udb.treasury_key_policies",
+    "udb.vsp_treasury_key_policies",
+    "udb.set_default_agenda_preference",
+    "udb.set_ticket_agenda_preference",
+    "udb.default_agenda_preference",
+    "udb.ticket_agenda_preference",
 ];
 
 /// The `@exporter` meta of this runner's exports.
@@ -1095,6 +1118,7 @@ impl Runner {
                 r
             }
             other if txops::handles(other) => self.tx_op(&a)?,
+            other if auxops::handles(other) => self.aux_op(&a)?,
             other => {
                 return Err(fault(format!(
                     "operation {other:?} is not ported to purse-udb yet"

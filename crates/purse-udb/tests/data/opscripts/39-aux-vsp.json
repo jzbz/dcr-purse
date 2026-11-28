@@ -1,0 +1,470 @@
+{
+ "format": "purse-opscript 1",
+ "name": "aux-vsp",
+ "setup": {
+  "network": "simnet",
+  "seed": "3838383838383838383838383838383838383838383838383838383838383838",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "3838383838383838383838383838383838383838383838383838383838383838",
+  "clock": 1795600000
+ },
+ "ops": [
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 0
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 0
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 1
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-a.example"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": ""
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "fee_hash": "0d4883bef9346faae5205b96d10c4782bdf8336ea9e41f5a95d00b4681bcf732",
+   "fee_tx_status": 0,
+   "host": "https://vsp-a.example",
+   "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+   "vsp_host_id": 9
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "fee_hash": "aae6225e9ad6124783bffb3773afe4205c98d4104c81bdf93571ade91e5a96d2",
+   "fee_tx_status": 1,
+   "host": "https://vsp-b.example",
+   "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd",
+   "fee_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+   "fee_tx_status": 2,
+   "host": "https://vsp-a.example",
+   "pubkey": "02eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-a.example"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-b.example"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 0
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 1
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 2
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 3
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "4485bff9336da7e1225c96d00a447ebff9336da7e11b5c96d00a447eb8f9336d",
+   "fee_hash": "4784c1fe3471aee4215e9bd10e4b81befb386eabe81e5b98d50b4885bbf83572",
+   "fee_tx_status": 3,
+   "host": "https://vsp-a.example/",
+   "pubkey": ""
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06",
+   "fee_hash": "e4226097d50c4a81bffd3472a9e71e5c9ad10f4684bbf9376eace3215896d40b",
+   "fee_tx_status": 7,
+   "host": "https://vsp-a.example",
+   "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+   "vsp_host_id": 4294967295
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "4485bff9336da7e1225c96d00a447ebff9336da7e11b5c96d00a447eb8f9336d"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-a.example/"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 3
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 4
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "fee_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+   "fee_tx_status": 2,
+   "host": "https://vsp-b.example",
+   "pubkey": "02eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": -1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 0
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 3
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 4
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 7
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2147483647
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": -2147483648
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6",
+   "fee_hash": "0d4883bef9346faae5205b96d10c4782bdf8336ea9e41f5a95d00b4681bcf732",
+   "fee_tx_status": 0,
+   "host": "",
+   "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 4
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 0
+  },
+  {
+   "op": "udb.delete_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06"
+  },
+  {
+   "op": "udb.delete_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06"
+  },
+  {
+   "op": "udb.delete_vsp_ticket",
+   "ticket": "b8f6346ba9e01e5593d108467dbbf2306ea5e31a588fcd0b4280b7f52c6aa8df"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 7
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-a.example"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 1
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 2
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-b.example"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "udb.set_vsp_ticket",
+     "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6",
+     "fee_hash": "aae6225e9ad6124783bffb3773afe4205c98d4104c81bdf93571ade91e5a96d2",
+     "fee_tx_status": 1,
+     "host": "https://vsp-c.example",
+     "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    },
+    {
+     "op": "udb.get_vsp_ticket",
+     "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+    },
+    {
+     "op": "udb.get_vsp_host",
+     "id": 4
+    },
+    {
+     "op": "udb.set_vsp_ticket",
+     "ticket": "1b5895d2084582b8f5326fa5e21f5592cf0c427fbcf22f6ca9df1c598fcc0946",
+     "fee_hash": "aae6225e9ad6124783bffb3773afe4205c98d4104c81bdf93571ade91e5a96d2",
+     "fee_tx_status": 1,
+     "host": "",
+     "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    }
+   ]
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+  },
+  {
+   "op": "udb.get_vsp_host",
+   "id": 4
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-c.example"
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "udb.set_vsp_ticket",
+     "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6",
+     "fee_hash": "aae6225e9ad6124783bffb3773afe4205c98d4104c81bdf93571ade91e5a96d2",
+     "fee_tx_status": 1,
+     "host": "https://vsp-c.example",
+     "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+    },
+    {
+     "op": "udb.delete_vsp_ticket",
+     "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534"
+    },
+    {
+     "op": "udb.get_vsp_tickets_by_fee_status",
+     "status": 1
+    }
+   ]
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "udb.get_vsp_ticket",
+     "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+    },
+    {
+     "op": "udb.get_vsp_ticket",
+     "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534"
+    },
+    {
+     "op": "udb.get_vsp_pub_key",
+     "host": "https://vsp-c.example"
+    },
+    {
+     "op": "udb.get_vsp_host",
+     "id": 4
+    },
+    {
+     "op": "udb.get_vsp_tickets_by_fee_status",
+     "status": 1
+    }
+   ]
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6",
+   "fee_hash": "4784c1fe3471aee4215e9bd10e4b81befb386eabe81e5b98d50b4885bbf83572",
+   "fee_tx_status": 0,
+   "host": "https://vsp-a.example",
+   "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+  },
+  {
+   "op": "udb.get_vsp_pub_key",
+   "host": "https://vsp-c.example"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 0
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 3
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "4485bff9336da7e1225c96d00a447ebff9336da7e11b5c96d00a447eb8f9336d"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "e11c5792cd08437eb9f42f6aa5e01b5691cc07427db8f32e69a4df1a5590cb06"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "7ebaf6326eaae61b5793cf0b4783b8f4306ca8e4205591cd094581bdf22e6aa6"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "1b5895d2084582b8f5326fa5e21f5592cf0c427fbcf22f6ca9df1c598fcc0946"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "b8f6346ba9e01e5593d108467dbbf2306ea5e31a588fcd0b4280b7f52c6aa8df"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "0000000000000000000000000000000000000000000000000000000000000000",
+   "fee_hash": "4784c1fe3471aee4215e9bd10e4b81befb386eabe81e5b98d50b4885bbf83572",
+   "fee_tx_status": 2,
+   "host": "https://vsp-a.example",
+   "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "fee_hash": "e4226097d50c4a81bffd3472a9e71e5c9ad10f4684bbf9376eace3215896d40b",
+   "fee_tx_status": 2,
+   "host": "https://vsp-b.example",
+   "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 3
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+   "op": "udb.get_vsp_ticket",
+   "ticket": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "fee_hash": "e4226097d50c4a81bffd3472a9e71e5c9ad10f4684bbf9376eace3215896d40b",
+   "fee_tx_status": 1,
+   "host": "https://vsp-b.example",
+   "pubkey": "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  {
+   "op": "udb.set_vsp_ticket",
+   "ticket": "0000000000000000000000000000000000000000000000000000000000000000",
+   "fee_hash": "4784c1fe3471aee4215e9bd10e4b81befb386eabe81e5b98d50b4885bbf83572",
+   "fee_tx_status": 3,
+   "host": "https://vsp-a.example",
+   "pubkey": "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 1
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 2
+  },
+  {
+   "op": "udb.get_vsp_tickets_by_fee_status",
+   "status": 3
+  }
+ ]
+}

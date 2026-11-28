@@ -172,7 +172,11 @@
 //! the key, and `contains` tests a key the same way.
 //! `tests/conformance.rs` holds all of it against bbolt itself through the
 //! `boltcursor` oracle. Puts keep bbolt's limits: no empty key, keys up to
-//! [`MAX_KEY_SIZE`], values up to [`MAX_VALUE_SIZE`].
+//! [`MAX_KEY_SIZE`], values up to [`MAX_VALUE_SIZE`]. One write applies the
+//! key limit to dcrwallet's key rather than to the table's:
+//! [`WriteTx::put_ticket_agenda_pref`] checks the version ‖ agenda key of
+//! dcrwallet's nested bucket, so a `ticket_agenda_prefs` key, the ticket
+//! hash before it, can reach 32,800 bytes.
 //!
 //! # How it is tested
 //!

@@ -32,7 +32,10 @@ pub(crate) const fn definition(id: TableId) -> TableDefinition<'static, Raw, Raw
 pub type RawEntry = (Vec<u8>, Vec<u8>);
 
 /// The longest key a table takes: bbolt's `MaxKeySize`
-/// (`bbolt@v1.3.12/bucket.go:10-11`).
+/// (`bbolt@v1.3.12/bucket.go:10-11`). One table is the exception:
+/// [`WriteTx::put_ticket_agenda_pref`] applies this limit to dcrwallet's
+/// key inside a ticket's bucket, so a `ticket_agenda_prefs` key, the
+/// ticket hash before it, can be 32 bytes longer.
 pub const MAX_KEY_SIZE: usize = 32768;
 
 /// The longest value a table takes: bbolt's `MaxValueSize`, 2^31 - 2

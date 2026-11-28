@@ -1835,6 +1835,19 @@ added to it.
      them alone. Neither the port nor that generator is written yet;
      today only `purse-store`'s records differential leaves the two
      operations undrawn.
+     *(2026-11-26: the port is written, `purse_udb::vsp`, whose
+     `set_vsp_ticket` is the only writer of a host, through
+     `add_vsp_host`; `SetVSPHost` and `SetVSPPubKey` are not ported, and
+     the Rust runner refuses them; they are the two auxiliary operations
+     the differential still lists as pending (`PENDING`,
+     `crates/purse-udb/tests/oracle.rs`), with this reason. The generator,
+     `crates/purse-udb/tests/support/auxgen.rs`, draws neither. The
+     same change adds one write to `purse-store`,
+     `WriteTx::put_ticket_agenda_pref`, which applies bbolt's key limit to
+     dcrwallet's key inside a ticket's bucket (version ‖ agenda id) rather
+     than to `ticket_agenda_prefs`' flattened key, 32 bytes longer, so
+     that the agenda ids dcrwallet takes are taken; no table, key, value
+     or invariant changes.)*
    - R3: the `vsp_fee_status` index is kept. Its cost was not measured.
    - R4: the multisig stake-tree flag after a spend and unspend
      (QK-0054) is decided in Phase 3 with an oracle run of

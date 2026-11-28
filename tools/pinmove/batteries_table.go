@@ -193,6 +193,12 @@ var RepoTable = Table{
 			Note:       "the transaction store's generated scripts that draw input selection and Spender, their random selections keyed per operation (ADR-0002 rand); the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
 		},
 		{
+			Crate: "purse-udb", Files: []string{"aux_genvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_aux_vectors",
+			Note:       "the auxiliary records' generated scripts (VSP tickets, treasury policies, agenda preferences), every other one in groups; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",

@@ -30,13 +30,20 @@
 //! multisig slice's: `[commitments]` (each commitment with its unspent
 //! entry folded in) and `[multisig]` (each record, `utxo` folding its
 //! `multisig_unspent` entry, which the store keeps for exactly the unspent
-//! records; `txhash` the key's hash, which Go's value repeats)
-//! ([`COVERED`]). `[agendas]`, `[treasury]` and `[vsp]` are written empty.
+//! records; `txhash` the key's hash, which Go's value repeats); and the
+//! auxiliary records' ([`crate::vsp`], [`crate::treasury`],
+//! [`crate::agendas`]): `[agendas]`, `[treasury]` and `[vsp]`, with the
+//! `vsphostid` records of `[orphans]` ([`COVERED`]). The store keeps no
+//! VSP host counter: the last host id is the counter (ADR-0003 R2), so no
+//! id lies above it and `vspfuture` records and `future` offsets are never
+//! written, nor is the `[bad]` record `counter`.
 //!
 //! The producer never omits state silently (ADR-0001 principle P1): if the
-//! store holds a row this slice does not export (an aux record, an
-//! `addr_by_path` entry), [`export`] fails and names the table, rather than
-//! writing an export that looks complete.
+//! store holds a row this slice does not export (an `addr_by_path`
+//! entry), [`export`] fails and names the table, rather than writing an
+//! export that looks complete; so it does when the `vsp_fee_status` index,
+//! which it folds away as Go has no such index, does not list exactly the
+//! tickets of `vsp_tickets` under their statuses.
 //! The balance sums and `acct_history` are derived from the exported rows
 //! (ADR-0003 Decision item 4) and are not exported themselves.
 //!
@@ -64,9 +71,12 @@ use std::ops::Bound;
 
 use purse_store::{
     AccountKey, AccountNames, Accounts, AddrAcctShaKey, AddrByAcctSha, AddrByHash, AddrRow,
-    CFiltersDetached, CoinTypeKeys, Commitments, CommitmentsUnspent, Credits, CreditsInvalidated,
-    Debits, DebitsInvalidated, Hash32, HeadersDetached, History, HistoryKey, MultisigOuts, ReadTx,
-    TableId, Tickets, TxMined, TxUnmined, UnminedCredits, UnminedInputs, Unpublished, Unspent,
+    AgendaPrefs, CFiltersDetached, CoinTypeKeys, Commitments, CommitmentsUnspent, Credits,
+    CreditsInvalidated, Debits, DebitsInvalidated, Hash32, HeadersDetached, History, HistoryKey,
+    MultisigOuts, ReadTx, TSpendPolicies, TableId, TicketAgendaPrefs, Tickets, TreasuryKeyPolicies,
+    TxMined, TxUnmined, UnminedCredits, UnminedInputs, Unpublished, Unspent, VspFeeStatus,
+    VspFeeStatusKey, VspHostId, VspHosts, VspPubKeys, VspTSpendPolicies, VspTickets,
+    VspTreasuryKeyPolicies,
 };
 use sha2::{Digest, Sha256};
 
@@ -95,7 +105,7 @@ pub struct Section {
 /// store can hold none of their rows; every other one is written empty
 /// without being compared. (`[derived]` only with the records of
 /// [`COVERED_DERIVED`].)
-pub const COVERED: [&str; 23] = [
+pub const COVERED: [&str; 26] = [
     "wallet",
     "masterkeys",
     "cryptokeys",
@@ -116,6 +126,9 @@ pub const COVERED: [&str; 23] = [
     "tickets",
     "commitments",
     "multisig",
+    "agendas",
+    "treasury",
+    "vsp",
     "orphans",
     "derived",
     "privcheck",
@@ -542,7 +555,7 @@ fn store_err(err: purse_store::Error) -> AnyError {
 }
 
 /// The tables whose rows this slice exports or reads.
-const EXPORTED_TABLES: [TableId; 31] = [
+const EXPORTED_TABLES: [TableId; 41] = [
     TableId::Meta,
     TableId::Wallet,
     TableId::Accounts,
@@ -574,6 +587,16 @@ const EXPORTED_TABLES: [TableId; 31] = [
     TableId::CommitmentsUnspent,
     TableId::MultisigOuts,
     TableId::MultisigUnspent,
+    TableId::VspTickets,
+    TableId::VspFeeStatus,
+    TableId::VspHosts,
+    TableId::VspPubKeys,
+    TableId::TSpendPolicies,
+    TableId::TreasuryKeyPolicies,
+    TableId::VspTSpendPolicies,
+    TableId::VspTreasuryKeyPolicies,
+    TableId::AgendaPrefs,
+    TableId::TicketAgendaPrefs,
 ];
 
 /// Writes the logical export of the wallet in `tx` (one snapshot,
@@ -666,8 +689,10 @@ pub fn export(
         }
     };
 
-    let addrs = address_records(&mut r, mgr.as_ref(), &accounts)?;
+    let mut addrs = address_records(&mut r, mgr.as_ref(), &accounts)?;
     let mut txstore = txstore_records(tx, opts.digest)?;
+    let mut aux = aux_records(tx)?;
+    addrs.orphans.append(&mut aux.orphans);
 
     for spec in REGISTRY {
         let records = match spec.name {
@@ -686,6 +711,9 @@ pub fn export(
             name @ ("chain" | "blocks" | "headers" | "cfilters" | "txs" | "unpublished"
             | "credits" | "debits" | "ucredits" | "uinputs" | "tickets" | "commitments"
             | "multisig") => txstore.remove(name).unwrap_or_default(),
+            "agendas" => std::mem::take(&mut aux.agendas),
+            "treasury" => std::mem::take(&mut aux.treasury),
+            "vsp" => std::mem::take(&mut aux.vsp),
             "privcheck" => match (&mgr, opts.priv_pass) {
                 (Some(m), Some(pass)) if privcheck => {
                     privcheck_records(&mut r, m, pass, opts.acct_pass, &accounts, &addrs.priv_keys)?
@@ -1840,4 +1868,173 @@ fn credit_records(
         ucredits.into_iter().map(|(_, v)| (0, v)).collect(),
     );
     Ok(())
+}
+
+/// The records of `[agendas]`, `[treasury]` and `[vsp]`, and the
+/// `vsphostid` records of `[orphans]` (ADR-0001 sections 6.20 to 6.23).
+#[derive(Default)]
+struct AuxRecords {
+    agendas: Vec<Record>,
+    treasury: Vec<Record>,
+    vsp: Vec<Record>,
+    orphans: Vec<Record>,
+}
+
+/// Sorts `(key, record)` pairs by key and keeps the records.
+fn sorted<K: Ord>(mut v: Vec<(K, Record)>) -> Vec<Record> {
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    v.into_iter().map(|(_, r)| r).collect()
+}
+
+/// The auxiliary records, each section's types in declaration order and
+/// each type's records by its key fields (ADR-0001 section 7: hashes by
+/// their display rendering, `s` fields by their bytes, `x` fields by
+/// byte order, numbers numerically).
+fn aux_records(tx: &ReadTx) -> Result<AuxRecords, AnyError> {
+    let mut out = AuxRecords::default();
+
+    // [agendas]: the store's key order (version BE ‖ agenda id) is the
+    // record order of `agenda`; `ticketagenda` sorts by the ticket's
+    // display rendering first.
+    for r in tx.iter::<AgendaPrefs>().map_err(store_err)? {
+        let (k, c) = r.map_err(store_err)?;
+        out.agendas
+            .push((0, vec![vu(k.version), vs(&k.agenda), vs(&c.0)]));
+    }
+    let mut ticket_agendas = Vec::new();
+    for r in tx.iter::<TicketAgendaPrefs>().map_err(store_err)? {
+        let (k, c) = r.map_err(store_err)?;
+        ticket_agendas.push((
+            (vh(&k.ticket), k.version, k.agenda.clone()),
+            (
+                1,
+                vec![vh(&k.ticket), vu(k.version), vs(&k.agenda), vs(&c.0)],
+            ),
+        ));
+    }
+    out.agendas.extend(sorted(ticket_agendas));
+
+    // [treasury], in declaration order: tspendpolicy, vsptspendpolicy,
+    // treasurypolicy, vsptreasurypolicy.
+    let mut tspend = Vec::new();
+    for r in tx.iter::<TSpendPolicies>().map_err(store_err)? {
+        let (k, v) = r.map_err(store_err)?;
+        tspend.push((vh(&k), (0, vec![vh(&k), vu(v.code())])));
+    }
+    out.treasury.extend(sorted(tspend));
+    let mut vsp_tspend = Vec::new();
+    for r in tx.iter::<VspTSpendPolicies>().map_err(store_err)? {
+        let (k, v) = r.map_err(store_err)?;
+        vsp_tspend.push((
+            (vh(&k.ticket), vh(&k.tspend)),
+            (1, vec![vh(&k.ticket), vh(&k.tspend), vu(v.code())]),
+        ));
+    }
+    out.treasury.extend(sorted(vsp_tspend));
+    for r in tx.iter::<TreasuryKeyPolicies>().map_err(store_err)? {
+        let (k, v) = r.map_err(store_err)?;
+        out.treasury.push((2, vec![vx(&k.0), vu(v.code())]));
+    }
+    let mut vsp_keys = Vec::new();
+    for r in tx.iter::<VspTreasuryKeyPolicies>().map_err(store_err)? {
+        let (k, v) = r.map_err(store_err)?;
+        vsp_keys.push((
+            (vh(&k.ticket), k.pikey.clone()),
+            (3, vec![vh(&k.ticket), vx(&k.pikey), vu(v.code())]),
+        ));
+    }
+    out.treasury.extend(sorted(vsp_keys));
+
+    // [vsp]: `vsphost` per public-key row (host order is the table's),
+    // `idhost` the host stored under its id; `vspticket` per ticket, host
+    // and key resolved as `GetVSPTicket` resolves them. No id lies above
+    // the counter, which is the last id (ADR-0003 R2): no `vspfuture`, no
+    // `future` offset.
+    for r in tx.iter::<VspPubKeys>().map_err(store_err)? {
+        let (host, p) = r.map_err(store_err)?;
+        let idhost = tx
+            .get::<VspHosts>(&VspHostId(p.host_id))
+            .map_err(store_err)?
+            .map_or_else(|| ABSENT.to_owned(), |h| vs(&h.0));
+        out.vsp.push((
+            1,
+            vec![vs(&host.0), vx(&p.pubkey), idhost, ABSENT.to_owned()],
+        ));
+    }
+    let mut tickets = Vec::new();
+    let mut indexed = 0u64;
+    for r in tx.iter::<VspTickets>().map_err(store_err)? {
+        let (ticket, row) = r.map_err(store_err)?;
+        let status_key = VspFeeStatusKey {
+            status: row.fee_status,
+            ticket,
+        };
+        if !tx
+            .contains::<VspFeeStatus>(&status_key)
+            .map_err(store_err)?
+        {
+            return Err(not_exported("a VSP ticket missing from vsp_fee_status"));
+        }
+        indexed = indexed.saturating_add(1);
+        let (mut host, mut pubkey) = (Vec::new(), ABSENT.to_owned());
+        if let Some(h) = tx
+            .get::<VspHosts>(&VspHostId(row.host_id))
+            .map_err(store_err)?
+            && !h.0.is_empty()
+        {
+            if let Some(p) = tx.get::<VspPubKeys>(&h).map_err(store_err)? {
+                pubkey = vx(&p.pubkey);
+            }
+            host = h.0;
+        }
+        tickets.push((
+            vh(&ticket),
+            (
+                2,
+                vec![
+                    vh(&ticket),
+                    vh(&row.fee_hash),
+                    vu(row.fee_status),
+                    vs(&host),
+                    pubkey,
+                    ABSENT.to_owned(),
+                ],
+            ),
+        ));
+    }
+    if tx.len(TableId::VspFeeStatus).map_err(store_err)? != indexed {
+        return Err(not_exported(
+            "a vsp_fee_status entry with no VSP ticket of its status",
+        ));
+    }
+    out.vsp.extend(sorted(tickets));
+
+    // Host rows whose host has no public-key row naming their id: never
+    // written by the operations, which keep the two tables each other's
+    // inverse, but exported if present (P1), as Go's exporter counts them.
+    // Go's exporter passes over the id 0 empty-host row upgrade 23 seeds;
+    // this store never keeps that row (`check_records` refuses it), so one
+    // found here is reported like any other.
+    let mut conflicts: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+    for r in tx.iter::<VspHosts>().map_err(store_err)? {
+        let (id, host) = r.map_err(store_err)?;
+        let named = tx
+            .get::<VspPubKeys>(&host)
+            .map_err(store_err)?
+            .is_some_and(|p| p.host_id == id.0);
+        if !named {
+            let n = conflicts.entry(host.0).or_default();
+            *n = n.saturating_add(1);
+        }
+    }
+    out.orphans = conflicts
+        .into_iter()
+        .map(|(h, n)| {
+            (
+                0,
+                vec!["vsphostid".to_owned(), vs(&h), vs(n.to_string().as_bytes())],
+            )
+        })
+        .collect();
+    Ok(out)
 }

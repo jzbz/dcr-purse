@@ -76,6 +76,18 @@
 //! `a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`,
 //! which pins QK-0781's doubled output in the UTXO queries and selection
 //! on both sides (reproduced; QK-0734's fix does not reach it).
+//!
+//! The auxiliary records add the hand-written scripts `39` to `41` (VSP
+//! tickets, treasury policies, agenda preferences, with groups and
+//! reopens), `auxiliary_records_at_the_key_limit_match_go`, kept out of
+//! the corpus for the size of its strings, and
+//! `a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner`, which
+//! shows Go's partial write before its refusal of an empty VSP host
+//! (QK-0122) and the Rust runner's refusal of a group that tolerates it,
+//! and generated scripts (`tests/support/auxgen.rs`,
+//! `PURSE_UDB_AUX_SCRIPTS`) and the same in groups
+//! (`PURSE_UDB_AUX_GROUP_SCRIPTS`), whose members never tolerate that
+//! refusal.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -90,11 +102,13 @@ use dcroxide_txscript::stdaddr;
 use purse_testutil::serde_json::{Value, json};
 use purse_testutil::{SplitMix64, hex, oracle_or_skip};
 use purse_udb::addrmgr::ChainParams;
+use support::auxgen::{AUX_GEN_OPS, generate_aux, group_aux};
 use support::compare::{comparable, corpus, differential, go_run};
 use support::generator::{
     CHANGE_OPS, GEN_OPS, PASS_OPS, Shape, WATCH_OPS, change_kind, generate, generate_change,
     generate_passphrase, generate_watching, watch_kind,
 };
+use support::runner::auxops::AUX_OPS;
 use support::runner::{self, SUPPORTED};
 use support::scratch;
 use support::txgen::{
@@ -186,34 +200,14 @@ const PENDING: &[(&str, &str)] = &[
         "wallet.branch_next_indexes",
         "the wallet package (brief Phases 4 and 5)",
     ),
-    ("udb.set_vsp_ticket", AUX),
-    ("udb.delete_vsp_ticket", AUX),
-    ("udb.get_vsp_ticket", AUX),
-    ("udb.get_vsp_tickets_by_fee_status", AUX),
-    ("udb.set_vsp_host", AUX),
-    ("udb.get_vsp_host", AUX),
-    ("udb.set_vsp_pub_key", AUX),
-    ("udb.get_vsp_pub_key", AUX),
-    ("udb.set_tspend_policy", AUX),
-    ("udb.set_vsp_tspend_policy", AUX),
-    ("udb.tspend_policy", AUX),
-    ("udb.vsp_tspend_policy", AUX),
-    ("udb.tspend_policies", AUX),
-    ("udb.vsp_tspend_policies", AUX),
-    ("udb.set_treasury_key_policy", AUX),
-    ("udb.set_vsp_treasury_key_policy", AUX),
-    ("udb.treasury_key_policy", AUX),
-    ("udb.vsp_treasury_key_policy", AUX),
-    ("udb.treasury_key_policies", AUX),
-    ("udb.vsp_treasury_key_policies", AUX),
-    ("udb.set_default_agenda_preference", AUX),
-    ("udb.set_ticket_agenda_preference", AUX),
-    ("udb.default_agenda_preference", AUX),
-    ("udb.ticket_agenda_preference", AUX),
+    ("udb.set_vsp_host", NO_HOST_WRITE),
+    ("udb.set_vsp_pub_key", NO_HOST_WRITE),
 ];
 
-/// The reason of the auxiliary buckets' operations (spec 05).
-const AUX: &str = "spec 05's auxiliary buckets, not ported yet";
+/// The reason of the two auxiliary bucket writers not ported: a VSP host
+/// is written only through `SetVSPTicket` (ADR-0003 R2, QK-0047).
+const NO_HOST_WRITE: &str =
+    "no caller at the pin outside SetVSPTicket; a host is written only through it (ADR-0003 R2)";
 
 #[test]
 fn generated_scripts_match_go() {
@@ -1792,6 +1786,19 @@ fn group_campaign(
     stream: &str,
     generate: fn(&mut SplitMix64, usize, Option<&'static str>) -> Value,
 ) {
+    group_campaign_with(var, default, stream, generate, group_txstore);
+}
+
+/// Runs `count` (from `var`, else `default`) scripts of `generate` put in
+/// groups by `group` through both runners, every record and the final
+/// exports equal.
+fn group_campaign_with(
+    var: &str,
+    default: usize,
+    stream: &str,
+    generate: fn(&mut SplitMix64, usize, Option<&'static str>) -> Value,
+    group: fn(&mut SplitMix64, Value) -> Value,
+) {
     let Some(mut o) = oracle_or_skip("oprunner") else {
         return;
     };
@@ -1804,10 +1811,10 @@ fn group_campaign(
     let (mut ops, mut groups, mut tolerated, mut rolled_back) = (0, 0, 0, 0);
     for id in 0..count {
         let script = generate(&mut rng, id, nets.get(id).copied());
-        let script = group_txstore(&mut rng, script);
+        let script = group(&mut rng, script);
         let results = differential(
             &mut o,
-            &format!("txstore group script {id} ({stream}): {script}"),
+            &format!("group script {id} ({stream}): {script}"),
             &script,
         );
         for r in &results {
@@ -1870,6 +1877,54 @@ fn txstore_generator_draws_only_ported_operations() {
     }) {
         assert!(drawn.contains(op), "{op} is ported but never drawn");
     }
+}
+
+/// Generated auxiliary record scripts (`tests/support/auxgen.rs`: VSP
+/// tickets, the four treasury policy kinds and agenda preferences over
+/// small pools, with reopens), on all four networks
+/// (`PURSE_UDB_AUX_SCRIPTS` sets how many; the first four are forced onto
+/// each network in turn).
+#[test]
+fn generated_aux_scripts_match_go() {
+    generated_campaign(
+        "PURSE_UDB_AUX_SCRIPTS",
+        8,
+        "purse-udb-aux-generated",
+        generate_aux,
+    );
+}
+
+/// The same with runs of the operations in `update` and `view` groups,
+/// some members tolerating `NotExist`, `Invalid` or `IO`, never `Invalid`
+/// on `udb.set_vsp_ticket` (`group_aux`; QK-0122)
+/// (`PURSE_UDB_AUX_GROUP_SCRIPTS` sets how many).
+#[test]
+fn generated_aux_group_scripts_match_go() {
+    group_campaign_with(
+        "PURSE_UDB_AUX_GROUP_SCRIPTS",
+        4,
+        "purse-udb-aux-groups",
+        generate_aux,
+        group_aux,
+    );
+}
+
+/// The auxiliary generator draws exactly the auxiliary operations the
+/// Rust runner implements, and `rt.reopen`.
+#[test]
+fn aux_generator_draws_every_auxiliary_operation() {
+    for op in AUX_GEN_OPS {
+        assert!(SUPPORTED.contains(op), "{op} is drawn but not ported");
+    }
+    for op in AUX_OPS {
+        assert!(SUPPORTED.contains(op), "{op} is not in SUPPORTED");
+        assert!(AUX_GEN_OPS.contains(op), "{op} is ported but never drawn");
+    }
+    assert!(
+        AUX_GEN_OPS
+            .iter()
+            .all(|op| AUX_OPS.contains(op) || *op == "rt.reopen")
+    );
 }
 
 /// QK-0780 (reproduced): `InsertMemPoolTx` records the null previous
@@ -3507,4 +3562,160 @@ fn a_multisig_block_of_the_zero_hash_is_refused() {
         rust.results[5]
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The auxiliary records at bbolt's key limit, on both sides with every
+/// record and the final exports equal: a VSP host one byte over it
+/// (`SetVSPTicket` refused) and one exactly at it, stored and then set
+/// again for another ticket with another key (found: its id and first key
+/// kept, read back by host, ticket and id), pi keys over and at it alone
+/// and after a ticket hash (the policy setters refused, a delete of the
+/// long key accepted), and agenda ids whose version ‖ agenda key is one
+/// byte over and exactly at it, wallet-wide and for a ticket, where
+/// dcr-purse's flattened ticket key is 32 bytes longer than Go's nested
+/// one (`WriteTx::put_ticket_agenda_pref`). Kept out of the hand-written
+/// corpus for the size of its strings.
+#[test]
+fn auxiliary_records_at_the_key_limit_match_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let ticket = "5f".repeat(32);
+    let ticket2 = "6f".repeat(32);
+    let over = "a".repeat(32_765);
+    let at = "a".repeat(32_764);
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "auxiliary records at the key limit",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "4141414141414141414141414141414141414141414141414141414141414141",
+                  "clock": 1_795_630_000},
+        "ops": [
+            {"op": "udb.set_vsp_ticket", "ticket": ticket, "fee_hash": ticket,
+             "fee_tx_status": 1, "host": "h".repeat(32_769), "pubkey": "aa"},
+            {"op": "udb.set_vsp_ticket", "ticket": ticket, "fee_hash": ticket,
+             "fee_tx_status": 1, "host": "h".repeat(32_768), "pubkey": "aa"},
+            {"op": "udb.get_vsp_tickets_by_fee_status", "status": 1},
+            {"op": "udb.set_treasury_key_policy", "pikey": "ab".repeat(32_769), "policy": 1},
+            {"op": "udb.set_treasury_key_policy", "pikey": "ab".repeat(32_769), "policy": 0},
+            {"op": "udb.set_treasury_key_policy", "pikey": "ab".repeat(32_768), "policy": 2},
+            {"op": "udb.set_vsp_treasury_key_policy", "ticket": ticket,
+             "pikey": "ab".repeat(32_737), "policy": 1},
+            {"op": "udb.set_vsp_treasury_key_policy", "ticket": ticket,
+             "pikey": "ab".repeat(32_736), "policy": 3},
+            {"op": "udb.treasury_key_policies"},
+            {"op": "udb.vsp_treasury_key_policies"},
+            {"op": "udb.set_default_agenda_preference", "version": 1, "agenda": over,
+             "choice": "yes"},
+            {"op": "udb.set_default_agenda_preference", "version": 1, "agenda": at,
+             "choice": ""},
+            {"op": "udb.set_ticket_agenda_preference", "ticket": ticket, "version": 1,
+             "agenda": over, "choice": "yes"},
+            {"op": "udb.set_ticket_agenda_preference", "ticket": ticket, "version": 1,
+             "agenda": at, "choice": "no"},
+            {"op": "udb.ticket_agenda_preference", "ticket": ticket, "version": 1,
+             "agenda": at},
+            {"op": "udb.default_agenda_preference", "version": 1, "agenda": at},
+            {"op": "rt.reopen"},
+            {"op": "udb.ticket_agenda_preference", "ticket": ticket, "version": 1,
+             "agenda": at},
+            // The host at the limit again, for another ticket and with
+            // another key: found, so its id and its first key are kept.
+            {"op": "udb.set_vsp_ticket", "ticket": ticket2, "fee_hash": ticket2,
+             "fee_tx_status": 2, "host": "h".repeat(32_768), "pubkey": "bb"},
+            {"op": "udb.get_vsp_pub_key", "host": "h".repeat(32_768)},
+            {"op": "udb.get_vsp_ticket", "ticket": ticket2},
+            {"op": "udb.get_vsp_host", "id": 1},
+            {"op": "udb.get_vsp_host", "id": 2},
+        ],
+    });
+    let go = differential(&mut o, "auxiliary records at the key limit", &script);
+    for (i, kind) in [
+        (0, "Invalid"),
+        (3, "Invalid"),
+        (6, "Invalid"),
+        (10, "IO"),
+        (12, "IO"),
+    ] {
+        assert_eq!(go[i]["err"]["kind"], kind, "{}", go[i]);
+    }
+    assert_eq!(
+        go[13].get("err"),
+        None,
+        "Go stores the ticket's choice at its limit"
+    );
+    assert_eq!(go[17]["ok"], "no", "{}", go[17]);
+    assert_eq!(go[18]["ok"]["vsphostid"], 1, "{}", go[18]);
+    assert_eq!(go[19]["ok"], json!({"id": 1, "pubkey": "aa"}), "{}", go[19]);
+    assert_eq!(go[20]["ok"]["vsphostid"], 1, "{}", go[20]);
+    assert_eq!(go[20]["ok"]["pubkey"], "aa", "{}", go[20]);
+    assert_eq!(go[21]["ok"], hex(&[b'h'; 32_768]), "Go: host 1");
+    assert_eq!(go[22]["err"]["kind"], "NotExist", "{}", go[22]);
+}
+
+/// QK-0122: Go's `SetVSPTicket` of an empty host writes the host row and
+/// raises the counter before its public-key put fails, so an `update`
+/// group that tolerates the refusal keeps a host row no public-key row
+/// names, and the next new host gets id 2 (Go's export shows the row as a
+/// `vsphostid` orphan). dcr-purse refuses before writing and its store
+/// cannot hold that state (ADR-0003 R2), so the Rust runner refuses a
+/// script whose group tolerates that refusal; without the tolerance, Go's
+/// transaction rolls back and both sides agree.
+#[test]
+fn a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner() {
+    let script = |tolerate: bool| {
+        let mut member = json!({"op": "udb.set_vsp_ticket", "ticket": "61".repeat(32),
+            "fee_hash": "62".repeat(32), "fee_tx_status": 0, "host": "", "pubkey": "aa"});
+        if tolerate {
+            member["tolerate"] = json!(["Invalid"]);
+        }
+        json!({
+            "format": "purse-opscript 1",
+            "name": "tolerated vsp ticket refusal",
+            "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "4242424242424242424242424242424242424242424242424242424242424242",
+                      "clock": 1_795_640_000},
+            "ops": [
+                {"op": "update", "ops": [
+                    member,
+                    {"op": "udb.set_vsp_ticket", "ticket": "63".repeat(32),
+                     "fee_hash": "62".repeat(32), "fee_tx_status": 0,
+                     "host": "https://vsp.example", "pubkey": "bb"},
+                ]},
+                {"op": "udb.get_vsp_host", "id": 1},
+            ],
+        })
+    };
+    let dir = scratch("aux-tolerate");
+    let err = runner::run(&script(true), &dir.join("rust"))
+        .expect_err("the Rust runner refuses the script");
+    assert!(
+        err.contains("after writing part of the operation") && err.contains("QK-0122"),
+        "{err}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let dir = scratch("aux-tolerate");
+    let (go, pe) = go_run(&mut o, &script(true), &dir.join("go"));
+    let members = go[0]["ops"].as_array().cloned().unwrap_or_default();
+    assert_eq!(members[0]["tolerated"], true, "{}", go[0]);
+    assert_eq!(
+        members[1]["ok"]["vsphostid"], 2,
+        "Go gives the next host id 2: {}",
+        go[0]
+    );
+    assert_eq!(go[1]["ok"], "", "Go's host 1 is the empty host: {}", go[1]);
+    assert!(
+        pe.lines()
+            .any(|l| l == "orphan index=vsphostid ref=\"\" val=\"1\""),
+        "Go's export shows the host row no public-key row names"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    // Untolerated, Go's transaction rolls back: both sides agree.
+    differential(&mut o, "untolerated vsp ticket refusal", &script(false));
 }

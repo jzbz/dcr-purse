@@ -235,7 +235,7 @@ impl Runner {
         Err(fault(format!("{what}: unknown label {s:?}")))
     }
 
-    fn arg_hash(&self, a: &Args<'_>, key: &str) -> Result<Hash32, String> {
+    pub(super) fn arg_hash(&self, a: &Args<'_>, key: &str) -> Result<Hash32, String> {
         self.hash_ref(a.value(key)?, &format!("{} {key}", a.op))
     }
 
@@ -404,7 +404,7 @@ impl Runner {
             .ok_or_else(|| fault(format!("{}: unknown transaction label {s:?}", a.op)))
     }
 
-    fn opt_u32(a: &Args<'_>, key: &str, def: u32) -> Result<u32, String> {
+    pub(super) fn opt_u32(a: &Args<'_>, key: &str, def: u32) -> Result<u32, String> {
         if a.has(key) { a.u32(key) } else { Ok(def) }
     }
 

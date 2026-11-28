@@ -345,9 +345,16 @@ pub fn compare_parsed(what: &str, go: &Export, rust: &Export) {
     }
 }
 
+/// The sections the producer came to cover after the frozen generated
+/// sets were written (the auxiliary records). [`covered_digest`] hashes
+/// one only when it holds records, so the digests of those sets, none of
+/// whose scripts writes an auxiliary record, stand unchanged.
+const COVERED_LATER: [&str; 3] = ["agendas", "treasury", "vsp"];
+
 /// The SHA-256 (hex) of what [`compare_exports`] compares: the metas it
 /// checks, then each covered section's name and its lines under the
-/// masked observable profile. Equal digests are equal comparisons.
+/// masked observable profile ([`COVERED_LATER`] only when not empty).
+/// Equal digests are equal comparisons.
 pub fn covered_digest(pe: &str) -> String {
     use sha2::{Digest, Sha256};
     let ex = parse(pe).unwrap_or_else(|e| panic!("export: {e}"));
@@ -357,8 +364,12 @@ pub fn covered_digest(pe: &str) -> String {
     }
     for name in COVERED {
         let types: Option<&[&str]> = (name == "derived").then_some(&COVERED_DERIVED[..]);
+        let lines = masked_lines(&ex, name, types);
+        if COVERED_LATER.contains(&name) && lines.is_empty() {
+            continue;
+        }
         h.update(format!("[{name}]\n").as_bytes());
-        for l in masked_lines(&ex, name, types) {
+        for l in lines {
             h.update(l.as_bytes());
             h.update(b"\n");
         }

@@ -42,6 +42,9 @@
 //!   operations (`generate_txstore_cms`) and input selection with `Spender`
 //!   (`generate_txstore_select`, whose random selections compare exactly,
 //!   the bytes drawn included).
+//! - `tests/data/aux_genvectors.txt`: the same for a fixed set of generated
+//!   auxiliary record scripts (`tests/support/auxgen.rs`, `generate_aux`,
+//!   every other one with its operations in groups by `group_aux`).
 //!
 //! A Go record of kind `Panic` is matched by any Rust error
 //! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
@@ -60,6 +63,7 @@ use purse_testutil::SplitMix64;
 use purse_testutil::serde_json::{self, Value};
 use purse_testutil::{DCRWALLET_PARITY_COMMIT, REFERENCE_GO, oracle_or_skip};
 use sha2::{Digest, Sha256};
+use support::auxgen::{generate_aux, group_aux};
 use support::compare::{
     check_privcheck, check_record, check_rust_uncompared, compare_checkpoints, compare_exports,
     corpus, covered_digest, go_checkpoints, go_run,
@@ -75,7 +79,7 @@ use support::{data_dir, runner, scratch};
 
 const VECTORS: &str = "addrmgr_opvectors.txt";
 /// The pinned number of result lines.
-const ENTRIES: usize = 2360;
+const ENTRIES: usize = 2551;
 const GEN_VECTORS: &str = "addrmgr_genvectors.txt";
 /// The pinned number of generated scripts and of their result lines.
 const GEN_SCRIPTS: usize = 48;
@@ -131,6 +135,13 @@ const TX_SELECT_SCRIPTS: usize = 8;
 const TX_SELECT_ENTRIES: usize = 428;
 /// The seed of the generated selection set.
 const TX_SELECT_SEED: u64 = 0x5eed_f402_0000_0008;
+const AUX_VECTORS: &str = "aux_genvectors.txt";
+/// The pinned number of generated auxiliary record scripts and of their
+/// result lines.
+const AUX_SCRIPTS: usize = 8;
+const AUX_ENTRIES: usize = 524;
+/// The seed of the generated auxiliary record set.
+const AUX_SEED: u64 = 0x5eed_f402_0000_0009;
 
 /// One script's vector.
 struct Vector {
@@ -748,6 +759,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
             "# Generated operation-script vectors of purse-udb's {} (records in",
             if TX_FILES.contains(&file) {
                 "transaction store"
+            } else if file == AUX_VECTORS {
+                "auxiliary records"
             } else {
                 "address manager"
             }
@@ -758,6 +771,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
             "# The scripts are tests/support/{}'s, from the fixed seed {seed:#x}",
             if TX_FILES.contains(&file) {
                 "txgen.rs"
+            } else if file == AUX_VECTORS {
+                "auxgen.rs"
             } else {
                 "generator.rs"
             }
@@ -787,6 +802,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 TX_CREDIT_VECTORS => "regenerate_txstore_credit_vectors",
                 TX_CMS_VECTORS => "regenerate_txstore_cms_vectors",
                 TX_SELECT_VECTORS => "regenerate_txstore_select_vectors",
+                AUX_VECTORS => "regenerate_aux_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -1025,4 +1041,51 @@ fn regenerate_txstore_select_vectors() {
         TX_SELECT_SEED,
         "txstore_select_set",
     );
+}
+
+/// The generated auxiliary record set (`generate_aux`): script 0 on
+/// regnet, 1 on testnet3, 2 on mainnet, the rest on simnet; every odd one
+/// with its operations in groups (`group_aux`), drawn from the same
+/// stream.
+fn aux_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(AUX_SEED);
+    (0..AUX_SCRIPTS)
+        .map(|id| {
+            let network = match id {
+                0 => "regnet",
+                1 => "testnet3",
+                2 => "mainnet",
+                _ => "simnet",
+            };
+            let script = generate_aux(&mut rng, id, Some(network));
+            if id % 2 == 1 {
+                (
+                    format!("aux group generated {id}"),
+                    group_aux(&mut rng, script),
+                )
+            } else {
+                (format!("aux generated {id}"), script)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn replay_aux_vectors() {
+    replay_generated(AUX_VECTORS, AUX_ENTRIES, AUX_SCRIPTS);
+}
+
+/// The auxiliary record vectors are the set the generator makes from the
+/// fixed seed.
+#[test]
+fn aux_vectors_are_the_seeded_set() {
+    assert_seeded_set(AUX_VECTORS, AUX_ENTRIES, &aux_set());
+}
+
+/// Regenerates the auxiliary record vectors from the oracle, checking that
+/// the Rust runner agrees with every record and export before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_aux_vectors() {
+    regenerate_generated(AUX_VECTORS, &aux_set(), AUX_SEED, "aux_set");
 }

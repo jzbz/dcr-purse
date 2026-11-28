@@ -26,7 +26,8 @@ var pointerText = regexp.MustCompile(`0x[0-9a-f]+`)
 // canonPointer rewrites the one error text of udb that prints a heap
 // address: GetVSPHost formats "no VSP host info for id %v" with &id
 // (wallet/udb/vsp.go:203), so the text differs from run to run. The
-// address becomes "<pointer>"; the kind is kept.
+// address becomes "<pointer>"; the kind is kept, and the error is
+// wrapped so that a group member's "tolerate" still matches it.
 func canonPointer(err error) error {
 	text := err.Error()
 	const marker = "no VSP host info for id 0x"
@@ -37,7 +38,7 @@ func canonPointer(err error) error {
 	fixed := text[:i] + "no VSP host info for id " +
 		pointerText.ReplaceAllString(text[i+len(marker)-2:], "<pointer>")
 	v := errorValue(err)
-	return &canonError{kind: v["kind"].(string), text: fixed}
+	return &canonError{kind: v["kind"].(string), text: fixed, err: err}
 }
 
 func vspTicketValue(t *udb.VSPTicket) map[string]any {

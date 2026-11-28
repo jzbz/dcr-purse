@@ -4,7 +4,11 @@
 
 //! The `update` and `view` groups of the Rust runner (ADR-0002 section 2,
 //! "Transactions"; `tools/oracle/cmd/oprunner/script.go`, `group`), for
-//! members that are transaction store operations or its fixtures.
+//! members that are transaction store operations or its fixtures, or
+//! auxiliary record operations (`auxops.rs`). None of the latter reads a
+//! count its own transaction's writes would change: a new VSP host's id
+//! is read from the host table as Go reads its counter, in the member's
+//! transaction.
 //!
 //! Go runs a group's members in one `walletdb.Update` or `View`; a
 //! member's error ends the group and rolls the transaction back unless the
@@ -51,7 +55,7 @@ use purse_errors::{AnyError, Kind};
 use purse_store::Store;
 use purse_testutil::serde_json::{Map, Value, json};
 
-use super::{Args, KIND_NAMES, OpResult, Runner, error_value, fault, txops};
+use super::{Args, KIND_NAMES, OpResult, Runner, auxops, error_value, fault, txops};
 
 /// The transaction store operations that need a read-write transaction
 /// (Go's `writeTx` kind); a `view` group refuses them.
@@ -127,6 +131,32 @@ fn check_tolerable(op: &str, kinds: &[Kind]) -> Result<(), String> {
     }
 }
 
+/// The operations whose Go refusal comes after Go has written part of
+/// what they write, with the kinds of those refusals: `SetVSPTicket` of an
+/// empty host or one over bbolt's key limit has written the host row and
+/// raised the counter when its public-key put fails (QK-0122), a state
+/// the store's host tables cannot hold (ADR-0003 R2), where dcr-purse's
+/// refuses before writing. Go's caller abandons that transaction; a group
+/// that tolerated the error would keep it.
+const PARTIAL_WRITES: &[(&str, &[Kind])] = &[("udb.set_vsp_ticket", &[Kind::Invalid])];
+
+/// A script fault when `op` may not tolerate one of `kinds`: a kind of a
+/// refusal Go makes after writing part of the operation
+/// ([`PARTIAL_WRITES`]).
+fn check_whole(op: &str, kinds: &[Kind]) -> Result<(), String> {
+    let Some((_, partial)) = PARTIAL_WRITES.iter().find(|(name, _)| *name == op) else {
+        return Ok(());
+    };
+    match kinds.iter().find(|k| partial.contains(k)) {
+        Some(k) => Err(fault(format!(
+            "{op}: tolerate: Go refuses with {} after writing part of the operation, \
+             which dcr-purse's store cannot hold (QK-0122)",
+            KIND_NAMES[usize::from(k.code())]
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Go's `tolerateKinds`: the member's `tolerate` list, absent or a
 /// non-empty list of kind names other than `Other`.
 fn tolerate_kinds(op: &str, m: &Map<String, Value>) -> Result<Vec<Kind>, String> {
@@ -196,19 +226,20 @@ impl Runner {
                 .get("op")
                 .and_then(Value::as_str)
                 .ok_or_else(|| fault("an operation needs an op name"))?;
-            if !txops::handles(name) {
+            if !txops::handles(name) && !auxops::handles(name) {
                 return Err(fault(format!(
-                    "{name} in {}: the Rust runner takes only transaction store operations in a group",
+                    "{name} in {}: the Rust runner takes only transaction store and auxiliary record operations in a group",
                     a.op
                 )));
             }
-            if view && CHANGING.contains(&name) {
+            if view && (CHANGING.contains(&name) || auxops::AUX_CHANGING.contains(&name)) {
                 return Err(fault(format!(
                     "{name} needs a read-write transaction, not a view"
                 )));
             }
             let tolerate = tolerate_kinds(name, m)?;
             check_tolerable(name, &tolerate)?;
+            check_whole(name, &tolerate)?;
             let mut member = m.clone();
             member.remove("tolerate");
             self.in_group = !view;

@@ -73,8 +73,41 @@
 //! | `Migrate`, `upgradeManager`, the 25 database upgrades | — | not ported: no dcrwallet database is read (ADR-0013); a new wallet is written in its final form |
 //! | `ObtainUserInputFunc`, `Manager.closed` | — | not ported: unused at the pin (spec 02 quirk 22) |
 //!
-//! The aux buckets (spec 05: VSP, agenda and treasury records) are a later
-//! slice of this crate.
+//! # Auxiliary record entry points
+//!
+//! dcrwallet's auxiliary buckets at the parity pin (`wallet/udb/vsp.go`,
+//! `treasury.go`, `agendas.go`; spec 05 sections 3.3, 3.4 and 5.7 to
+//! 5.8), ported on 2026-11-26 in [`vsp`], [`treasury`] and [`agendas`],
+//! free functions over the caller's transaction as Go's are. Every
+//! "ported" row is checked against Go through the oracle (hand-written
+//! scripts `39-aux-vsp`, `40-aux-treasury`, `41-aux-agendas`, a
+//! key-limit script and generated scripts with and without groups,
+//! records and exports; see "How it is verified").
+//!
+//! | Go (`wallet/udb`) | Rust | Status |
+//! |---|---|---|
+//! | `SetVSPTicket` | [`vsp::set_vsp_ticket`] | ported (returns the host id Go writes into the record; a known host keeps its first public key, QK-0122; an empty or over-long host refused before anything is written, where Go has written the host row and counter, QK-0122) |
+//! | `DeleteVSPTicket`, `GetVSPTicket` | [`vsp::delete_vsp_ticket`], [`vsp::get_vsp_ticket`] | ported (the public key a copy, QK-0124) |
+//! | `GetVSPTicketsByFeeStatus` | [`vsp::get_vsp_tickets_by_fee_status`] | ported (ticket hash order where Go returns a map, QK-0125; Go's `int` argument as `i64`) |
+//! | `GetVSPHost`, `GetVSPPubKey` | [`vsp::get_vsp_host`], [`vsp::get_vsp_pub_key`] | ported (id 0 is upgrade 23's empty host; `GetVSPHost`'s text names the id where Go prints a pointer, QK-0123) |
+//! | `SetVSPHost`, `SetVSPPubKey` | — | not ported: no caller at the pin outside `SetVSPTicket`, which reaches the host tables through `purse_store::WriteTx::add_vsp_host` (ADR-0003 R2, decided by the project owner on 2026-11-21; QK-0047) |
+//! | `FeeStatus`, `VSPFeeProcessStarted` ... `VSPFeeProcessConfirmed`, `VSPTicket` | [`vsp::VSP_FEE_PROCESS_STARTED`] ... [`vsp::VSP_FEE_PROCESS_CONFIRMED`] (`u32`, the stored type), [`vsp::VspTicket`] | ported |
+//! | `SetTSpendPolicy`, `SetVSPTSpendPolicy`, `SetTreasuryKeyPolicy`, `SetVSPTreasuryKeyPolicy` | [`treasury::set_tspend_policy`], [`treasury::set_vsp_tspend_policy`], [`treasury::set_treasury_key_policy`], [`treasury::set_vsp_treasury_key_policy`] | ported (0 deletes, any other byte stored, QK-0127) |
+//! | `TSpendPolicy`, `VSPTSpendPolicy`, `TreasuryKeyPolicy`, `VSPTreasuryKeyPolicy` | [`treasury::tspend_policy`], [`treasury::vsp_tspend_policy`], [`treasury::treasury_key_policy`], [`treasury::vsp_treasury_key_policy`] | ported (Go's `invalid length` answer unreachable: the value type is one non-zero byte, QK-0121) |
+//! | `TSpendPolicies`, `VSPTSpendPolicies`, `TreasuryKeyPolicies`, `VSPTreasuryKeyPolicies`, `VSPTSpend`, `VSPTreasuryKey` | [`treasury::tspend_policies`], [`treasury::vsp_tspend_policies`], [`treasury::treasury_key_policies`], [`treasury::vsp_treasury_key_policies`] (keys `purse_store::VspTSpendKey`, `purse_store::VspTreasuryKey`) | ported (key order where Go returns maps; an error without the partial map, QK-0127) |
+//! | `SetDefaultAgendaPreference`, `SetTicketAgendaPreference` | [`agendas::set_default_agenda_preference`], [`agendas::set_ticket_agenda_preference`] | ported (every failure wrapped in `IO`, QK-0067; a ticket's key limit is Go's nested key's) |
+//! | `DefaultAgendaPreference`, `TicketAgendaPreference` | [`agendas::default_agenda_preference`], [`agendas::ticket_agenda_preference`] | ported (a `Result`, ADR-0012 Rule 2(c)) |
+//!
+//! Their rows, against dcrwallet's buckets:
+//!
+//! | dcrwallet (bbolt) | purse-store | Notes |
+//! |---|---|---|
+//! | `vsp` | `vsp_tickets` (dcrwallet's 40 bytes) and its index `vsp_fee_status` (status ‖ ticket) | the index has no dcrwallet counterpart (ADR-0003 R3); the export folds it away and refuses a store where it disagrees with the tickets |
+//! | `vsphost` (id → host) and `vsppubkey` (host → id, public key) | `vsp_hosts`, `vsp_pubkeys` | each the other's inverse ([`purse_store::ReadTx::check_records`]) |
+//! | `vsphost/vsphostindex`, `vsphost/00000000` | — | not kept: the last host id is the counter, and `GetVSPHost(0)` answers upgrade 23's empty host itself (ADR-0003 R2) |
+//! | `tspendpolicy`, `treasurypolicy`, `vsptspendpolicy`, `vsptreasurypolicy` | `tspend_policies`, `treasury_key_policies`, `vsp_tspend_policies`, `vsp_treasury_key_policies` | dcrwallet's keys; one non-zero byte per row |
+//! | `agendaprefs`, `ticketsagendaprefs/<ticket>/` | `agenda_prefs`, `ticket_agenda_prefs` (the ticket leading the key) | an empty nested bucket of dcrwallet's has no row here, as the export does not show it (ADR-0001 section 9, N7) |
+//! | `wstakemgr` | — | not kept: dead at the pin, neither created, read nor written (spec 05 section 4.5, QK-0126) |
 //!
 //! # Transaction store entry points
 //!
@@ -283,6 +316,10 @@
 //! `rt.clock_advance`; and the transaction store's operations of the
 //! first slice with the fixtures `tx.build` and `tx.raw` and the header
 //! builder of `store.extend_main_chain`, `tests/support/runner/txops.rs`),
+//! and the auxiliary records' operations but `udb.set_vsp_host` and
+//! `udb.set_vsp_pub_key` (`tests/support/runner/auxops.rs`, members of
+//! groups too, except an `update` group member tolerating the refusal of
+//! `udb.set_vsp_ticket`, after which Go keeps a partial write, QK-0122),
 //! with Go's address reference forms and import
 //! labels, Go's bookkeeping of account passphrases (the export's
 //! `[privcheck]` unlocks each account with its own passphrase with the one
@@ -461,9 +498,31 @@
 //!   `fuzz/fuzz_targets/udb_tx_record.rs` fuzzes `TxRecord::new`. Details
 //!   in [`txstore`], "How the first slice is verified" and "The credit
 //!   slice".
+//! - The auxiliary records: `tests/oracle.rs` runs the hand-written
+//!   scripts `39-aux-vsp`, `40-aux-treasury` and `41-aux-agendas` (every
+//!   operation, `update` and `view` groups, reopens) and
+//!   `auxiliary_records_at_the_key_limit_match_go`, comparing records and
+//!   the `[agendas]`, `[treasury]`, `[vsp]` and `[orphans]` sections, and
+//!   pins QK-0122's partial write
+//!   (`a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner`);
+//!   generated scripts (`tests/support/auxgen.rs`: every auxiliary
+//!   operation over small pools of tickets, spends, pi keys, hosts and
+//!   agendas, with reopens, on all four networks), alone
+//!   (`generated_aux_scripts_match_go`) and with their operations in
+//!   `update` and `view` groups tolerating `NotExist`, `Invalid` or `IO`
+//!   (`generated_aux_group_scripts_match_go`); `tests/frozen.rs` replays
+//!   the hand-written scripts and a fixed generated set of 8
+//!   (`aux_genvectors.txt`); `tests/upstream.rs` holds `vsp_test.go`;
+//!   `tests/auxrecords.rs` checks every reader against a model of
+//!   dcrwallet's rules through random operations, refusals writing
+//!   nothing, abandoned transactions and reopens (rows and export equal
+//!   across them); unit tests are in each module. The seeds and counts of
+//!   the campaigns are in `docs/PARITY.md`.
 //! - `tests/export.rs`: the export parses under `purse-export-check`, its
-//!   registry equals the parser's, it refuses a store holding rows it
-//!   does not export, and its options' `Debug` hides the passphrases.
+//!   registry equals the parser's, it writes the auxiliary records in the
+//!   format's order, it refuses a store holding rows it does not export or
+//!   a `vsp_fee_status` index that disagrees with its tickets, and its
+//!   options' `Debug` hides the passphrases.
 //! - `tests/measure.rs`: not a parity test, but the measurement of
 //!   `purse-store` and this address manager against dcrwallet's udb over
 //!   bbolt on the same generated wallet (ADR-0003, addendum "`purse-store`
@@ -474,8 +533,11 @@
 #![forbid(unsafe_code)]
 
 pub mod addrmgr;
+pub mod agendas;
 pub mod export;
+pub mod treasury;
 pub mod txstore;
+pub mod vsp;
 
 pub use addrmgr::Manager;
 pub use export::export;

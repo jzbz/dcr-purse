@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"decred.org/dcrwallet/v5/errors"
@@ -107,6 +108,14 @@ func TestTolerated(t *testing.T) {
 	canon := &canonError{kind: "NotExist", text: "t", err: errors.E(errors.NotExist)}
 	if !tolerated(canon, []errors.Kind{errors.NotExist}) {
 		t.Fatal("a canonicalized error lost its kind")
+	}
+	id := uint32(7)
+	host := canonPointer(errors.E(errors.NotExist, errors.Errorf("no VSP host info for id %v", &id)))
+	if !strings.Contains(host.Error(), "no VSP host info for id <pointer>") {
+		t.Fatalf("GetVSPHost's text not canonicalized: %q", host.Error())
+	}
+	if !tolerated(host, []errors.Kind{errors.NotExist}) {
+		t.Fatal("GetVSPHost's canonicalized error lost its kind")
 	}
 }
 

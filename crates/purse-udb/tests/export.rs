@@ -4,8 +4,10 @@
 
 //! The Rust producer of the logical export against the format
 //! (`purse-export-check`, ADR-0001): its registry is the parser's, what it
-//! writes parses strictly, with and without the passphrases, and it
-//! refuses a store holding rows this slice does not export.
+//! writes parses strictly, with and without the passphrases, it exports
+//! the auxiliary records in the format's order, and it refuses a store
+//! holding rows this slice does not export or a `vsp_fee_status` index
+//! that disagrees with its tickets.
 
 mod support;
 
@@ -145,35 +147,196 @@ fn export_options_debug_hides_the_passphrases() {
     );
 }
 
+/// The `vsp_fee_status` index has no counterpart in Go's database and is
+/// folded away; a store where it does not list exactly the tickets of
+/// `vsp_tickets` under their statuses is refused rather than exported as
+/// though it did.
 #[test]
-fn a_store_with_rows_not_exported_is_refused() {
-    let (store, chain) = wallet();
-    store
-        .update(|tx| {
-            tx.put::<VspTickets>(
-                &Hash32([1; 32]),
-                &purse_store::VspTicketRow {
-                    fee_hash: Hash32([2; 32]),
-                    fee_status: 0,
-                    host_id: 1,
-                },
-            )
-        })
-        .expect("commit");
-    let tx = store.read().expect("read");
+fn a_store_whose_vsp_index_disagrees_is_refused() {
     let opts = ExportOptions {
-        pub_pass: Some(b"public"),
+        pub_pass: None,
         priv_pass: None,
         acct_pass: &[],
         exporter: "crates/purse-udb/tests/export.rs",
         limits: Limits::DEFAULT,
         digest: false,
     };
-    let err = export(&tx, &chain, &opts).expect_err("refused");
+    let row = purse_store::VspTicketRow {
+        fee_hash: Hash32([2; 32]),
+        fee_status: 0,
+        host_id: 0,
+    };
+    for (index_entry, text) in [
+        (
+            None,
+            "invalid operation: logical export: a VSP ticket missing from vsp_fee_status is not exported by this version of purse-udb",
+        ),
+        (
+            Some(purse_store::VspFeeStatusKey {
+                status: 1,
+                ticket: Hash32([1; 32]),
+            }),
+            "invalid operation: logical export: a VSP ticket missing from vsp_fee_status is not exported by this version of purse-udb",
+        ),
+    ] {
+        let (store, chain) = wallet();
+        store
+            .update(|tx| {
+                tx.put::<VspTickets>(&Hash32([1; 32]), &row)?;
+                if let Some(k) = &index_entry {
+                    tx.put::<purse_store::VspFeeStatus>(k, &purse_store::Empty)?;
+                }
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit");
+        let tx = store.read().expect("read");
+        let err = export(&tx, &chain, &opts).expect_err("refused");
+        assert_eq!(err.to_string(), text);
+    }
+    // An index entry with no ticket.
+    let (store, chain) = wallet();
+    store
+        .update(|tx| {
+            tx.put::<purse_store::VspFeeStatus>(
+                &purse_store::VspFeeStatusKey {
+                    status: 3,
+                    ticket: Hash32([1; 32]),
+                },
+                &purse_store::Empty,
+            )
+        })
+        .expect("commit");
+    let tx = store.read().expect("read");
     assert_eq!(
-        err.to_string(),
-        "invalid operation: logical export: table vsp_tickets is not exported by this version of purse-udb"
+        export(&tx, &chain, &opts).expect_err("refused").to_string(),
+        "invalid operation: logical export: a vsp_fee_status entry with no VSP ticket of its status is not exported by this version of purse-udb"
     );
+}
+
+/// The auxiliary records are exported in ADR-0001's order (hashes by their
+/// display rendering, which here differs from the store's internal byte
+/// order), hosts and keys resolved as `GetVSPTicket` resolves them, and
+/// host rows no public-key row names (never written by the operations) as
+/// `vsphostid` orphans, one per host with the number of such rows as its
+/// value, as Go's exporter counts them.
+#[test]
+fn auxiliary_records_are_exported() {
+    use purse_udb::vsp::VspTicket;
+    use purse_udb::{agendas, treasury, vsp};
+    let opts = ExportOptions {
+        pub_pass: None,
+        priv_pass: None,
+        acct_pass: &[],
+        exporter: "crates/purse-udb/tests/export.rs",
+        limits: Limits::DEFAULT,
+        digest: false,
+    };
+    // Internal order a < b; display order (reversed) b < a.
+    let mut a = [0u8; 32];
+    a[0] = 1;
+    a[31] = 0xf0;
+    let mut b = [0u8; 32];
+    b[0] = 2;
+    b[31] = 0x0f;
+    let (a, b) = (Hash32(a), Hash32(b));
+    let (store, chain) = wallet();
+    store
+        .update(|tx| {
+            let t = |host: &str, st| VspTicket {
+                fee_hash: b,
+                fee_tx_status: st,
+                vsp_host_id: 0,
+                host: host.as_bytes().to_vec(),
+                pub_key: vec![0xaa],
+            };
+            vsp::set_vsp_ticket(tx, &a, &t("https://b", 1)).expect("a");
+            vsp::set_vsp_ticket(tx, &b, &t("https://a", 3)).expect("b");
+            treasury::set_tspend_policy(tx, &a, 1).expect("tspend a");
+            treasury::set_tspend_policy(tx, &b, 2).expect("tspend b");
+            treasury::set_vsp_tspend_policy(tx, &a, &b, 1).expect("vsp tspend");
+            treasury::set_treasury_key_policy(tx, &[3, 1], 2).expect("pi");
+            treasury::set_vsp_treasury_key_policy(tx, &b, b"", 255).expect("vsp pi");
+            agendas::set_default_agenda_preference(tx, 9, b"x\"", b"").expect("agenda");
+            agendas::set_ticket_agenda_preference(tx, &a, 9, b"x", b"yes").expect("a");
+            agendas::set_ticket_agenda_preference(tx, &b, 9, b"x", b"no").expect("b");
+            // Host rows that no public-key row names: two of a host that
+            // has a named row too, one of a host that has none.
+            for (id, host) in [(7, "https://a"), (8, "https://a"), (9, "https://0")] {
+                tx.put::<purse_store::VspHosts>(
+                    &purse_store::VspHostId(id),
+                    &purse_store::VspHost(host.as_bytes().to_vec()),
+                )?;
+            }
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("commit");
+    let tx = store.read().expect("read");
+    let text = export(&tx, &chain, &opts).expect("export");
+    let lines =
+        |prefix: &str| -> Vec<&str> { text.lines().filter(|l| l.starts_with(prefix)).collect() };
+    let (ad, bd) = (hex_display(&a), hex_display(&b));
+    assert_eq!(
+        lines("ticketagenda "),
+        vec![
+            format!("ticketagenda ticket={bd} version=9 agenda=\"x\" choice=\"no\""),
+            format!("ticketagenda ticket={ad} version=9 agenda=\"x\" choice=\"yes\""),
+        ]
+    );
+    assert_eq!(
+        lines("agenda "),
+        vec!["agenda version=9 agenda=\"x\\x22\" choice=\"\""]
+    );
+    assert_eq!(
+        lines("tspendpolicy "),
+        vec![
+            format!("tspendpolicy tspend={bd} vote=2"),
+            format!("tspendpolicy tspend={ad} vote=1"),
+        ]
+    );
+    assert_eq!(
+        lines("vsptspendpolicy "),
+        vec![format!("vsptspendpolicy ticket={ad} tspend={bd} vote=1")]
+    );
+    assert_eq!(
+        lines("treasurypolicy "),
+        vec!["treasurypolicy key=0301 vote=2"]
+    );
+    assert_eq!(
+        lines("vsptreasurypolicy "),
+        vec![format!("vsptreasurypolicy ticket={bd} key=_ vote=255")]
+    );
+    assert_eq!(
+        lines("vsphost "),
+        vec![
+            "vsphost host=\"https://a\" pubkey=aa idhost=\"https://a\" future=-",
+            "vsphost host=\"https://b\" pubkey=aa idhost=\"https://b\" future=-",
+        ]
+    );
+    assert_eq!(
+        lines("vspticket "),
+        vec![
+            format!(
+                "vspticket ticket={bd} feetx={bd} status=3 host=\"https://a\" pubkey=aa future=-"
+            ),
+            format!(
+                "vspticket ticket={ad} feetx={bd} status=1 host=\"https://b\" pubkey=aa future=-"
+            ),
+        ]
+    );
+    assert!(lines("vspfuture ").is_empty());
+    assert_eq!(
+        lines("orphan "),
+        vec![
+            "orphan index=vsphostid ref=\"https://0\" val=\"1\"",
+            "orphan index=vsphostid ref=\"https://a\" val=\"2\"",
+        ]
+    );
+    purse_export_check::parse(&text).expect("the export parses");
+}
+
+/// A hash in display order.
+fn hex_display(h: &Hash32) -> String {
+    h.0.iter().rev().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The commitment and multisig tables are exported: a commitment with its

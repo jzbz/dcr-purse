@@ -1,0 +1,283 @@
+{
+ "format": "purse-opscript 1",
+ "name": "aux-agendas",
+ "setup": {
+  "network": "simnet",
+  "seed": "4040404040404040404040404040404040404040404040404040404040404040",
+  "pubpass": "public",
+  "privpass": "private",
+  "rand": "4040404040404040404040404040404040404040404040404040404040404040",
+  "clock": 1795620000
+ },
+ "ops": [
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "yes"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 11,
+   "agenda": "treasury",
+   "choice": "no"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "",
+   "choice": "abstain"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "maxblocksize",
+   "choice": ""
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 0,
+   "agenda": "a",
+   "choice": "b"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 4294967295,
+   "agenda": "z",
+   "choice": "y"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "treasur",
+   "choice": "no"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 11,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": ""
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "maxblocksize"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 12,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 0,
+   "agenda": "a"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 4294967295,
+   "agenda": "z"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasur"
+  },
+  {
+   "op": "udb.set_default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "no"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "yes"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "autorevocations",
+   "choice": "no"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "version": 11,
+   "agenda": "treasury",
+   "choice": "abstain"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "version": 11,
+   "agenda": "",
+   "choice": ""
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 4294967295,
+   "agenda": "x",
+   "choice": "y"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "autorevocations"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 11,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "version": 11,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "version": 11,
+   "agenda": ""
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 4294967295,
+   "agenda": "x"
+  },
+  {
+   "op": "udb.set_ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury",
+   "choice": "no"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "rt.reopen"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.default_agenda_preference",
+   "version": 10,
+   "agenda": "maxblocksize"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "6dabe9205e95d30a4886bdfb3270a7e5235a98cf0d4482c0f7356caae11f5d94",
+   "version": 10,
+   "agenda": "treasury"
+  },
+  {
+   "op": "udb.ticket_agenda_preference",
+   "ticket": "0a4981c0f8376fa7e61e5d95d40c4483bbfa3271a9e1205897cf0e467ebdf534",
+   "version": 11,
+   "agenda": ""
+  },
+  {
+   "op": "update",
+   "ops": [
+    {
+     "op": "udb.set_ticket_agenda_preference",
+     "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd",
+     "version": 10,
+     "agenda": "treasury",
+     "choice": "yes"
+    },
+    {
+     "op": "udb.set_default_agenda_preference",
+     "version": 12,
+     "agenda": "treasury",
+     "choice": "abstain"
+    },
+    {
+     "op": "udb.ticket_agenda_preference",
+     "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd",
+     "version": 10,
+     "agenda": "treasury"
+    },
+    {
+     "op": "udb.default_agenda_preference",
+     "version": 12,
+     "agenda": "treasury"
+    }
+   ]
+  },
+  {
+   "op": "view",
+   "ops": [
+    {
+     "op": "udb.ticket_agenda_preference",
+     "ticket": "a7e7205999d20b4484bdf6366fa8e1215a93d30c457ebef73070a9e21b5b94cd",
+     "version": 10,
+     "agenda": "treasury"
+    },
+    {
+     "op": "udb.default_agenda_preference",
+     "version": 12,
+     "agenda": "treasury"
+    },
+    {
+     "op": "udb.default_agenda_preference",
+     "version": 10,
+     "agenda": ""
+    }
+   ]
+  }
+ ]
+}

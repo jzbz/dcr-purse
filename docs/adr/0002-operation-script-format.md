@@ -119,6 +119,8 @@ side-effect-free early return: `txunmined.go:25-28`,
 `addressmanager.go:1361-1363`, `txmined.go:216-223`, and `Manager.Address`
 only reads), but not the transaction composition, with the tolerated call's
 result recorded inside the transaction that commits. Chosen: (b).
+*(2026-11-26: two tolerable udb errors at the pin are not side-effect
+free; section 2, "Transactions", records them.)*
 
 ## Decision (accepted, 2026-11-19)
 
@@ -278,7 +280,19 @@ script fault, and so is a changing operation inside `view` or a session
 operation inside either group. Every tolerated udb error known at the pin
 is a side-effect-free early return (Options), so `tolerate` changes what is
 recorded and how calls are grouped, not which database states are
-reachable.
+reachable. *(2026-11-26: two exceptions are known, both in the auxiliary
+records of the table above. `SetVSPTicket` refuses an empty or over-long
+host with `Invalid` after it has written the host row and raised the host
+counter (`wallet/udb/vsp.go:47-88`, QK-0122), so a group tolerating that
+refusal keeps a host row no public-key row names, a state dcr-purse's store
+cannot hold (ADR-0003 R2); the Rust runner refuses `tolerate` listing
+`Invalid` on `udb.set_vsp_ticket` as a script fault, while the Go runner
+accepts and runs such a script, as
+`a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner` shows.
+`SetTicketAgendaPreference` creates the ticket's nested bucket before a put
+that can fail with `IO`, so a group tolerating it keeps an empty bucket,
+which holds no preference and which the logical export does not show;
+neither runner refuses it. PARITY.md, "`purse-udb` auxiliary records".)*
 
 `rt.checkpoint` snapshots the database (`walletdb.DB.Copy`) and writes its
 export; `rt.reopen` closes the wallet and opens it again as dcrwallet does

@@ -52,9 +52,18 @@
 //!   Rust method runs its own transaction), and its watching-only branches,
 //!   which upstream never runs, on the same wallet converted.
 //!
+//! - `wallet/udb/vsp_test.go`: `TestSetGetDeleteVSPTicket` over
+//!   `purse_udb::vsp` on a store of its own, each step in its own
+//!   transaction, the record read back equal to the one written with the
+//!   host id `SetVSPTicket` assigned (upstream's `DeepEqual` passes because
+//!   Go writes that id into the record, QK-0122); and its three codec
+//!   round trips (`TestVSPSerializeVSPHost`, `TestVSPSerializeVSPPubKey`,
+//!   `TestVSPSerializeVSPTicket`) on the store's codecs of the same
+//!   records, with upstream's values. `treasury.go` and `agendas.go` have
+//!   no upstream test.
+//!
 //! `TestUpgrades` exercises the database upgrades, which are not ported
-//! (ADR-0013); the transaction store's tests wait for the transaction
-//! store.
+//! (ADR-0013); the transaction store's tests are in `tests/txstore.rs`.
 
 mod support;
 
@@ -1209,4 +1218,117 @@ fn invalid_new_secret_key_changes_nothing() {
     assert!(public_passphrase_opens(&store, &chain, PUB_PASSPHRASE));
     mgr.unlock(PRIV_PASSPHRASE)
         .expect("the private passphrase is unchanged");
+}
+
+/// A hash from dcrd's display form (`chainhash.NewHashFromStr`).
+fn display_hash(s: &str) -> purse_store::Hash32 {
+    let mut b: [u8; 32] = unhex(s).try_into().expect("32 bytes");
+    b.reverse();
+    purse_store::Hash32(b)
+}
+
+/// `vsp_test.go` `TestSetGetDeleteVSPTicket`.
+#[test]
+fn set_get_delete_vsp_ticket() {
+    use purse_udb::vsp::{self, VspTicket};
+    let dir = scratch("upstream-vsp");
+    let store = Store::create(&dir.join(purse_store::STORE_FILE_NAME)).expect("create store");
+    let ticket_hash =
+        display_hash("0a472047bfcf1a19580412536570e351d2ac3f30638491c1c1268d6ada514858");
+    let fee_hash = display_hash("679c508625503e5cd00ba8d35badc40ce040df8986c11321758db831b78f94ec");
+    let mut ticket = VspTicket {
+        fee_hash,
+        fee_tx_status: 123,
+        vsp_host_id: 321,
+        host: b"example.com".to_vec(),
+        pub_key: b"not-a-real-key".to_vec(),
+    };
+    let view = |f: &mut dyn FnMut(&mut purse_store::ReadTx)| {
+        let mut tx = store.read().expect("read");
+        f(&mut tx);
+    };
+
+    // Non-existent tickets should return an error.
+    view(&mut |tx| {
+        let err = vsp::get_vsp_ticket(tx, &ticket_hash).expect_err("missing");
+        assert!(err.is_kind(Kind::NotExist), "{err}");
+    });
+
+    // Insert into DB.
+    let id = store
+        .update(|tx| Ok::<_, purse_store::Error>(vsp::set_vsp_ticket(tx, &ticket_hash, &ticket)))
+        .expect("commit")
+        .expect("Inserting VSP ticket");
+    // Go writes the assigned host id into the record.
+    ticket.vsp_host_id = id;
+    assert_eq!(id, 1);
+
+    // Retrieve from DB and check retrieved data matches inserted data.
+    view(&mut |tx| {
+        let got = vsp::get_vsp_ticket(tx, &ticket_hash).expect("Retrieving VSP ticket");
+        assert_eq!(got, ticket, "Retrieved data does not match inserted data");
+    });
+
+    // Delete from DB.
+    store
+        .update(|tx| Ok::<_, purse_store::Error>(vsp::delete_vsp_ticket(tx, &ticket_hash)))
+        .expect("commit")
+        .expect("Deleting VSP ticket");
+
+    // Deleted data should no longer be retrievable.
+    view(&mut |tx| {
+        let err = vsp::get_vsp_ticket(tx, &ticket_hash).expect_err("deleted");
+        assert!(err.is_kind(Kind::NotExist), "{err}");
+    });
+
+    // Deleting non-existent ticket should not return an error.
+    store
+        .update(|tx| Ok::<_, purse_store::Error>(vsp::delete_vsp_ticket(tx, &ticket_hash)))
+        .expect("commit")
+        .expect("deleting a non-existent ticket");
+    drop(store);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `vsp_test.go` `TestVSPSerializeVSPHost`, `TestVSPSerializeVSPPubKey`
+/// and `TestVSPSerializeVSPTicket`, on the store's codecs of the same
+/// records (the host is the value of `vsp_hosts`; the public key row drops
+/// Go's length prefix; the ticket row holds neither host nor key).
+#[test]
+fn vsp_record_codecs_round_trip_upstreams_values() {
+    use purse_store::{Codec, VspHost, VspPubKeyRow, VspTicketRow};
+    for host in [&b"my host"[..], b""] {
+        let after = VspHost::decode(&VspHost(host.to_vec()).encode()).expect("host");
+        assert_eq!(after.0, host);
+    }
+    for (id, pk) in [
+        (69, &b"my public key"[..]),
+        (0, b"my public key"),
+        (69, b""),
+    ] {
+        let before = VspPubKeyRow {
+            host_id: id,
+            pubkey: pk.to_vec(),
+        };
+        assert_eq!(
+            VspPubKeyRow::decode(&before.encode()).expect("pubkey"),
+            before
+        );
+    }
+    let fee = display_hash("679c508625503e5cd00ba8d35badc40ce040df8986c11321758db831b78f94ec");
+    for (fee_hash, fee_status, host_id) in [
+        (fee, 123, 321),
+        (purse_store::Hash32::default(), 123, 321),
+        (fee, 0, 321),
+        (fee, 123, 0),
+    ] {
+        let before = VspTicketRow {
+            fee_hash,
+            fee_status,
+            host_id,
+        };
+        let bytes = before.encode();
+        assert_eq!(bytes.len(), 40, "dcrwallet's 40-byte record");
+        assert_eq!(VspTicketRow::decode(&bytes).expect("ticket"), before);
+    }
 }

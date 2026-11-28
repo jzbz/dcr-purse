@@ -13,6 +13,7 @@
     reason = "each test binary uses a different part of the support module"
 )]
 
+pub mod auxgen;
 pub mod compare;
 pub mod generator;
 pub mod runner;

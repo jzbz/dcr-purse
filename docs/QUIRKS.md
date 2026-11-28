@@ -338,6 +338,8 @@ The variable rootVSPHostIndex sits in the wtxmgr root-key block but is only ever
 
 `purse-store` keeps no counter row: hosts are never deleted and each new id is the highest plus one, so the last key of `vsp_hosts` serves (`WriteTx::add_vsp_host`; ADR-0003, addendum "The remaining records, as built", Open point R2, accepted as recommended by the project owner on 2026-11-21: when `purse-udb` ports the VSP records, it is to reach `SetVSPHost` and `SetVSPPubKey` only through `add_vsp_host`, and its operation-script generator is not to draw them alone; neither is written yet).
 
+For `purse_udb::vsp` (2026-11-26): `set_vsp_ticket` is the only writer of a host, through `add_vsp_host`; `SetVSPHost` and `SetVSPPubKey` are not ported, and the Rust runner refuses `udb.set_vsp_host` and `udb.set_vsp_pub_key` as not ported. `GetVSPHost(0)` answers the empty host upgrade 23 seeds, which the store does not keep. The operation-script generator (`crates/purse-udb/tests/support/auxgen.rs`) draws neither operation.
+
 ## QK-0048 — Unchecked slicing panics on inconsistent rows
 
 Spec: [03](specs/03-txstore-formats.md). Source: wallet/udb/txunmined.go:55-56,359; wallet/udb/txmined.go:2681; wallet/udb/txdb.go:1392-1394,1711-1713
@@ -467,6 +469,8 @@ moveMinedTx rebuilds the mined credit from a struct whose hasExpiry is never ass
 Spec: [03](specs/03-txstore-formats.md). Source: wallet/udb/txdb.go:455-458,1988-1990; wallet/udb/agendas.go:64-80
 
 deleteBlockRecord and putRawCFilter return the driver error as is, while sibling helpers wrap in IO; exported agenda setters wrap every failure in IO.
+
+For `purse_udb::agendas` (2026-11-26): both setters wrap every failure in `IO`, as Go's do, confirmed by the oracle (`auxiliary_records_at_the_key_limit_match_go`: an agenda id whose version ‖ agenda key is over bbolt's limit, wallet-wide and for a ticket). Disposition: reproduced (Rule 1).
 
 ## QK-0068 — existsUnpublished stricter than the writer
 
@@ -824,11 +828,15 @@ Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/upgrades.g
 
 Missing buckets yield nil interfaces (method call panics); credit values shorter than 9 bytes, out-of-range credit indexes, short VSP records, short vsptreasurypolicy keys, a missing vsphostindex and Migrate on a file without waddrmgr all panic. Port should return IO errors.
 
+For `purse_udb::vsp`, `treasury` and `agendas` (2026-11-26): none of the VSP and treasury panics can arise. The store's values are typed (dcrwallet's 40-byte ticket row, one non-zero byte per policy, keys of fixed or checked length) and keep no counter row (QK-0047); a stored row that does not decode is an `IO` error of the store's, and a `vsp_fee_status` entry without its ticket is an `IO` error of `get_vsp_tickets_by_fee_status`. Go's `invalid length` answers of the single policy readers are unreachable for the same reason (PARITY.md, `purse-udb` auxiliary records). Disposition for these files: divergence by construction (Rule 2(d), Rule 4).
+
 ## QK-0122 — SetVSPTicket mutates its argument and never updates a host pubkey
 
 Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/vsp.go:49-88; wallet/udb/vsp_test.go:177-226
 
 record.VSPHostID is overwritten with the stored host id (upstream test's DeepEqual depends on it). If the host already has a vsppubkey row, a different PubKey in the record is ignored. An empty Host fails with Invalid `key required` after writing host row and counter in the same tx.
+
+Confirmed by the oracle (2026-11-26): corpus script `39-aux-vsp` (`crates/purse-udb/tests/data/opscripts`) gives a known host a second public key and reads back the first, passes a host id that is ignored, and refuses an empty host with `invalid operation: key required`; `auxiliary_records_at_the_key_limit_match_go` refuses a host over bbolt's key limit with `invalid operation: key too large`; `a_tolerated_vsp_ticket_refusal_is_refused_by_the_rust_runner` shows that Go has written the host row and raised the counter by the refusal (a group that tolerates it keeps a host row no public-key row names, and the next host gets id 2). Disposition: the kept public key and the ignored id are reproduced (Rule 1; `set_vsp_ticket` returns the id where Go writes it into the record, a library-API difference, Rule 1); the partial write is not: dcr-purse refuses before writing, the state being one the store's host tables cannot hold (ADR-0003 R2) and Go's caller abandoning its transaction (`wallet/vspticket.go:246-290`), so no surface shows it. The Rust runner refuses a group that tolerates the refusal (PARITY.md, `purse-udb` auxiliary records).
 
 ## QK-0123 — VSP error strings contain pointers
 
@@ -836,17 +844,23 @@ Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/vsp.go:203
 
 GetVSPHost formats `&id` with %v (prints a memory address) and GetVSPPubKey formats `&host` (prints `&[104 111 ...]`). Cannot be reproduced exactly; both errors are swallowed by in-tree callers.
 
+For `purse_udb::vsp` (2026-11-26): `get_vsp_pub_key` reproduces Go's text exactly (`no VSP pubkey info for host &[104 116 ...]`, `&[]` for an empty host), confirmed by corpus script `39-aux-vsp`. `get_vsp_host` writes the id in decimal where Go prints the pointer (`no VSP host info for id 3`); both oracle runners rewrite the number or address to `<pointer>` before comparing, so the kind and the rest of the text are compared. Disposition: divergence, no surface (Rule 1: the Go library API; `GetVSPHost` has no caller outside udb at the pin, spec 05 section 2.2). The oprunner's rewrite kept the kind's name but dropped the error it rewrote, so a group member tolerating `NotExist` did not match it in Go and did in the Rust runner; found by the generated group scripts (2026-11-26), the rewritten error now wraps the original (`tools/oracle/cmd/oprunner/ops_aux.go`, `canonPointer`; `TestTolerated`). A fault of the oracle, not of dcrwallet.
+
 ## QK-0124 — GetVSPTicket returns PubKey aliasing bbolt memory
 
 Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/vsp.go:121,269; wallet/vspticket.go:331-337
 
 deserializeVSPPubKey returns a sub-slice of the stored value; GetVSPTicket hands it to callers that keep it after the transaction ends. Port must copy.
 
+For `purse_udb::vsp` (2026-11-26): `get_vsp_ticket` and `get_vsp_pub_key` return owned copies. Disposition: divergence in memory layout only (Rule 1, Rule 5: no answer differs).
+
 ## QK-0125 — GetVSPTicketsByFeeStatus order is random
 
 Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/vsp.go:131-137; wallet/wallet.go:5625-5630
 
 Results are collected in a Go map and converted to a list in map order, so the gRPC TicketsHashes order differs per call; Hash.SetBytes errors are ignored.
+
+For `purse_udb::vsp` (2026-11-26): `get_vsp_tickets_by_fee_status` answers in ticket hash order (internal bytes), one prefix walk of the `vsp_fee_status` index (ADR-0003 R3); its argument is Go's `int` as an `i64`, a value outside `u32` matching nothing as in Go. The oracle runners sort both sides' answers by display hash. The gRPC order is the wallet layer's to fix when it is written (ADR-0012 Rule 3). Disposition: sorted (Rule 3(a)).
 
 ## QK-0126 — `wstakemgr` is orphaned, Migrate no longer cleans its version key
 
@@ -859,6 +873,8 @@ Since commit a83b85bb the bucket is neither created nor touched; upgrade 3 no lo
 Spec: [05](specs/05-db-migrations-aux-buckets.md). Source: wallet/udb/treasury.go:33-45,107-124,151-163; wallet/wallet.go:669-674
 
 Delete errors are wrapped as IO, Put errors returned raw; an empty pi key fails on Put (Invalid `key required`) but succeeds on delete. Setters store any byte; validation to {0,1,2} is only in the wallet layer. Bulk readers return a partial map with the error.
+
+Confirmed by the oracle (2026-11-26): corpus script `40-aux-treasury` stores policies 3, 9, 254 and 255, refuses an empty pi key's put with `invalid operation: key required` (kind `Invalid`, unwrapped) and accepts its delete; `auxiliary_records_at_the_key_limit_match_go` refuses pi keys over bbolt's key limit alone and after a ticket hash and accepts the long key's delete. Disposition: reproduced (Rule 1), except the bulk readers, which answer in key order and return an error alone, without the partial map (Rule 3(a); no caller at the pin uses a map returned with an error, `wallet/wallet.go:377-395` failing `Open` on it). The `agendas.go` setters' wrapping of every failure in `IO` (QK-0067: `I/O error:: invalid operation: key too large`) is reproduced too, confirmed by the same test.
 
 ## QK-0128 — Dead code in upgrades 14 and 23
 

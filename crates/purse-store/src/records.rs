@@ -67,8 +67,12 @@
 //! The policy and agenda tables have no invariant beyond their encodings
 //! and are written with the generic [`WriteTx::put`] and
 //! [`WriteTx::delete`]: dcrwallet's "no policy" (0) and "no choice" are
-//! absent rows ([`TreasuryVote`] cannot hold 0). The generic writes reach
-//! the indexed tables too, for migrations and tests, unchecked.
+//! absent rows ([`TreasuryVote`] cannot hold 0). One exception:
+//! [`WriteTx::put_ticket_agenda_pref`] writes `ticket_agenda_prefs` with
+//! bbolt's key limit applied to dcrwallet's nested key (version ‖ agenda
+//! id) rather than to the flattened one, which is 32 bytes longer. The
+//! generic writes reach the indexed tables too, for migrations and tests,
+//! unchecked.
 //!
 //! # Operations
 //!
@@ -94,13 +98,15 @@
 use crate::codec::Codec;
 use crate::error::{Error, Result};
 use crate::keys::{
-    Hash32, Hash160, MultisigUnspentKey, Outpoint, VspFeeStatusKey, VspHost, VspHostId,
+    Hash32, Hash160, MultisigUnspentKey, Outpoint, TicketAgendaKey, VspFeeStatusKey, VspHost,
+    VspHostId,
 };
 use crate::schema::{
-    MultisigOuts, MultisigUnspent, TableId, VspFeeStatus, VspHosts, VspPubKeys, VspTickets,
+    MultisigOuts, MultisigUnspent, Table, TableId, TicketAgendaPrefs, VspFeeStatus, VspHosts,
+    VspPubKeys, VspTickets,
 };
 use crate::txn::{MAX_KEY_SIZE, ReadTx, WriteTx};
-use crate::values::{Empty, MultisigOutRow, VspPubKeyRow, VspTicketRow};
+use crate::values::{AgendaChoice, Empty, MultisigOutRow, VspPubKeyRow, VspTicketRow};
 
 /// The text of [`WriteTx::add_vsp_host`]'s refusal once every host id is
 /// taken (dcrwallet's counter wraps to 0 there and overwrites the reserved
@@ -329,5 +335,33 @@ impl WriteTx<'_> {
             }
             None => Ok(false),
         }
+    }
+
+    /// Writes a ticket's agenda choice (the put of dcrwallet's
+    /// `setTicketPreference`, `wallet/udb/agendas.go:38-44`), with bbolt's
+    /// limits applied to dcrwallet's key, not to this table's.
+    ///
+    /// dcrwallet keys the choice by version ‖ agenda id inside the
+    /// ticket's nested bucket; the flattened key here is 32 bytes longer,
+    /// so the generic [`WriteTx::put`] would refuse an agenda id of 32,733
+    /// to 32,764 bytes that dcrwallet stores (a flattened key of 32,769 to
+    /// 32,800 bytes). This write refuses exactly
+    /// what dcrwallet's put refuses: a version ‖ agenda key longer than
+    /// [`MAX_KEY_SIZE`] (`invalid operation: key too large`; the key is
+    /// never empty) and a value longer than
+    /// [`MAX_VALUE_SIZE`](crate::MAX_VALUE_SIZE). Nothing is written then.
+    pub fn put_ticket_agenda_pref(
+        &mut self,
+        key: &TicketAgendaKey,
+        choice: &AgendaChoice,
+    ) -> Result<()> {
+        if key.agenda.len().saturating_add(4) > MAX_KEY_SIZE {
+            return Err(Error::invalid("key too large"));
+        }
+        crate::txn::check_value_len(Some(choice.0.len()))?;
+        let k = key.encode();
+        self.table_mut(TicketAgendaPrefs::ID)?
+            .insert(k.as_slice(), choice.0.as_slice())?;
+        Ok(())
     }
 }

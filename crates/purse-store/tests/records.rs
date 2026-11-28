@@ -97,8 +97,19 @@ fn vsp_host_refusals_write_nothing() {
         let long = vec![b'h'; MAX_KEY_SIZE + 1];
         let e = tx.add_vsp_host(&long, &[1]).unwrap_err();
         assert_eq!(e.to_string(), "invalid operation: key too large");
-        // The longest host bbolt takes as a key is accepted.
+        // The longest host bbolt takes as a key is accepted, and found
+        // again: a second add keeps its id and its first key.
         assert_eq!(tx.add_vsp_host(&long[..MAX_KEY_SIZE], &[1])?, 1);
+        assert_eq!(tx.vsp_host_id(&long[..MAX_KEY_SIZE])?, Some(1));
+        assert_eq!(tx.add_vsp_host(&long[..MAX_KEY_SIZE], &[2])?, 1);
+        assert_eq!(tx.len(TableId::VspHosts)?, 1);
+        assert_eq!(
+            tx.get::<VspPubKeys>(&VspHost(long[..MAX_KEY_SIZE].to_vec()))?,
+            Some(VspPubKeyRow {
+                host_id: 1,
+                pubkey: vec![1],
+            })
+        );
         tx.delete_raw(TableId::VspHosts, &1u32.to_be_bytes())?;
         tx.delete_raw(TableId::VspPubKeys, &long[..MAX_KEY_SIZE])?;
         Ok::<_, Error>(())
@@ -470,6 +481,52 @@ fn policies_and_preferences_use_the_generic_writes() {
         .unwrap();
     let e = s.read().unwrap().get::<TSpendPolicies>(&h(4)).unwrap_err();
     assert!(e.corrupt_row().is_some(), "{e}");
+}
+
+/// A ticket's agenda choice is written with bbolt's key limit applied to
+/// dcrwallet's key inside the ticket's bucket (version ‖ agenda id), not
+/// to the flattened key, which is 32 bytes longer: the generic put refuses
+/// an agenda id the dedicated write takes, and both refuse one byte more.
+#[test]
+fn ticket_agenda_choices_take_dcrwallets_key_limit() {
+    let s = store();
+    let key = |n: usize| TicketAgendaKey {
+        ticket: h(3),
+        version: 1,
+        agenda: vec![b'a'; n],
+    };
+    let at = MAX_KEY_SIZE - 4;
+    s.update(|tx| {
+        let generic = tx
+            .put::<TicketAgendaPrefs>(&key(at), &AgendaChoice(b"no".to_vec()))
+            .unwrap_err();
+        assert_eq!(generic.to_string(), "invalid operation: key too large");
+        let over = tx
+            .put_ticket_agenda_pref(&key(at + 1), &AgendaChoice(b"no".to_vec()))
+            .unwrap_err();
+        assert_eq!(over.kind(), Kind::Invalid, "{over}");
+        assert_eq!(over.to_string(), "invalid operation: key too large");
+        assert_eq!(
+            tx.len(TableId::TicketAgendaPrefs)?,
+            0,
+            "a refusal writes nothing"
+        );
+        tx.put_ticket_agenda_pref(&key(at), &AgendaChoice(b"no".to_vec()))?;
+        tx.put_ticket_agenda_pref(&key(0), &AgendaChoice(Vec::new()))?;
+        Ok::<_, Error>(())
+    })
+    .unwrap();
+    let tx = s.read().unwrap();
+    assert_eq!(
+        tx.get::<TicketAgendaPrefs>(&key(at)).unwrap(),
+        Some(AgendaChoice(b"no".to_vec()))
+    );
+    assert_eq!(
+        tx.get::<TicketAgendaPrefs>(&key(0)).unwrap(),
+        Some(AgendaChoice(Vec::new()))
+    );
+    // Both rows decode in a walk of the table.
+    assert_eq!(tx.iter::<TicketAgendaPrefs>().unwrap().count(), 2);
 }
 
 /// Imported keys and scripts are `addr_by_hash` rows listed by

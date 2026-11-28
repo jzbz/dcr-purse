@@ -1753,11 +1753,10 @@ fn generated_campaign(
 /// Generated transaction store scripts with runs of their operations in
 /// `update` and `view` groups, some members tolerating `Exist`,
 /// `DoubleSpend` or `NotExist` (`group_txstore`), on all four networks
-/// (`PURSE_UDB_TX_GROUP_SCRIPTS` sets how many). Go runs a group in one
-/// transaction and keeps a tolerated error's writes, the Rust runner one
-/// transaction per member, putting the store back when the group rolls
-/// back; equal exports show that every tolerated failure wrote nothing in
-/// Go either, and that the group's rollback matches.
+/// (`PURSE_UDB_TX_GROUP_SCRIPTS` sets how many). Both runners run a group
+/// in one transaction and keep a tolerated error's writes; equal exports
+/// show that every tolerated failure wrote nothing in Go either, and that
+/// the group's rollback matches.
 #[test]
 fn generated_txstore_group_scripts_match_go() {
     group_campaign(

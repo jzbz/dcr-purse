@@ -746,8 +746,11 @@ impl<'t> WriteTx<'t> {
     }
 }
 
-/// Shared-borrow reads over a write transaction's open tables.
-struct WriteReader<'a, 't>(&'a WriteTx<'t>);
+/// Shared-borrow reads over a write transaction's open tables. The
+/// consistency checks of [`ReadTx`] (`check_rows`, `check_chain`,
+/// `check_records`) are defined for it too, so that [`WriteTx`] runs them
+/// over its own writes.
+pub(crate) struct WriteReader<'a, 't>(&'a WriteTx<'t>);
 
 impl<'a, 't> WriteReader<'a, 't> {
     fn table(&self, id: TableId) -> Result<&'a redb::Table<'t, Raw, Raw>> {
@@ -756,6 +759,33 @@ impl<'a, 't> WriteReader<'a, 't> {
 
     typed_readers!();
     meta_readers!();
+
+    /// Entries of table `T` with keys in `(lo, hi)`, in key order.
+    pub fn range<T: Table>(&self, lo: Bound<&T::Key>, hi: Bound<&T::Key>) -> Result<Iter<'a, T>> {
+        let (lo, hi) = (encode_bound(lo), encode_bound(hi));
+        Ok(Iter {
+            inner: range_in(self.table(T::ID)?, &lo, &hi)?,
+            _table: PhantomData,
+        })
+    }
+
+    /// Every entry of table `T`, in key order.
+    pub fn iter<T: Table>(&self) -> Result<Iter<'a, T>> {
+        self.range::<T>(Bound::Unbounded, Bound::Unbounded)
+    }
+
+    /// Raw entries of table `table` with keys in `(lo, hi)`, in key order.
+    pub fn range_raw(
+        &self,
+        table: TableId,
+        lo: Bound<&[u8]>,
+        hi: Bound<&[u8]>,
+    ) -> Result<RawIter<'a>> {
+        let t = self.table(table)?;
+        Ok(RawIter {
+            inner: t.range((lo, hi))?,
+        })
+    }
 }
 
 /// Reads of either transaction kind through a shared borrow, so that a
@@ -815,6 +845,17 @@ impl WriteTx<'_> {
     /// Shared-borrow reads over this transaction, every table opened (and
     /// created if missing) first.
     pub(crate) fn shared(&mut self) -> Result<impl Rows + '_> {
+        self.open_all()?;
+        Ok(WriteReader(self))
+    }
+}
+
+impl<'t> WriteTx<'t> {
+    /// Shared-borrow reads over this transaction, every table opened (and
+    /// created if missing) first, for the consistency checks
+    /// ([`WriteTx::check_rows`], [`WriteTx::check_chain`],
+    /// [`WriteTx::check_records`]).
+    pub(crate) fn checked_reader(&mut self) -> Result<WriteReader<'_, 't>> {
         self.open_all()?;
         Ok(WriteReader(self))
     }

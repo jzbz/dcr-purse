@@ -1232,6 +1232,32 @@ backup of it, with `txstore::verify_backup`.
   property tests of `tests/initialize.rs` hold every wallet a creation
   leaves whole to it; both passed. No state the creation path writes was
   refused, and no check was changed.
+  *Dated note, 2026-11-27 (groups as one transaction):* the runner now
+  runs an `update` group as one `purse-store` write transaction and a
+  `view` group on one read transaction (ADR-0002, addendum of
+  2026-11-27), so a member's state is no longer committed before the
+  next member runs. The checks run after every member on the group's
+  transaction: on an `update` group's write transaction, with every
+  write of the group so far, through `purse-store`'s `WriteTx::check_rows`,
+  `check_chain`, `check_records` (added for this; the bodies are those
+  of the `ReadTx` checks, shared through one macro each) and
+  `check_tx_tables`, and `txstore::check_decoded` over the same
+  transaction; the member whose untolerated error ends the group is
+  checked too, so a state a rollback removes is still checked. After the
+  group, committed or rolled back, the per-operation check runs on a
+  read transaction as after any operation. Before this change, under
+  the emulation that committed each member on its own, only the state
+  after the group was checked. `purse-store`'s
+  `the_write_transaction_checks_see_its_own_writes` shows each `WriteTx`
+  check refusing an uncommitted edit that a read transaction beside it
+  does not see, and `purse-udb`'s
+  `a_corrupted_member_state_inside_a_group_is_caught` and
+  `a_group_is_checked_after_it_commits_or_rolls_back` show an edit
+  inside a group's transaction after each member, and one after the
+  group, refused there. Every frozen replay and every group campaign
+  ran with the checks inside groups (PARITY.md, `purse-udb`, "Groups",
+  and the transaction store's and auxiliary records' group campaigns);
+  no member state was refused, and no check was changed.
 - `every_state_of_go_s_reproduced_defects_passes_the_check`: each state
   above written by the store's operations alone, on a store of its own,
   with the rows that make it asserted, so that the check is held to

@@ -66,7 +66,7 @@
 //! | `Manager.ChangePassphrase` | [`Manager::change_passphrase`] | ported (runs its own write transaction and installs the new master key only after the commit, QK-0733; an empty new private passphrase is refused with creation's error where Go accepts it, QK-0768, decided by the project owner on 2026-11-22) |
 //! | `Manager.ImportXpubAccount` | [`Manager::import_xpub_account`] | ported |
 //! | `Manager.ImportVotingAccount` (`importAccount`) | [`Manager::import_voting_account`] | ported (the key's network is not checked, as in Go; the account number cannot wrap onto account 0, QK-0041; on a manager converted in this process it succeeds where Go panics, QK-0765) |
-//! | `Manager.SetAccountPassphrase` (`removeAccountPassphrase`), `UnlockAccount`, `LockAccount` | [`Manager::set_account_passphrase`], [`Manager::unlock_account`], [`Manager::lock_account`] | ported (memory follows the store when a transaction that set a passphrase rolls back, QK-0733; a conversion locks every account, QK-0766; Argon2id's refusal of a zero thread count is an error where Go panics, QK-0630) |
+//! | `Manager.SetAccountPassphrase` (`removeAccountPassphrase`), `UnlockAccount`, `LockAccount` | [`Manager::set_account_passphrase`], [`Manager::unlock_account`], [`Manager::lock_account`] | ported (memory follows the store when a transaction that set or removed a passphrase rolls back, QK-0733; a conversion locks every account, QK-0766; Argon2id's refusal of a zero thread count is an error where Go panics, QK-0630) |
 //! | `Manager.Address`, `AddrAccount`, `ExistsHash160` | [`Manager::address`], [`Manager::addr_account`], [`Manager::exists_hash160`] | ported |
 //! | `Manager.ImportPrivateKey`, `ImportPublicKey`, `ImportScript` | [`Manager::import_private_key`], [`Manager::import_public_key`], [`Manager::import_script`] | ported |
 //! | `Manager.PrivateKey`, `HavePrivateKey`, `RedeemScript` | [`Manager::private_key`], [`Manager::have_private_key`], [`Manager::redeem_script`] | ported (`redeemScriptForHash160` is the body of `redeem_script`; its one other caller is the transaction store's) |
@@ -348,15 +348,19 @@
 //! dropped account 0 passphrase as `mgr.upgrade_to_slip0044_coin_type`'s
 //! `{"passphrase_dropped": true}` (QK-0767; Go's runner states it from Go's
 //! state before the call), `update` and `view` groups
-//! whose members are transaction store operations
-//! (`tests/support/runner/groups.rs`: each member in its own transaction,
-//! committed even when the member fails, and the store file put back when
-//! an `update` group ends on an untolerated error, which is one
-//! transaction's outcome), `rt.checkpoint` (the export of the store as
-//! it stands, written beside it as Go's runner writes its snapshot's),
-//! and refuses every other operation, address manager operations in a
-//! group included, as not yet ported, so a script can never pass by
-//! skipping one. A setup may create a watching-only wallet from
+//! (`tests/support/runner/groups.rs`: a group is one write or read
+//! transaction of the store, as Go's is one `walletdb.Update` or `View`,
+//! committed unless a member's untolerated error rolls it back; its
+//! members are transaction store, auxiliary record and address manager
+//! operations and the fixtures, but not `mgr.change_passphrase` and
+//! `mgr.convert_to_watching_only`, which commit a transaction of their own
+//! and are refused as members, QK-0733; after a rollback the manager's
+//! memory follows the store, where Go's keeps what the group put in it,
+//! QK-0733, QK-0790 and QK-0791, pinned by `tests/groups.rs`),
+//! `rt.checkpoint` (the export of the store as it stands, written beside
+//! it as Go's runner writes its snapshot's), and refuses every other
+//! operation as not yet ported, so a script can never pass by skipping
+//! one. A setup may create a watching-only wallet from
 //! `xpub` (a key spec, neutered, or `{"raw": string}`, the string passed
 //! unparsed); its exports carry no `[privcheck]`, as Go's runner passes no
 //! private passphrase for it or after a conversion.
@@ -573,6 +577,34 @@
 //!   fixed set (`creation_vectors.txt`, 121 scripts), and
 //!   `creation_draws_on_gos_stream` checks the draws on Go's stream
 //!   (section "Randomness").
+//! - `tests/groups.rs`: groups with address manager members against Go.
+//!   The cases in which Go's memory after a rolled-back `update` group
+//!   differs from its store, and from dcr-purse's memory, which follows
+//!   the store (a rolled-back `RenameAccount`, `SetAccountPassphrase`
+//!   setting or removing a passphrase, or `UpgradeToSLIP0044CoinType`, and
+//!   an account read in a rolled-back
+//!   transaction after `NewAccount`, `ImportXpubAccount` or
+//!   `ImportVotingAccount`), each pinned record by record on both sides
+//!   (QK-0733, QK-0790, QK-0791); the Phase 0 Go corpus script
+//!   `15-rollback-bookkeeping`, refused as written for its
+//!   `ChangePassphrase` and `ConvertToWatchingOnly` members and pinned
+//!   without them; the Go corpus scripts `01-accounts`, `02-addresses`,
+//!   `16-tolerated-errors` and `17-resolution-errors`, equal; the
+//!   refused members, and the tolerances refused where dcr-purse returns
+//!   an error and Go panics (QK-0039, QK-0763; QK-0765 pinned); and
+//!   generated scripts shaped like dcrwallet's
+//!   `processTransactionRecord` (`tests/support/ptrgen.rs`: `Address`,
+//!   `MarkUsed`, `AccountProperties`, `SyncAccountToAddrIndex`,
+//!   `RedeemScript` and the imports in the transaction store's `update`
+//!   groups beside `InsertMinedTx`, `AddCredit`, `AddTicketCommitment`
+//!   and `AddMultisigOut`, rolled-back groups among them, on all four
+//!   networks), every record and the export equal, which never count the
+//!   `unspent` table in a group after a write (QK-0003, choice 15 of
+//!   `txstore`, pending owner); `tests/frozen.rs` replays a fixed set of 8
+//!   of them (`ptr_genvectors.txt`); and the store's consistency checks
+//!   (ADR-0018 BK4) on a group's transaction after every member and on
+//!   the store after every group, each of the five checks shown to
+//!   refuse an edit made there.
 //! - `tests/export.rs`: the export parses under `purse-export-check`, its
 //!   registry equals the parser's, it writes the auxiliary records in the
 //!   format's order, it refuses a store holding rows it does not export or

@@ -103,7 +103,7 @@ use crate::keys::{Hash32, Height};
 use crate::schema::{
     BlockByHash, Blocks, CFilters, CFiltersDetached, Headers, HeadersDetached, TableId,
 };
-use crate::txn::{Iter, ReadTx, WriteTx, check_value_len};
+use crate::txn::{Iter, ReadTx, WriteReader, WriteTx, check_value_len};
 use crate::values::{BlockRow, CFilterRow, HeaderBytes, Tip};
 
 /// dcrwallet's text for a block already in the main chain
@@ -218,95 +218,106 @@ macro_rules! chain_readers {
     };
 }
 
-impl ReadTx {
-    chain_readers!();
-
-    /// Checks every invariant of the chain tables (module documentation
-    /// of [`crate::chain`]) by a walk of all six, and fails with a kind-`Io`
-    /// error naming the first that does not hold
-    /// ([`Error::inconsistency`]). Costs time linear in the chain; for
-    /// tests, and for a check after a crash.
-    pub fn check_chain(&self) -> Result<()> {
-        let bad = |why: String| Err(Error::inconsistent(why));
-        let n = self.len(TableId::Blocks)?;
-        match (self.first::<Blocks>()?, self.last::<Blocks>()?) {
-            (Some((first, _)), Some((last, row))) => {
-                if first.0 != 0 || u64::from(last.0) != n.wrapping_sub(1) {
+/// The chain tables' check, defined for a read transaction and for a
+/// write transaction's shared-borrow reads (`WriteTx::check_chain`).
+macro_rules! chain_check {
+    () => {
+        /// Checks every invariant of the chain tables (module documentation
+        /// of [`crate::chain`]) by a walk of all six, and fails with a kind-`Io`
+        /// error naming the first that does not hold
+        /// ([`Error::inconsistency`]). Costs time linear in the chain; for
+        /// tests, and for a check after a crash.
+        pub fn check_chain(&self) -> Result<()> {
+            let bad = |why: String| Err(Error::inconsistent(why));
+            let n = self.len(TableId::Blocks)?;
+            match (self.first::<Blocks>()?, self.last::<Blocks>()?) {
+                (Some((first, _)), Some((last, row))) => {
+                    if first.0 != 0 || u64::from(last.0) != n.wrapping_sub(1) {
+                        return bad(format!(
+                            "blocks hold {n} rows from height {} to {}, not 0 to {}",
+                            first.0,
+                            last.0,
+                            n.wrapping_sub(1)
+                        ));
+                    }
+                    let want = Tip {
+                        height: last.0,
+                        hash: row.hash,
+                    };
+                    if self.tip()? != Some(want) {
+                        return bad(format!("the tip row is not the last block ({})", last.0));
+                    }
+                }
+                _ => {
+                    if self.tip()?.is_some() {
+                        return bad("a tip row with no main chain".to_owned());
+                    }
+                }
+            }
+            if self.len(TableId::Headers)? != n {
+                return bad("headers and blocks differ in length".to_owned());
+            }
+            if self.len(TableId::BlockByHash)? != n {
+                return bad("block_by_hash and blocks differ in length".to_owned());
+            }
+            if let Some((h, _)) = self.last::<CFilters>()?
+                && u64::from(h.0) >= n
+            {
+                return bad(format!("a filter at height {} above the main chain", h.0));
+            }
+            let mut prev: Option<Hash32> = None;
+            for r in self.iter::<Blocks>()? {
+                let (h, row) = r?;
+                let Some(header) = self.get::<Headers>(&h)? else {
+                    return bad(format!("no header at height {}", h.0));
+                };
+                if header.height() != h.0 {
                     return bad(format!(
-                        "blocks hold {n} rows from height {} to {}, not 0 to {}",
-                        first.0,
-                        last.0,
-                        n.wrapping_sub(1)
+                        "the header at height {} states height {}",
+                        h.0,
+                        header.height()
                     ));
                 }
-                let want = Tip {
-                    height: last.0,
-                    hash: row.hash,
-                };
-                if self.tip()? != Some(want) {
-                    return bad(format!("the tip row is not the last block ({})", last.0));
+                if let Some(p) = prev
+                    && header.prev_block() != p
+                {
+                    return bad(format!(
+                        "the header at height {} does not name the block below",
+                        h.0
+                    ));
+                }
+                if self.get::<BlockByHash>(&row.hash)? != Some(h) {
+                    return bad(format!(
+                        "block_by_hash does not map the block at height {} to it",
+                        h.0
+                    ));
+                }
+                prev = Some(row.hash);
+            }
+            for r in self.iter::<HeadersDetached>()? {
+                let (hash, _) = r?;
+                if self.contains::<BlockByHash>(&hash)? {
+                    return bad("a detached header of a main-chain block".to_owned());
                 }
             }
-            _ => {
-                if self.tip()?.is_some() {
-                    return bad("a tip row with no main chain".to_owned());
+            for r in self.iter::<CFiltersDetached>()? {
+                let (hash, _) = r?;
+                if !self.contains::<HeadersDetached>(&hash)? {
+                    return bad("a detached filter without its detached header".to_owned());
                 }
             }
+            Ok(())
         }
-        if self.len(TableId::Headers)? != n {
-            return bad("headers and blocks differ in length".to_owned());
-        }
-        if self.len(TableId::BlockByHash)? != n {
-            return bad("block_by_hash and blocks differ in length".to_owned());
-        }
-        if let Some((h, _)) = self.last::<CFilters>()?
-            && u64::from(h.0) >= n
-        {
-            return bad(format!("a filter at height {} above the main chain", h.0));
-        }
-        let mut prev: Option<Hash32> = None;
-        for r in self.iter::<Blocks>()? {
-            let (h, row) = r?;
-            let Some(header) = self.get::<Headers>(&h)? else {
-                return bad(format!("no header at height {}", h.0));
-            };
-            if header.height() != h.0 {
-                return bad(format!(
-                    "the header at height {} states height {}",
-                    h.0,
-                    header.height()
-                ));
-            }
-            if let Some(p) = prev
-                && header.prev_block() != p
-            {
-                return bad(format!(
-                    "the header at height {} does not name the block below",
-                    h.0
-                ));
-            }
-            if self.get::<BlockByHash>(&row.hash)? != Some(h) {
-                return bad(format!(
-                    "block_by_hash does not map the block at height {} to it",
-                    h.0
-                ));
-            }
-            prev = Some(row.hash);
-        }
-        for r in self.iter::<HeadersDetached>()? {
-            let (hash, _) = r?;
-            if self.contains::<BlockByHash>(&hash)? {
-                return bad("a detached header of a main-chain block".to_owned());
-            }
-        }
-        for r in self.iter::<CFiltersDetached>()? {
-            let (hash, _) = r?;
-            if !self.contains::<HeadersDetached>(&hash)? {
-                return bad("a detached filter without its detached header".to_owned());
-            }
-        }
-        Ok(())
-    }
+    };
+}
+
+impl ReadTx {
+    chain_readers!();
+    chain_check!();
+}
+
+impl WriteReader<'_, '_> {
+    chain_check!();
 }
 
 /// dcrwallet's first two refusals of a block given to connect
@@ -342,6 +353,13 @@ const NOT_A_HEADER_BATCH_ROW: &str =
 
 impl WriteTx<'_> {
     chain_readers!(mut);
+
+    /// [`ReadTx::check_chain`] over this transaction's rows, its own
+    /// writes included (opening, and so creating, every table first): a
+    /// check of a state before it is committed, for tests.
+    pub fn check_chain(&mut self) -> Result<()> {
+        self.checked_reader()?.check_chain()
+    }
 
     /// Connects `block` at `height`, directly above the tip (at 0 on an
     /// empty chain), and makes it the tip. A detached header and filter of

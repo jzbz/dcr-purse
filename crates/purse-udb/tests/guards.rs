@@ -125,10 +125,12 @@ fn count_script() -> Value {
 /// group, a member counting the `unspent` table after a member that wrote
 /// it. Go's `UnspentOutputCount` and `MakeInputSource` read bbolt's
 /// `KeyN`, which counts the committed pages, so Go answers with the count
-/// as the group began; the Rust runner, which commits each member, and
-/// dcr-purse's store, which counts a write transaction's own writes, answer
-/// with the group's writes counted. Pinned on both sides: after a credit,
-/// Go counts 2 and dcr-purse 3; after a spend, Go 3 and dcr-purse 2; and a
+/// as the group began; the Rust runner, which runs the group in one write
+/// transaction of dcr-purse's store, which counts a transaction's own
+/// writes, answers with the group's writes counted (the same answers as
+/// when it committed each member on its own, before 2026-11-27). Pinned
+/// on both sides: after a credit, Go counts 2 and dcr-purse 3; after a
+/// spend, Go 3 and dcr-purse 2; and a
 /// selection (minimum depth 1, a target above the total) after a credit
 /// makes no random try in Go (one committed entry, `randTries <
 /// numUnspent/2` false) and one in dcr-purse (two entries), so the bytes

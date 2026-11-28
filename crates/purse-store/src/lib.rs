@@ -162,7 +162,12 @@
 //! history, records, credits, debits, unspent outputs, commitments,
 //! balances and account history, with the states dcrwallet's reproduced
 //! defects leave, which it accepts). [`verify_backup`] runs all three, after
-//! [`ReadTx::check_rows`] has decoded every row.
+//! [`ReadTx::check_rows`] has decoded every row. Each of the four also runs
+//! inside a write transaction over its own uncommitted writes
+//! ([`WriteTx::check_rows`], [`WriteTx::check_chain`],
+//! [`WriteTx::check_records`], [`WriteTx::check_tx_tables`]), as `purse-udb`'s
+//! operation-script runner checks the state after each member of a group
+//! before the group's transaction commits or rolls back.
 //!
 //! # Cursors and ranges
 //!

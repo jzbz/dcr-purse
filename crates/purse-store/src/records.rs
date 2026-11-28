@@ -105,7 +105,7 @@ use crate::schema::{
     MultisigOuts, MultisigUnspent, Table, TableId, TicketAgendaPrefs, VspFeeStatus, VspHosts,
     VspPubKeys, VspTickets,
 };
-use crate::txn::{MAX_KEY_SIZE, ReadTx, WriteTx};
+use crate::txn::{MAX_KEY_SIZE, ReadTx, WriteReader, WriteTx};
 use crate::values::{AgendaChoice, Empty, MultisigOutRow, VspPubKeyRow, VspTicketRow};
 
 /// The text of [`WriteTx::add_vsp_host`]'s refusal once every host id is
@@ -175,72 +175,90 @@ macro_rules! record_readers {
     };
 }
 
-impl ReadTx {
-    record_readers!();
-
-    /// Checks every invariant of the record tables (module documentation
-    /// of [`crate::records`]) by a walk of the indexed ones, and fails
-    /// with a kind-`Io` error naming the first that does not hold
-    /// ([`Error::inconsistency`]); a row that does not decode is a
-    /// corrupt-row error. Costs time linear in those tables; for tests,
-    /// and for a check of a store whose origin is not trusted.
-    pub fn check_records(&self) -> Result<()> {
-        let bad = |why: String| Err(Error::inconsistent(why));
-        let mut unspent = 0u64;
-        for r in self.iter::<MultisigOuts>()? {
-            let (op, row) = r?;
-            if row.spender.is_none() {
-                unspent = unspent.saturating_add(1);
-                if !self.contains::<MultisigUnspent>(&unspent_key(&op, &row))? {
-                    return bad("an unspent multisig output without its index entry".to_owned());
+/// The record tables' check, defined for a read transaction and for a
+/// write transaction's shared-borrow reads (`WriteTx::check_records`).
+macro_rules! records_check {
+    () => {
+        /// Checks every invariant of the record tables (module documentation
+        /// of [`crate::records`]) by a walk of the indexed ones, and fails
+        /// with a kind-`Io` error naming the first that does not hold
+        /// ([`Error::inconsistency`]); a row that does not decode is a
+        /// corrupt-row error. Costs time linear in those tables; for tests,
+        /// and for a check of a store whose origin is not trusted.
+        pub fn check_records(&self) -> Result<()> {
+            let bad = |why: String| Err(Error::inconsistent(why));
+            let mut unspent = 0u64;
+            for r in self.iter::<MultisigOuts>()? {
+                let (op, row) = r?;
+                if row.spender.is_none() {
+                    unspent = unspent.saturating_add(1);
+                    if !self.contains::<MultisigUnspent>(&unspent_key(&op, &row))? {
+                        return bad("an unspent multisig output without its index entry".to_owned());
+                    }
                 }
             }
-        }
-        if self.len(TableId::MultisigUnspent)? != unspent {
-            return bad(format!(
-                "multisig_unspent holds {} entries for {unspent} unspent multisig outputs",
-                self.len(TableId::MultisigUnspent)?
-            ));
-        }
-        for r in self.iter::<VspTickets>()? {
-            let (ticket, row) = r?;
-            if !self.contains::<VspFeeStatus>(&status_key(&ticket, &row))? {
-                return bad("a VSP ticket without its fee status entry".to_owned());
-            }
-            if row.host_id != 0 && !self.contains::<VspHosts>(&VspHostId(row.host_id))? {
+            if self.len(TableId::MultisigUnspent)? != unspent {
                 return bad(format!(
-                    "a VSP ticket names host id {} with no host",
-                    row.host_id
+                    "multisig_unspent holds {} entries for {unspent} unspent multisig outputs",
+                    self.len(TableId::MultisigUnspent)?
                 ));
             }
-        }
-        if self.len(TableId::VspFeeStatus)? != self.len(TableId::VspTickets)? {
-            return bad("vsp_fee_status and vsp_tickets differ in length".to_owned());
-        }
-        if self.len(TableId::VspHosts)? != self.len(TableId::VspPubKeys)? {
-            return bad("vsp_hosts and vsp_pubkeys differ in length".to_owned());
-        }
-        for r in self.iter::<VspHosts>()? {
-            let (id, host) = r?;
-            if id.0 == 0 || host.0.is_empty() {
-                return bad("a VSP host with id 0 or an empty host".to_owned());
-            }
-            match self.get::<VspPubKeys>(&host)? {
-                Some(p) if p.host_id == id.0 => {}
-                _ => {
+            for r in self.iter::<VspTickets>()? {
+                let (ticket, row) = r?;
+                if !self.contains::<VspFeeStatus>(&status_key(&ticket, &row))? {
+                    return bad("a VSP ticket without its fee status entry".to_owned());
+                }
+                if row.host_id != 0 && !self.contains::<VspHosts>(&VspHostId(row.host_id))? {
                     return bad(format!(
-                        "VSP host id {} has no public-key row naming it",
-                        id.0
+                        "a VSP ticket names host id {} with no host",
+                        row.host_id
                     ));
                 }
             }
+            if self.len(TableId::VspFeeStatus)? != self.len(TableId::VspTickets)? {
+                return bad("vsp_fee_status and vsp_tickets differ in length".to_owned());
+            }
+            if self.len(TableId::VspHosts)? != self.len(TableId::VspPubKeys)? {
+                return bad("vsp_hosts and vsp_pubkeys differ in length".to_owned());
+            }
+            for r in self.iter::<VspHosts>()? {
+                let (id, host) = r?;
+                if id.0 == 0 || host.0.is_empty() {
+                    return bad("a VSP host with id 0 or an empty host".to_owned());
+                }
+                match self.get::<VspPubKeys>(&host)? {
+                    Some(p) if p.host_id == id.0 => {}
+                    _ => {
+                        return bad(format!(
+                            "VSP host id {} has no public-key row naming it",
+                            id.0
+                        ));
+                    }
+                }
+            }
+            Ok(())
         }
-        Ok(())
-    }
+    };
+}
+
+impl ReadTx {
+    record_readers!();
+    records_check!();
+}
+
+impl WriteReader<'_, '_> {
+    records_check!();
 }
 
 impl WriteTx<'_> {
     record_readers!(mut);
+
+    /// [`ReadTx::check_records`] over this transaction's rows, its own
+    /// writes included (opening, and so creating, every table first): a
+    /// check of a state before it is committed, for tests.
+    pub fn check_records(&mut self) -> Result<()> {
+        self.checked_reader()?.check_records()
+    }
 
     /// Writes the multisig output at `op` (dcrwallet's
     /// `putMultisigOutRawValues`), keeping `multisig_unspent`: the entry

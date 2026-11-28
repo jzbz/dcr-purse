@@ -205,6 +205,12 @@ var RepoTable = Table{
 			Note:       "the creation set: same-seed creation over seed lengths and kinds, public passphrases and the creation flows (Initialize alone, the birth rows dcrwallet --create writes, watching-only creation), on every network; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count, the body digest and the commit",
 		},
 		{
+			Crate: "purse-udb", Files: []string{"ptr_genvectors.txt"},
+			Kind: KindGoGenerated, Commands: []string{"oprunner"},
+			Regenerate: "PURSE_UDB_REGEN=1 PURSE_REQUIRE_ORACLE=1 cargo test -p purse-udb --test frozen -- --ignored regenerate_ptr_vectors",
+			Note:       "generated scripts shaped like processTransactionRecord: address manager members in the transaction store's update groups; the header names the full dcrwallet commit; tests/frozen.rs checks the scripts, the entry count and the body digest, not the commit",
+		},
+		{
 			Crate: "purse-udb", Files: []string{"opscripts/*.json"},
 			Kind: KindSelf,
 			Note: "operation scripts written by hand: the inputs of addrmgr_opvectors.txt, not outputs of Go",

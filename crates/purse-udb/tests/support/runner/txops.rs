@@ -36,7 +36,7 @@ use purse_udb::txstore::{
 };
 use sha2::{Digest, Sha256};
 
-use super::{Args, OpResult, Runner, fault, resolve_err};
+use super::{Args, Cx, OpResult, Rtx, Runner, fault, resolve_err};
 
 /// Whether `name` is one of this module's operations.
 pub fn handles(name: &str) -> bool {
@@ -451,12 +451,12 @@ impl Runner {
     }
 
     /// Runs one transaction store operation.
-    pub(super) fn tx_op(&mut self, a: &Args<'_>) -> Result<OpResult, String> {
+    pub(super) fn tx_op(&mut self, cx: &mut Cx<'_, '_>, a: &Args<'_>) -> Result<OpResult, String> {
         let ok_null = |r: Result<(), AnyError>| r.map(|()| Value::Null);
         let store = self.txstore.clone();
         let st = &store;
         Ok(match a.op {
-            "tx.build" => return self.tx_build(a),
+            "tx.build" => return self.tx_build(cx, a),
             "tx.raw" => {
                 a.check(&["label", "tx", "received"])?;
                 let label = a.str("label")?.to_owned();
@@ -477,19 +477,19 @@ impl Runner {
             }
             "store.main_chain_tip" => {
                 a.check(&[])?;
-                self.view(|r| st.main_chain_tip(r))?
+                self.view(cx, |r| st.main_chain_tip(r))?
                     .map(|(h, height)| json!({"hash": hs(&h), "height": height}))
             }
-            "store.extend_main_chain" => return self.extend(a),
+            "store.extend_main_chain" => return self.extend(cx, a),
             "store.processed_txs_block_marker" => {
                 a.check(&[])?;
-                self.view(|r| st.processed_txs_block_marker(r))?
+                self.view(cx, |r| st.processed_txs_block_marker(r))?
                     .map(|h| json!(hs(&h)))
             }
             "store.update_processed_txs_block_marker" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let h = self.resolve_block(tx, &b)?;
                     st.update_processed_txs_block_marker(tx, &h)
                 })?)
@@ -505,7 +505,7 @@ impl Runner {
                 let time = if a.has("time") { a.i64("time")? } else { 0 };
                 let from_height = Self::opt_bool(a, "from_height")?;
                 let from_time = Self::opt_bool(a, "from_time")?;
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let hash = match &b {
                         Some(b) => self.resolve_block(tx, b)?,
                         None => Hash32::default(),
@@ -524,7 +524,7 @@ impl Runner {
             }
             "udb.birth_state" => {
                 a.check(&[])?;
-                self.view(purse_udb::txstore::birth_state)?
+                self.view(cx, |r| purse_udb::txstore::birth_state(r))?
                     .map(|b| match b {
                         None => Value::Null,
                         Some(b) => json!({
@@ -535,12 +535,12 @@ impl Runner {
             }
             "store.is_missing_main_chain_cfilters" => {
                 a.check(&[])?;
-                self.view(|r| st.is_missing_main_chain_cfilters(r))?
+                self.view(cx, |r| st.is_missing_main_chain_cfilters(r))?
                     .map(|v| json!(v))
             }
             "store.missing_cfilters_height" => {
                 a.check(&[])?;
-                self.view(|r| st.missing_cfilters_height(r))?
+                self.view(cx, |r| st.missing_cfilters_height(r))?
                     .map(|v| json!(v))
             }
             "store.insert_missing_cfilters" => {
@@ -553,7 +553,7 @@ impl Runner {
                     .map(|v| self.block_ref(v, &format!("{} blocks", a.op)))
                     .collect::<Result<Vec<_>, String>>()?;
                 let what = format!("{} blocks", a.op);
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let mut hashes = Vec::new();
                     let mut filters = Vec::new();
                     for b in &refs {
@@ -577,7 +577,7 @@ impl Runner {
                 let b = self.arg_block(a, "start")?;
                 let incl = Self::bool_arg(a, "inclusive")?;
                 let n = Self::count_arg(a)?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_main_chain_cfilters(r, &h, incl, n)
                 })?
@@ -594,7 +594,7 @@ impl Runner {
             "store.cfilter_v2" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.cfilter_v2(r, &h)
                 })?
@@ -604,12 +604,12 @@ impl Runner {
                 a.check(&["start_height", "filters"])?;
                 let start = Self::i32_arg(a, "start_height")?;
                 let data = Self::hex_list(a, "filters")?;
-                ok_null(self.update(|tx| st.import_cfilters_v2(tx, start, &data))?)
+                ok_null(self.update(cx, |tx| st.import_cfilters_v2(tx, start, &data))?)
             }
             "udb.extract_block_header" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_block_header(r, &h)
                 })?
@@ -625,13 +625,13 @@ impl Runner {
             "store.get_main_chain_block_hash_for_height" => {
                 a.check(&["height"])?;
                 let h = Self::i32_arg(a, "height")?;
-                self.view(|r| st.get_main_chain_block_hash_for_height(r, h))?
+                self.view(cx, |r| st.get_main_chain_block_hash_for_height(r, h))?
                     .map(|h| json!(hs(&h)))
             }
             "store.get_serialized_block_header" | "store.get_block_header" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_block_header(r, &h)
                 })?
@@ -640,7 +640,7 @@ impl Runner {
             "store.get_block_header_time" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_block_header_time(r, &h)
                 })?
@@ -649,7 +649,7 @@ impl Runner {
             "store.block_in_main_chain" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.block_in_main_chain(r, &h)
                 })?
@@ -658,7 +658,7 @@ impl Runner {
             "store.get_block_meta_for_hash" => {
                 a.check(&["block"])?;
                 let b = self.arg_block(a, "block")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_block_meta_for_hash(r, &h)
                 })?
@@ -669,7 +669,7 @@ impl Runner {
                 let b = self.arg_block(a, "start")?;
                 let incl = Self::bool_arg(a, "inclusive")?;
                 let n = Self::count_arg(a)?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let h = self.resolve_block(r, &b)?;
                     st.get_main_chain_block_hashes(r, &h, incl, n)
                 })?
@@ -678,7 +678,7 @@ impl Runner {
             "store.rollback" => {
                 a.check(&["height"])?;
                 let h = Self::i32_arg(a, "height")?;
-                self.update(|tx| st.rollback(tx, h))?.map(|blocks| {
+                self.update(cx, |tx| st.rollback(tx, h))?.map(|blocks| {
                     // Go's result is a map: sorted by block hash.
                     let mut v: Vec<(String, Value)> = blocks
                         .iter()
@@ -700,7 +700,7 @@ impl Runner {
                 a.check(&["tx", "block"])?;
                 let rec = self.arg_tx(a, "tx")?;
                 let b = self.arg_block(a, "block")?;
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let h = self.resolve_block(tx, &b)?;
                     st.insert_mined_tx(tx, &rec, &h)
                 })?)
@@ -708,23 +708,23 @@ impl Runner {
             "store.insert_mem_pool_tx" => {
                 a.check(&["tx"])?;
                 let rec = self.arg_tx(a, "tx")?;
-                ok_null(self.update(|tx| st.insert_mem_pool_tx(tx, &rec))?)
+                ok_null(self.update(cx, |tx| st.insert_mem_pool_tx(tx, &rec))?)
             }
             "store.set_published" => {
                 a.check(&["tx", "published"])?;
                 let h = self.arg_hash(a, "tx")?;
                 let p = Self::bool_arg(a, "published")?;
-                ok_null(self.update(|tx| st.set_published(tx, &h, p))?)
+                ok_null(self.update(cx, |tx| st.set_published(tx, &h, p))?)
             }
             "store.remove_unconfirmed" => {
                 a.check(&["tx"])?;
                 let rec = self.arg_tx(a, "tx")?;
-                ok_null(self.update(|tx| st.remove_unconfirmed(tx, rec.msg_tx(), rec.hash()))?)
+                ok_null(self.update(cx, |tx| st.remove_unconfirmed(tx, rec.msg_tx(), rec.hash()))?)
             }
             "store.prune_unmined" => {
                 a.check(&["sdiff"])?;
                 let sdiff = a.i64("sdiff")?;
-                self.update(|tx| st.prune_unmined(tx, sdiff).map_err(|e| e.error))?
+                self.update(cx, |tx| st.prune_unmined(tx, sdiff).map_err(|e| e.error))?
                     .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
             }
             "store.add_credit" => {
@@ -735,7 +735,7 @@ impl Runner {
                 let account = a.u32("account")?;
                 let m = self.arg_meta(a, "block")?;
                 let what = format!("{} block", a.op);
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     // Resolved last, as Go's runner: its failure is the
                     // operation's result.
                     let block = self.resolve_meta(tx, &m, &what)?;
@@ -746,58 +746,59 @@ impl Runner {
                 a.check(&["minconf", "account"])?;
                 let minconf = Self::i32_arg(a, "minconf")?;
                 let account = a.u32("account")?;
-                self.view(|r| st.account_balance(r, minconf, account))?
+                self.view(cx, |r| st.account_balance(r, minconf, account))?
                     .map(|b| balances_value(&b))
             }
             "store.account_balances" => {
                 a.check(&["minconf"])?;
                 let minconf = Self::i32_arg(a, "minconf")?;
-                self.view(|r| st.account_balances(r, minconf))?.map(|bs| {
-                    Value::Array(
-                        bs.iter()
-                            .map(|b| {
-                                let mut v = balances_value(b);
-                                v["key"] = json!(b.account);
-                                v
-                            })
-                            .collect(),
-                    )
-                })
+                self.view(cx, |r| st.account_balances(r, minconf))?
+                    .map(|bs| {
+                        Value::Array(
+                            bs.iter()
+                                .map(|b| {
+                                    let mut v = balances_value(b);
+                                    v["key"] = json!(b.account);
+                                    v
+                                })
+                                .collect(),
+                        )
+                    })
             }
             "store.unspent_tickets" => {
                 a.check(&["syncheight", "include_immature"])?;
                 let sh = Self::i32_arg(a, "syncheight")?;
                 let imm = Self::bool_arg(a, "include_immature")?;
-                self.view(|r| st.unspent_tickets(r, sh, imm))?
+                self.view(cx, |r| st.unspent_tickets(r, sh, imm))?
                     .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
             }
             "store.exists_utxo" => {
                 a.check(&["outpoint"])?;
                 let op = self.arg_outpoint(a, "outpoint")?;
-                self.view(|r| st.exists_utxo(r, &op))?.map(|v| json!(v))
+                self.view(cx, |r| st.exists_utxo(r, &op))?.map(|v| json!(v))
             }
             "store.is_unspent_outpoint" => {
                 a.check(&["outpoint"])?;
                 let op = self.arg_outpoint(a, "outpoint")?;
-                self.view(|r| st.is_unspent_outpoint(r, &op))?
+                self.view(cx, |r| st.is_unspent_outpoint(r, &op))?
                     .map(|v| json!(v))
             }
             "store.unspent_outputs" => {
                 a.check(&[])?;
-                self.view(|r| st.unspent_outputs(r))?
+                self.view(cx, |r| st.unspent_outputs(r))?
                     .map(|cs| Value::Array(cs.iter().map(credit_value).collect()))
             }
             "store.unspent_output" => {
                 a.check(&["outpoint", "include_mempool"])?;
                 let op = self.arg_outpoint(a, "outpoint")?;
                 let mempool = Self::bool_arg(a, "include_mempool")?;
-                self.view(|r| st.unspent_output(r, &op, mempool))?
+                self.view(cx, |r| st.unspent_output(r, &op, mempool))?
                     .map(|c| credit_value(&c))
             }
             "store.for_each_unspent_outpoint" => {
                 a.check(&[])?;
                 let mut out = Vec::new();
-                let r = self.view(|r| {
+                let r = self.view(cx, |r| {
                     st.for_each_unspent_outpoint(r, |op| {
                         out.push(outpoint_value(op));
                         Ok(())
@@ -810,7 +811,7 @@ impl Runner {
                 let rec = self.arg_tx(a, "tx")?;
                 let m = self.arg_meta(a, "block")?;
                 let what = format!("{} block", a.op);
-                self.view(|r| {
+                self.view(cx, |r| {
                     let meta = self.resolve_meta(r, &m, &what)?;
                     st.previous_pk_scripts(r, &rec, meta.as_ref().map(|m| &m.block))
                 })?
@@ -818,16 +819,17 @@ impl Runner {
             }
             "store.unspent_output_count" => {
                 a.check(&[])?;
-                self.view(|r| st.unspent_output_count(r))?.map(|n| json!(n))
+                self.view(cx, |r| st.unspent_output_count(r))?
+                    .map(|n| json!(n))
             }
             "store.own_ticket" => {
                 a.check(&["ticket"])?;
                 let h = self.arg_hash(a, "ticket")?;
-                self.view(|r| st.own_ticket(r, &h))?.map(|v| json!(v))
+                self.view(cx, |r| st.own_ticket(r, &h))?.map(|v| json!(v))
             }
             "store.iterate_tickets" => {
                 a.check(&[])?;
-                self.view(|r| st.iterate_tickets(r))?.map(|ts| {
+                self.view(cx, |r| st.iterate_tickets(r))?.map(|ts| {
                     Value::Array(
                         ts.iter()
                             .map(|t| {
@@ -843,7 +845,7 @@ impl Runner {
             "store.tx_details" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| st.tx_details(r, &h))?
+                self.view(cx, |r| st.tx_details(r, &h))?
                     .map(|d| details_value(&d))
             }
             "store.unique_tx_details" => {
@@ -851,7 +853,7 @@ impl Runner {
                 let h = self.arg_hash(a, "tx")?;
                 let m = self.arg_meta(a, "block")?;
                 let what = format!("{} block", a.op);
-                self.view(|r| {
+                self.view(cx, |r| {
                     let meta = self.resolve_meta(r, &m, &what)?;
                     st.unique_tx_details(r, &h, meta.as_ref().map(|m| &m.block))
                 })?
@@ -860,7 +862,7 @@ impl Runner {
             "store.ticket_details" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| {
+                self.view(cx, |r| {
                     let d = st.tx_details(r, &h)?;
                     st.ticket_details(r, &d)
                 })?
@@ -875,24 +877,25 @@ impl Runner {
             "store.tx" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| st.tx(r, &h))?
+                self.view(cx, |r| st.tx(r, &h))?
                     .map(|t| json!(hex(&t.serialize())))
             }
             "store.exists_tx" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| st.exists_tx(r, &h))?.map(|v| json!(v))
+                self.view(cx, |r| st.exists_tx(r, &h))?.map(|v| json!(v))
             }
             "store.exists_tx_mined_or_unmined" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| st.exists_tx_mined_or_unmined(r, &h))?
+                self.view(cx, |r| st.exists_tx_mined_or_unmined(r, &h))?
                     .map(|(m, u)| json!({"mined": m, "unmined": u}))
             }
             "store.tx_block_height" => {
                 a.check(&["tx"])?;
                 let h = self.arg_hash(a, "tx")?;
-                self.view(|r| st.tx_block_height(r, &h))?.map(|v| json!(v))
+                self.view(cx, |r| st.tx_block_height(r, &h))?
+                    .map(|v| json!(v))
             }
             "store.range_transactions" => {
                 a.check(&["begin", "end", "stop_after"])?;
@@ -903,7 +906,7 @@ impl Runner {
                     -1
                 };
                 let mut batches = Vec::new();
-                let r = self.view(|r| {
+                let r = self.view(cx, |r| {
                     st.range_transactions(r, begin, end, |ds| {
                         batches.push(Value::Array(ds.iter().map(details_value).collect()));
                         Ok(stop >= 0
@@ -923,7 +926,7 @@ impl Runner {
                     -1
                 };
                 let mut out = Vec::new();
-                let r = self.view(|r| {
+                let r = self.view(cx, |r| {
                     st.range_blocks(r, begin, end, |b| {
                         out.push(block_value(b));
                         Ok(stop >= 0
@@ -934,7 +937,7 @@ impl Runner {
             }
             "store.unmined_txs" => {
                 a.check(&[])?;
-                self.view(|r| st.unmined_txs(r))?.map(|recs| {
+                self.view(cx, |r| st.unmined_txs(r))?.map(|recs| {
                     let pos: HashMap<Hash32, usize> = recs
                         .iter()
                         .enumerate()
@@ -959,7 +962,7 @@ impl Runner {
             }
             "store.unmined_tx_hashes" => {
                 a.check(&[])?;
-                self.view(|r| st.unmined_tx_hashes(r))?
+                self.view(cx, |r| st.unmined_tx_hashes(r))?
                     .map(|hs_| Value::Array(hs_.iter().map(|h| json!(hs(h))).collect()))
             }
             "store.add_ticket_commitment" => {
@@ -967,14 +970,14 @@ impl Runner {
                 let rec = self.arg_tx(a, "tx")?;
                 let index = a.u32("index")?;
                 let account = a.u32("account")?;
-                ok_null(self.update(|tx| st.add_ticket_commitment(tx, &rec, index, account))?)
+                ok_null(self.update(cx, |tx| st.add_ticket_commitment(tx, &rec, index, account))?)
             }
             "store.redeem_ticket_commitments" => {
                 a.check(&["tx", "block"])?;
                 let rec = self.arg_tx(a, "tx")?;
                 let m = self.arg_meta(a, "block")?;
                 let what = format!("{} block", a.op);
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let block = self.resolve_meta(tx, &m, &what)?;
                     st.redeem_ticket_commitments(tx, &rec, block.as_ref())
                 })?)
@@ -985,7 +988,7 @@ impl Runner {
                 let index = a.u32("index")?;
                 let m = self.arg_meta(a, "block")?;
                 let what = format!("{} block", a.op);
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let block = self.resolve_meta(tx, &m, &what)?;
                     st.add_multisig_out(tx, &rec, block.as_ref(), index)
                 })?)
@@ -995,19 +998,19 @@ impl Runner {
                 let op = self.arg_outpoint(a, "outpoint")?;
                 let spender = self.arg_hash(a, "spender")?;
                 let index = a.u32("index")?;
-                ok_null(self.update(|tx| st.spend_multisig_out(tx, &op, &spender, index))?)
+                ok_null(self.update(cx, |tx| st.spend_multisig_out(tx, &op, &spender, index))?)
             }
             "store.get_multisig_output" => {
                 a.check(&["outpoint"])?;
                 let op = self.arg_outpoint(a, "outpoint")?;
-                self.view(|r| st.get_multisig_output(r, &op))?
+                self.view(cx, |r| st.get_multisig_output(r, &op))?
                     .map(|m| multisig_value(&m))
             }
             "store.unspent_multisig_credits_for_address" => {
                 a.check(&["addr"])?;
                 let aref = self.addr_ref(a, "addr")?;
                 let what = format!("{} addr", a.op);
-                self.view(|r| {
+                self.view(cx, |r| {
                     let addr = self.resolve(r, aref, &what)?;
                     st.unspent_multisig_credits_for_address(r, &addr)
                 })?
@@ -1032,7 +1035,7 @@ impl Runner {
                 let sync = Self::i32_arg(a, "syncheight")?;
                 let mut prng = self.take_stream(a)?;
                 let drawn = std::sync::Arc::clone(&self.drawn);
-                let r = self.view(|r| {
+                let r = self.view(cx, |r| {
                     let mut s = Stream {
                         prng: &mut prng,
                         drawn: &drawn,
@@ -1082,7 +1085,7 @@ impl Runner {
                 };
                 let mut prng = self.take_stream(a)?;
                 let drawn = std::sync::Arc::clone(&self.drawn);
-                let r = self.view(|r| {
+                let r = self.view(cx, |r| {
                     let skip = |op: &OutPoint| {
                         ignore
                             .as_ref()
@@ -1123,7 +1126,7 @@ impl Runner {
             "store.spender" => {
                 a.check(&["outpoint"])?;
                 let op = self.arg_outpoint(a, "outpoint")?;
-                self.view(|r| st.spender(r, &op))?
+                self.view(cx, |r| st.spender(r, &op))?
                     .map(|(tx, index)| json!({"tx": tx.tx_hash().to_string(), "index": index}))
             }
             other => return Err(fault(format!("txops: {other} is not handled"))),
@@ -1131,7 +1134,7 @@ impl Runner {
     }
 
     /// `tx.build` (Go's `opTxBuild`).
-    fn tx_build(&mut self, a: &Args<'_>) -> Result<OpResult, String> {
+    fn tx_build(&mut self, cx: &mut Cx<'_, '_>, a: &Args<'_>) -> Result<OpResult, String> {
         a.check(&[
             "label", "version", "locktime", "expiry", "inputs", "outputs", "received",
         ])?;
@@ -1240,7 +1243,7 @@ impl Runner {
         }
         let outs = outs.clone();
         let label2 = label.clone();
-        let built = self.view(|r| {
+        let built = self.view(cx, |r| {
             for (i, out) in outs.iter().enumerate() {
                 let what = format!("tx.build {label2} output {i}");
                 m.tx_out.push(self.build_output(r, out, &what)?);
@@ -1269,12 +1272,7 @@ impl Runner {
     /// Go's `buildOutput`. Script faults surface as `AnyError`s tagged
     /// `script fault:`, which [`Runner::tx_build`]'s caller turns back into
     /// faults.
-    fn build_output(
-        &self,
-        r: &mut purse_store::ReadTx,
-        o: &Value,
-        what: &str,
-    ) -> Result<TxOut, AnyError> {
+    fn build_output(&self, r: &mut Rtx<'_, '_>, o: &Value, what: &str) -> Result<TxOut, AnyError> {
         let sf = |msg: String| AnyError::new(format!("script fault: {msg}"));
         let o = o
             .as_object()
@@ -1282,7 +1280,7 @@ impl Runner {
         let value = o.get("value").and_then(Value::as_i64).unwrap_or(0);
         let mut n = 0;
         let mut script = Vec::new();
-        let addr = |v: &Value, r: &mut purse_store::ReadTx| -> Result<Address, AnyError> {
+        let addr = |v: &Value, r: &mut Rtx<'_, '_>| -> Result<Address, AnyError> {
             let a = Args {
                 op: what,
                 map: &purse_testutil::serde_json::Map::from_iter([("a".to_owned(), v.clone())]),
@@ -1393,13 +1391,13 @@ impl Runner {
 
     /// `store.extend_main_chain`, with Go's header and filter builder
     /// (`buildHeader`) or the stored header and filter of `again`.
-    fn extend(&mut self, a: &Args<'_>) -> Result<OpResult, String> {
+    fn extend(&mut self, cx: &mut Cx<'_, '_>, a: &Args<'_>) -> Result<OpResult, String> {
         let store = self.txstore.clone();
         if a.has("again") {
             a.check(&["again"])?;
             let b = self.arg_block(a, "again")?;
             let what = format!("{} again", a.op);
-            return self.update(|tx| {
+            return self.update(cx, |tx| {
                 let h = self.resolve_block(tx, &b)?;
                 let header = store
                     .get_block_header(tx, &h)
@@ -1470,7 +1468,7 @@ impl Runner {
         let chain_time = self.chain_time;
         let bits = self.params.pow_limit_bits;
         let what = format!("{} parent", a.op);
-        let r = self.update(|tx| {
+        let r = self.update(cx, |tx| {
             let (mut parent_hash, mut height) = store.main_chain_tip(tx)?;
             if let Some(p) = &parent {
                 parent_hash = self.resolve_block(tx, p)?;

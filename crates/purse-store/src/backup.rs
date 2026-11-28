@@ -177,7 +177,7 @@ use crate::store::{
     FORMAT_MAGIC, SCHEMA_VERSION, Store, create_private_dirs, create_private_file, sync_dir,
     sync_parents,
 };
-use crate::txn::{Raw, ReadTx, definition, meta_u32};
+use crate::txn::{Iter, Raw, ReadTx, WriteReader, WriteTx, definition, meta_u32};
 use crate::wallet;
 
 /// The directory of a network's backups, inside its data directory
@@ -1173,102 +1173,125 @@ fn verify_db(
     })
 }
 
-/// Decodes every row of table `T`.
-fn rows_of<T: Table>(tx: &ReadTx) -> Result<()> {
-    for r in tx.iter::<T>()? {
+/// Decodes every row a walk of one table yields.
+fn rows_of<T: Table>(walk: Result<Iter<'_, T>>) -> Result<()> {
+    for r in walk? {
         r?;
     }
     Ok(())
 }
 
-impl ReadTx {
-    /// Decodes every key and value of every table by its table's types
-    /// and fails with the first corrupt-row error ([`Error::corrupt_row`]):
-    /// `meta` row by row through its typed accessors (its `format` row must
-    /// be [`FORMAT_MAGIC`], and the backup record's row, which only a
-    /// backup holds, is skipped), every `wallet` row by its value type, and
-    /// every other table through [`ReadTx::iter`]. Costs a walk of the
-    /// whole store; for a store whose origin is not trusted
-    /// ([`verify_backup`]) and for tests.
-    pub fn check_rows(&self) -> Result<()> {
-        for &id in TableId::ALL {
-            match id {
-                TableId::Meta => {
-                    for r in self.range_raw(
-                        TableId::Meta,
-                        std::ops::Bound::Unbounded,
-                        std::ops::Bound::Unbounded,
-                    )? {
-                        let (k, v) = r?;
-                        if k == BACKUP_RECORD_KEY {
-                            continue;
+/// The rows' check, defined for a read transaction and for a write
+/// transaction's shared-borrow reads (`WriteTx::check_rows`).
+macro_rules! rows_check {
+    () => {
+        /// Decodes every key and value of every table by its table's types
+        /// and fails with the first corrupt-row error ([`Error::corrupt_row`]):
+        /// `meta` row by row through its typed accessors (its `format` row must
+        /// be [`FORMAT_MAGIC`], and the backup record's row, which only a
+        /// backup holds, is skipped), every `wallet` row by its value type, and
+        /// every other table through [`ReadTx::iter`]. Costs a walk of the
+        /// whole store; for a store whose origin is not trusted
+        /// ([`verify_backup`]) and for tests.
+        pub fn check_rows(&self) -> Result<()> {
+            for &id in TableId::ALL {
+                match id {
+                    TableId::Meta => {
+                        for r in self.range_raw(
+                            TableId::Meta,
+                            std::ops::Bound::Unbounded,
+                            std::ops::Bound::Unbounded,
+                        )? {
+                            let (k, v) = r?;
+                            if k == BACKUP_RECORD_KEY {
+                                continue;
+                            }
+                            let key = MetaKey::decode(&k).map_err(|e| Error::corrupt(id, e))?;
+                            if key == MetaKey::Format && v != FORMAT_MAGIC {
+                                return Err(Error::foreign("unknown format row"));
+                            }
                         }
-                        let key = MetaKey::decode(&k).map_err(|e| Error::corrupt(id, e))?;
-                        if key == MetaKey::Format && v != FORMAT_MAGIC {
-                            return Err(Error::foreign("unknown format row"));
-                        }
+                        self.schema_version()?;
+                        self.tip()?;
+                        self.birth_state()?;
+                        self.have_cfilters()?;
+                        self.processed_marker()?;
                     }
-                    self.schema_version()?;
-                    self.tip()?;
-                    self.birth_state()?;
-                    self.have_cfilters()?;
-                    self.processed_marker()?;
+                    TableId::Wallet => {
+                        rows_of(self.iter::<Wallet>())?;
+                        self.wallet_row::<wallet::CoinTypeLegacy>()?;
+                        self.wallet_row::<wallet::CoinTypeSlip0044>()?;
+                        self.wallet_row::<wallet::CryptoKeyPriv>()?;
+                        self.wallet_row::<wallet::CryptoKeyPub>()?;
+                        self.wallet_row::<wallet::LastAccount>()?;
+                        self.wallet_row::<wallet::LastImportedAccount>()?;
+                        self.wallet_row::<wallet::MasterKeyPriv>()?;
+                        self.wallet_row::<wallet::MasterKeyPub>()?;
+                        self.wallet_row::<wallet::Slip0044Account0>()?;
+                        self.wallet_row::<wallet::WatchOnly>()?;
+                    }
+                    TableId::Accounts => rows_of(self.iter::<Accounts>())?,
+                    TableId::AccountNames => rows_of(self.iter::<AccountNames>())?,
+                    TableId::AddrByHash => rows_of(self.iter::<AddrByHash>())?,
+                    TableId::AddrByPath => rows_of(self.iter::<AddrByPath>())?,
+                    TableId::AddrByAcctSha => rows_of(self.iter::<AddrByAcctSha>())?,
+                    TableId::Headers => rows_of(self.iter::<Headers>())?,
+                    TableId::Blocks => rows_of(self.iter::<Blocks>())?,
+                    TableId::BlockByHash => rows_of(self.iter::<BlockByHash>())?,
+                    TableId::CFilters => rows_of(self.iter::<CFilters>())?,
+                    TableId::HeadersDetached => rows_of(self.iter::<HeadersDetached>())?,
+                    TableId::CFiltersDetached => rows_of(self.iter::<CFiltersDetached>())?,
+                    TableId::TxMined => rows_of(self.iter::<TxMined>())?,
+                    TableId::TxUnmined => rows_of(self.iter::<TxUnmined>())?,
+                    TableId::Unpublished => rows_of(self.iter::<Unpublished>())?,
+                    TableId::History => rows_of(self.iter::<History>())?,
+                    TableId::AcctHistory => rows_of(self.iter::<AcctHistory>())?,
+                    TableId::Credits => rows_of(self.iter::<Credits>())?,
+                    TableId::CreditsInvalidated => rows_of(self.iter::<CreditsInvalidated>())?,
+                    TableId::Unspent => rows_of(self.iter::<Unspent>())?,
+                    TableId::UnminedCredits => rows_of(self.iter::<UnminedCredits>())?,
+                    TableId::UnminedInputs => rows_of(self.iter::<UnminedInputs>())?,
+                    TableId::Debits => rows_of(self.iter::<Debits>())?,
+                    TableId::DebitsInvalidated => rows_of(self.iter::<DebitsInvalidated>())?,
+                    TableId::Tickets => rows_of(self.iter::<Tickets>())?,
+                    TableId::Commitments => rows_of(self.iter::<Commitments>())?,
+                    TableId::CommitmentsUnspent => rows_of(self.iter::<CommitmentsUnspent>())?,
+                    TableId::Balances => rows_of(self.iter::<Balances>())?,
+                    TableId::BalanceHeights => rows_of(self.iter::<BalanceHeights>())?,
+                    TableId::MultisigOuts => rows_of(self.iter::<MultisigOuts>())?,
+                    TableId::MultisigUnspent => rows_of(self.iter::<MultisigUnspent>())?,
+                    TableId::VspTickets => rows_of(self.iter::<VspTickets>())?,
+                    TableId::VspFeeStatus => rows_of(self.iter::<VspFeeStatus>())?,
+                    TableId::VspHosts => rows_of(self.iter::<VspHosts>())?,
+                    TableId::VspPubKeys => rows_of(self.iter::<VspPubKeys>())?,
+                    TableId::TSpendPolicies => rows_of(self.iter::<TSpendPolicies>())?,
+                    TableId::TreasuryKeyPolicies => rows_of(self.iter::<TreasuryKeyPolicies>())?,
+                    TableId::VspTSpendPolicies => rows_of(self.iter::<VspTSpendPolicies>())?,
+                    TableId::VspTreasuryKeyPolicies => {
+                        rows_of(self.iter::<VspTreasuryKeyPolicies>())?
+                    }
+                    TableId::AgendaPrefs => rows_of(self.iter::<AgendaPrefs>())?,
+                    TableId::TicketAgendaPrefs => rows_of(self.iter::<TicketAgendaPrefs>())?,
                 }
-                TableId::Wallet => {
-                    rows_of::<Wallet>(self)?;
-                    self.wallet_row::<wallet::CoinTypeLegacy>()?;
-                    self.wallet_row::<wallet::CoinTypeSlip0044>()?;
-                    self.wallet_row::<wallet::CryptoKeyPriv>()?;
-                    self.wallet_row::<wallet::CryptoKeyPub>()?;
-                    self.wallet_row::<wallet::LastAccount>()?;
-                    self.wallet_row::<wallet::LastImportedAccount>()?;
-                    self.wallet_row::<wallet::MasterKeyPriv>()?;
-                    self.wallet_row::<wallet::MasterKeyPub>()?;
-                    self.wallet_row::<wallet::Slip0044Account0>()?;
-                    self.wallet_row::<wallet::WatchOnly>()?;
-                }
-                TableId::Accounts => rows_of::<Accounts>(self)?,
-                TableId::AccountNames => rows_of::<AccountNames>(self)?,
-                TableId::AddrByHash => rows_of::<AddrByHash>(self)?,
-                TableId::AddrByPath => rows_of::<AddrByPath>(self)?,
-                TableId::AddrByAcctSha => rows_of::<AddrByAcctSha>(self)?,
-                TableId::Headers => rows_of::<Headers>(self)?,
-                TableId::Blocks => rows_of::<Blocks>(self)?,
-                TableId::BlockByHash => rows_of::<BlockByHash>(self)?,
-                TableId::CFilters => rows_of::<CFilters>(self)?,
-                TableId::HeadersDetached => rows_of::<HeadersDetached>(self)?,
-                TableId::CFiltersDetached => rows_of::<CFiltersDetached>(self)?,
-                TableId::TxMined => rows_of::<TxMined>(self)?,
-                TableId::TxUnmined => rows_of::<TxUnmined>(self)?,
-                TableId::Unpublished => rows_of::<Unpublished>(self)?,
-                TableId::History => rows_of::<History>(self)?,
-                TableId::AcctHistory => rows_of::<AcctHistory>(self)?,
-                TableId::Credits => rows_of::<Credits>(self)?,
-                TableId::CreditsInvalidated => rows_of::<CreditsInvalidated>(self)?,
-                TableId::Unspent => rows_of::<Unspent>(self)?,
-                TableId::UnminedCredits => rows_of::<UnminedCredits>(self)?,
-                TableId::UnminedInputs => rows_of::<UnminedInputs>(self)?,
-                TableId::Debits => rows_of::<Debits>(self)?,
-                TableId::DebitsInvalidated => rows_of::<DebitsInvalidated>(self)?,
-                TableId::Tickets => rows_of::<Tickets>(self)?,
-                TableId::Commitments => rows_of::<Commitments>(self)?,
-                TableId::CommitmentsUnspent => rows_of::<CommitmentsUnspent>(self)?,
-                TableId::Balances => rows_of::<Balances>(self)?,
-                TableId::BalanceHeights => rows_of::<BalanceHeights>(self)?,
-                TableId::MultisigOuts => rows_of::<MultisigOuts>(self)?,
-                TableId::MultisigUnspent => rows_of::<MultisigUnspent>(self)?,
-                TableId::VspTickets => rows_of::<VspTickets>(self)?,
-                TableId::VspFeeStatus => rows_of::<VspFeeStatus>(self)?,
-                TableId::VspHosts => rows_of::<VspHosts>(self)?,
-                TableId::VspPubKeys => rows_of::<VspPubKeys>(self)?,
-                TableId::TSpendPolicies => rows_of::<TSpendPolicies>(self)?,
-                TableId::TreasuryKeyPolicies => rows_of::<TreasuryKeyPolicies>(self)?,
-                TableId::VspTSpendPolicies => rows_of::<VspTSpendPolicies>(self)?,
-                TableId::VspTreasuryKeyPolicies => rows_of::<VspTreasuryKeyPolicies>(self)?,
-                TableId::AgendaPrefs => rows_of::<AgendaPrefs>(self)?,
-                TableId::TicketAgendaPrefs => rows_of::<TicketAgendaPrefs>(self)?,
             }
+            Ok(())
         }
-        Ok(())
+    };
+}
+
+impl ReadTx {
+    rows_check!();
+}
+
+impl WriteReader<'_, '_> {
+    rows_check!();
+}
+
+impl WriteTx<'_> {
+    /// [`ReadTx::check_rows`] over this transaction's rows, its own writes
+    /// included (opening, and so creating, every table first): a check of
+    /// a state before it is committed, for tests.
+    pub fn check_rows(&mut self) -> Result<()> {
+        self.checked_reader()?.check_rows()
     }
 }

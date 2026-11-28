@@ -70,7 +70,8 @@
 //! (`tests/txstore.rs`, `check_rows`) runs both parts after its own
 //! recomputation, after every step of every random sequence and targeted
 //! test; the operation-script runner runs them after every operation of
-//! every script; and `every_state_of_go_s_reproduced_defects_passes_the_check`
+//! every script, and after every member of a group inside the group's
+//! transaction; and `every_state_of_go_s_reproduced_defects_passes_the_check`
 //! writes each state Go's reproduced defects leave in these tables and
 //! holds both parts to accept it.
 

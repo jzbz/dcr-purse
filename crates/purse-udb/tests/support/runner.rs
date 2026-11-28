@@ -15,6 +15,10 @@
 //! record and transaction tables' consistency checks, ADR-0018 BK4); a
 //! store that fails is a fault, so every state a script passes through,
 //! those of Go's reproduced defects included, is one the check accepts.
+//! A group is one top-level operation run in one transaction: the same
+//! checks also run after each of its members, on the group's transaction
+//! with its writes so far (`runner/groups.rs`), and the check after the
+//! group sees the store its transaction left, committed or rolled back.
 //! It implements the address
 //! manager operations ported so far ([`SUPPORTED`]) and refuses any other
 //! operation as a script fault, so no script can pass by skipping one.
@@ -24,9 +28,11 @@
 //! transaction committed on success and rolled back on an error for its
 //! `writeTx` ones. A conversion and a passphrase change run in the write
 //! transaction the manager begins itself, committed and rolled back the
-//! same way. Address arguments take Go's reference forms (an encoded
-//! address, `{"ref": label}`, `{"acct", "branch", "index"}`, `{"p2sh":
-//! hex}`), resolved inside the operation's transaction with Go's texts.
+//! same way. The members of an `update` or `view` group run in the group's
+//! one transaction instead (`runner/groups.rs`). Address arguments take
+//! Go's reference forms (an encoded address, `{"ref": label}`, `{"acct",
+//! "branch", "index"}`, `{"p2sh": hex}`), resolved inside the operation's
+//! transaction with Go's texts.
 //!
 //! Its randomness comes from a SplitMix64 stream keyed by `setup.rand`:
 //! reproducible from run to run, but not Go's stream (ADR-0002 open item
@@ -76,8 +82,10 @@ use purse_udb::export::{ExportOptions, export};
 use purse_udb::txstore::{TxRecord, TxStore};
 
 pub mod auxops;
-mod groups;
+pub mod groups;
 mod txops;
+
+use groups::{Cx, Rtx};
 
 /// The operations this runner implements, every one with Go's arguments
 /// and result shape.
@@ -334,10 +342,34 @@ struct Runner {
     /// this one only while nothing else has drawn (`txops.rs`).
     stream: Option<dcroxide_crypto::rand::Prng>,
     stream_mark: u64,
-    /// Whether an `update` group's member is running.
-    in_group: bool,
     /// The exports of the checkpoints so far, by name (`Run::checkpoints`).
     checkpoints: Vec<(String, String)>,
+    /// Whether the wallet was converted to watching-only in this process
+    /// and not reopened since: Go's manager then answers some methods
+    /// from memory, panicking where its private crypto key is nil
+    /// (QK-0763, QK-0765), so a group member may not tolerate the error
+    /// dcr-purse returns there (`groups::LIVE_CONVERSION_STAND_INS`).
+    converted_live: bool,
+    /// The index of the top-level operation running.
+    op_index: usize,
+    /// A test's edit of the store ([`run_corrupted`]).
+    corrupt: Option<Corruption>,
+}
+
+/// A test's edit of the store at one point of a run ([`run_corrupted`]),
+/// made where the consistency checks must then refuse it, to show that
+/// they run there.
+#[derive(Clone, Copy)]
+pub struct Corruption {
+    /// The index of the top-level operation, a group.
+    pub op: usize,
+    /// Where: `Some(j)`, inside the `update` group's transaction right
+    /// after its member `j` ran, before that member's check; `None`, in a
+    /// write transaction of its own after the group's transaction ended,
+    /// committed or rolled back, before the per-operation check.
+    pub member: Option<usize>,
+    /// The edit.
+    pub edit: fn(&mut WriteTx<'_>) -> purse_store::Result<()>,
 }
 
 /// An address argument before its resolution: ready, or the P2PKH address
@@ -504,45 +536,64 @@ type OpResult = Result<Value, AnyError>;
 
 impl Runner {
     fn store(&self) -> &Store {
-        self.store.as_ref().expect("store open")
+        // A group holds the store while its members run, and its members
+        // reach it only through the group's transaction (`groups.rs`).
+        self.store.as_ref().expect("store open, outside a group")
     }
 
     fn mgr(&self) -> &Manager {
         self.mgr.as_ref().expect("manager open")
     }
 
-    /// Runs `f` on a read transaction, as a Go caller's `walletdb.View`.
+    /// Runs `f` on a read transaction, as a Go caller's `walletdb.View`:
+    /// its own at the top level, or the transaction of the group `cx`
+    /// names (a `view` group's read transaction, or an `update` group's
+    /// write transaction, whose writes so far it reads).
     fn view<T>(
         &self,
-        f: impl FnOnce(&mut purse_store::ReadTx) -> Result<T, AnyError>,
+        cx: &mut Cx<'_, '_>,
+        f: impl FnOnce(&mut Rtx<'_, '_>) -> Result<T, AnyError>,
     ) -> Result<Result<T, AnyError>, String> {
-        let mut tx = self
-            .store()
-            .read()
-            .map_err(|e| fault(format!("read: {e}")))?;
-        let r = f(&mut tx);
-        tx.close().map_err(|e| fault(format!("close: {e}")))?;
-        Ok(r)
+        match cx {
+            Cx::Top => {
+                let mut tx = self
+                    .store()
+                    .read()
+                    .map_err(|e| fault(format!("read: {e}")))?;
+                let r = f(&mut Rtx::Read(&mut tx));
+                tx.close().map_err(|e| fault(format!("close: {e}")))?;
+                Ok(r)
+            }
+            Cx::View(tx) => Ok(f(&mut Rtx::Read(tx))),
+            Cx::Update(tx) => Ok(f(&mut Rtx::Write(tx))),
+        }
     }
 
     /// Runs `f` in a write transaction, committed when `f` succeeds and
     /// rolled back when it fails, as Go's `walletdb.Update`; inside an
-    /// `update` group, committed either way, as Go's group transaction
-    /// keeps what a member wrote before its error (`groups.rs`).
+    /// `update` group, in the group's transaction, which keeps what `f`
+    /// wrote before an error until the group commits or rolls back
+    /// (`groups.rs`). A `view` group has no write transaction to give: the
+    /// script is refused, as Go's runner refuses a changing operation in a
+    /// `view`.
     fn update<T>(
         &self,
+        cx: &mut Cx<'_, '_>,
         f: impl FnOnce(&mut WriteTx<'_>) -> Result<T, AnyError>,
     ) -> Result<Result<T, AnyError>, String> {
-        if self.in_group {
-            let r: Result<Result<T, AnyError>, purse_store::Error> =
-                self.store().update(|tx| Ok(f(tx)));
-            return r.map_err(|e| fault(format!("update: {e}")));
-        }
-        let r: Result<T, RunErr> = self.store().update(|tx| f(tx).map_err(RunErr::Udb));
-        match r {
-            Ok(v) => Ok(Ok(v)),
-            Err(RunErr::Udb(e)) => Ok(Err(e)),
-            Err(RunErr::Store(e)) => Err(fault(format!("update: {e}"))),
+        match cx {
+            Cx::Top => {
+                let r: Result<T, RunErr> = self.store().update(|tx| f(tx).map_err(RunErr::Udb));
+                match r {
+                    Ok(v) => Ok(Ok(v)),
+                    Err(RunErr::Udb(e)) => Ok(Err(e)),
+                    Err(RunErr::Store(e)) => Err(fault(format!("update: {e}"))),
+                }
+            }
+            Cx::Update(tx) => Ok(f(tx)),
+            Cx::View(_) => Err(fault(
+                "a changing operation needs a read-write transaction, not a view",
+            )),
         }
     }
 
@@ -639,21 +690,26 @@ impl Runner {
     }
 
     fn reopen(&mut self) -> Result<OpResult, String> {
+        let cx = &mut Cx::Top;
         drop(self.mgr.take());
+        self.converted_live = false;
         if let Some(s) = self.store.take() {
             s.close().map_err(|e| fault(format!("close store: {e}")))?;
         }
         self.store = Some(Store::open(&self.path).map_err(|e| fault(format!("open store: {e}")))?);
         let rng = source(&mut self.rng, &self.drawn);
-        let opened =
-            self.view(|tx| Manager::open(tx, &self.chain, &self.pub_pass, rng, Limits::DEFAULT))?;
+        let opened = self.view(cx, |tx| {
+            Manager::open(tx, &self.chain, &self.pub_pass, rng, Limits::DEFAULT)
+        })?;
         Ok(opened.map(|m| {
             self.mgr = Some(m.with_num_cpu(self.ncpu));
             Value::Null
         }))
     }
 
-    fn op(&mut self, raw: &Value) -> Result<(String, OpResult), String> {
+    /// One operation, in its own transaction at the top level or in its
+    /// group's (`cx`).
+    fn op(&mut self, cx: &mut Cx<'_, '_>, raw: &Value) -> Result<(String, OpResult), String> {
         let map = raw
             .as_object()
             .ok_or_else(|| fault("an operation must be an object"))?;
@@ -729,7 +785,8 @@ impl Runner {
                 a.check(&["pass"])?;
                 let p = a.str("pass")?.as_bytes().to_vec();
                 // Go runs it in a View, for the bucket it never reads.
-                self.view(|_| self.mgr().unlock(&p))?.map(|()| Value::Null)
+                self.view(cx, |_| self.mgr().unlock(&p))?
+                    .map(|()| Value::Null)
             }
             "mgr.convert_to_watching_only" => {
                 a.check(&[])?;
@@ -737,10 +794,14 @@ impl Runner {
                 // changes the manager's memory only after the commit). As
                 // Go's runner, a converted wallet's exports get no private
                 // passphrase.
+                let was_watching = self.mgr().watching_only();
                 let r = self.mgr().convert_to_watching_only(self.store());
                 if r.is_ok() {
                     self.priv_pass = None;
                     self.acct_pass.clear();
+                    // Go's conversion of a watching-only wallet returns
+                    // before it touches memory.
+                    self.converted_live |= !was_watching;
                 }
                 ok_null(r)
             }
@@ -770,16 +831,16 @@ impl Runner {
             "mgr.unlock_account" => {
                 a.check(&["account", "pass"])?;
                 let (acct, p) = (a.u32("account")?, a.str("pass")?.as_bytes().to_vec());
-                ok_null(self.view(|tx| self.mgr().unlock_account(tx, acct, &p))?)
+                ok_null(self.view(cx, |tx| self.mgr().unlock_account(tx, acct, &p))?)
             }
             "mgr.lock_account" => {
                 let acct = account_arg(&a)?;
-                ok_null(self.view(|tx| self.mgr().lock_account(tx, acct))?)
+                ok_null(self.view(cx, |tx| self.mgr().lock_account(tx, acct))?)
             }
             "mgr.set_account_passphrase" => {
                 a.check(&["account", "pass"])?;
                 let (acct, p) = (a.u32("account")?, a.str("pass")?.as_bytes().to_vec());
-                let r = self.update(|tx| self.mgr().set_account_passphrase(tx, acct, &p))?;
+                let r = self.update(cx, |tx| self.mgr().set_account_passphrase(tx, acct, &p))?;
                 if r.is_ok() {
                     if p.is_empty() {
                         self.acct_pass.remove(&acct);
@@ -798,18 +859,19 @@ impl Runner {
             }
             "mgr.coin_type" => {
                 a.check(&[])?;
-                self.view(|tx| self.mgr().coin_type(tx))?.map(|v| json!(v))
+                self.view(cx, |tx| self.mgr().coin_type(tx))?
+                    .map(|v| json!(v))
             }
             "mgr.coin_type_priv_key" => {
                 a.check(&[])?;
-                key(self.view(|tx| self.mgr().coin_type_priv_key(tx))?)
+                key(self.view(cx, |tx| self.mgr().coin_type_priv_key(tx))?)
             }
             "mgr.upgrade_to_slip0044_coin_type" => {
                 a.check(&[])?;
                 // `null`, as for Go's call, unless account 0's own
                 // passphrase was dropped (QK-0767): `oprunner` reports that
                 // from Go's state before the call.
-                self.update(|tx| self.mgr().upgrade_to_slip0044_coin_type(tx))?
+                self.update(cx, |tx| self.mgr().upgrade_to_slip0044_coin_type(tx))?
                     .map(|dropped| {
                         if dropped {
                             json!({"passphrase_dropped": true})
@@ -845,27 +907,27 @@ impl Runner {
             }
             "mgr.last_account" => {
                 a.check(&[])?;
-                self.view(|tx| self.mgr().last_account(tx))?
+                self.view(cx, |tx| self.mgr().last_account(tx))?
                     .map(|v| json!(v))
             }
             "mgr.last_imported_account" => {
                 a.check(&[])?;
-                self.view(|tx| self.mgr().last_imported_account(tx))?
+                self.view(cx, |tx| self.mgr().last_imported_account(tx))?
                     .map(|v| json!(v))
             }
             "mgr.account_name" => {
                 let acct = account_arg(&a)?;
-                self.view(|tx| self.mgr().account_name(tx, acct))?
+                self.view(cx, |tx| self.mgr().account_name(tx, acct))?
                     .map(|n| json!(String::from_utf8_lossy(&n)))
             }
             "mgr.for_each_account" => {
                 a.check(&[])?;
-                self.view(|tx| self.mgr().for_each_account(tx))?
+                self.view(cx, |tx| self.mgr().for_each_account(tx))?
                     .map(|v| json!(v))
             }
             "mgr.account_properties" => {
                 let acct = account_arg(&a)?;
-                self.view(|tx| self.mgr().account_properties(tx, acct))?
+                self.view(cx, |tx| self.mgr().account_properties(tx, acct))?
                     .map(|p| {
                         json!({
                             "account": p.account_number,
@@ -883,51 +945,55 @@ impl Runner {
             }
             "mgr.account_has_passphrase" => {
                 let acct = account_arg(&a)?;
-                self.view(|tx| Ok(self.mgr().account_has_passphrase(tx, acct)))?
+                self.view(cx, |tx| Ok(self.mgr().account_has_passphrase(tx, acct)))?
                     .map(|(has, unlocked)| json!({"has": has, "unlocked": unlocked}))
             }
             "mgr.account_extended_pub_key" => {
                 let acct = account_arg(&a)?;
-                key(self.view(|tx| self.mgr().account_extended_pub_key(tx, acct))?)
+                key(self.view(cx, |tx| self.mgr().account_extended_pub_key(tx, acct))?)
             }
             "mgr.account_extended_priv_key" => {
                 let acct = account_arg(&a)?;
-                key(self.view(|tx| self.mgr().account_extended_priv_key(tx, acct))?)
+                key(self.view(cx, |tx| self.mgr().account_extended_priv_key(tx, acct))?)
             }
             "mgr.account_branch_extended_pub_key" => {
                 a.check(&["account", "branch"])?;
                 let (acct, branch) = (a.u32("account")?, a.u32("branch")?);
-                key(self.view(|tx| self.mgr().account_branch_extended_pub_key(tx, acct, branch))?)
+                key(self.view(cx, |tx| {
+                    self.mgr().account_branch_extended_pub_key(tx, acct, branch)
+                })?)
             }
             "mgr.lookup_account" => {
                 a.check(&["name"])?;
                 let name = a.str("name")?.as_bytes().to_vec();
-                self.view(|tx| self.mgr().lookup_account(tx, &name))?
+                self.view(cx, |tx| self.mgr().lookup_account(tx, &name))?
                     .map(|v| json!(v))
             }
             "mgr.new_account" => {
                 a.check(&["name"])?;
                 let name = a.str("name")?.as_bytes().to_vec();
-                self.update(|tx| self.mgr().new_account(tx, &name))?
+                self.update(cx, |tx| self.mgr().new_account(tx, &name))?
                     .map(|v| json!(v))
             }
             "mgr.rename_account" => {
                 a.check(&["account", "name"])?;
                 let (acct, name) = (a.u32("account")?, a.str("name")?.as_bytes().to_vec());
-                ok_null(self.update(|tx| self.mgr().rename_account(tx, acct, &name))?)
+                ok_null(self.update(cx, |tx| self.mgr().rename_account(tx, acct, &name))?)
             }
             "mgr.import_xpub_account" => {
                 a.check(&["name", "xpub"])?;
                 let name = a.str("name")?.as_bytes().to_vec();
                 let xpub = key_spec(a.value("xpub")?, &self.chain, false)?;
-                ok_null(self.update(|tx| self.mgr().import_xpub_account(tx, &name, &xpub))?)
+                ok_null(self.update(cx, |tx| self.mgr().import_xpub_account(tx, &name, &xpub))?)
             }
             "mgr.import_voting_account" => {
                 a.check(&["name", "pass", "xpriv"])?;
                 let name = a.str("name")?.as_bytes().to_vec();
                 let p = a.str("pass")?.as_bytes().to_vec();
                 let key = key_spec(a.value("xpriv")?, &self.chain, true)?;
-                let r = self.update(|tx| self.mgr().import_voting_account(tx, &key, &p, &name))?;
+                let r = self.update(cx, |tx| {
+                    self.mgr().import_voting_account(tx, &key, &p, &name)
+                })?;
                 if let Ok(acct) = r
                     && !p.is_empty()
                 {
@@ -939,7 +1005,7 @@ impl Runner {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().address(tx, &addr)
                 })?
@@ -949,7 +1015,7 @@ impl Runner {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().addr_account(tx, &addr)
                 })?
@@ -958,7 +1024,7 @@ impl Runner {
             "mgr.exists_hash160" => {
                 a.check(&["hash160"])?;
                 let h = a.hex("hash160")?;
-                self.view(|tx| self.mgr().exists_hash160(tx, &h))?
+                self.view(cx, |tx| self.mgr().exists_hash160(tx, &h))?
                     .map(|v| json!(v))
             }
             "mgr.import_private_key" => {
@@ -974,28 +1040,28 @@ impl Runner {
                 )
                 .map_err(|e| fault(format!("{name}: NewWIF: {e}")))?;
                 let label = self.label(&a)?;
-                let r = self.update(|tx| self.mgr().import_private_key(tx, &wif))?;
+                let r = self.update(cx, |tx| self.mgr().import_private_key(tx, &wif))?;
                 self.labelled(label, r)
             }
             "mgr.import_public_key" => {
                 a.check(&["pubkey", "label"])?;
                 let pk = a.hex("pubkey")?;
                 let label = self.label(&a)?;
-                let r = self.update(|tx| self.mgr().import_public_key(tx, &pk))?;
+                let r = self.update(cx, |tx| self.mgr().import_public_key(tx, &pk))?;
                 self.labelled(label, r)
             }
             "mgr.import_script" => {
                 a.check(&["script", "label"])?;
                 let script = a.hex("script")?;
                 let label = self.label(&a)?;
-                let r = self.update(|tx| self.mgr().import_script(tx, &script))?;
+                let r = self.update(cx, |tx| self.mgr().import_script(tx, &script))?;
                 self.labelled(label, r)
             }
             "mgr.private_key" => {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().private_key(tx, &addr)
                 })?
@@ -1010,7 +1076,7 @@ impl Runner {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().have_private_key(tx, &addr)
                 })?
@@ -1020,7 +1086,7 @@ impl Runner {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().redeem_script(tx, &addr)
                 })?
@@ -1029,9 +1095,9 @@ impl Runner {
             "mgr.sync_account_to_addr_index" => {
                 a.check(&["account", "index", "branch"])?;
                 let (acct, idx, branch) = (a.u32("account")?, a.u32("index")?, a.u32("branch")?);
-                ok_null(
-                    self.update(|tx| self.mgr().sync_account_to_addr_index(tx, acct, idx, branch))?,
-                )
+                ok_null(self.update(cx, |tx| {
+                    self.mgr().sync_account_to_addr_index(tx, acct, idx, branch)
+                })?)
             }
             "mgr.record_derived_address" => {
                 a.check(&["account", "branch", "child", "pubkey"])?;
@@ -1041,7 +1107,7 @@ impl Runner {
                 } else {
                     None
                 };
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let pk = match pk {
                         Some(pk) => pk,
                         // The public key of the derived child, as Go's
@@ -1062,7 +1128,7 @@ impl Runner {
                 a.check(&["addr"])?;
                 let r = self.addr_ref(&a, "addr")?;
                 let what = format!("{name} addr");
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     let addr = self.resolve(tx, r, &what)?;
                     self.mgr().mark_used(tx, &addr)
                 })?)
@@ -1071,7 +1137,7 @@ impl Runner {
                 a.check(&["account", "branch", "child"])?;
                 let (acct, branch, child) = (a.u32("account")?, a.u32("branch")?, a.u32("child")?);
                 let used = name == "mgr.mark_used_child_index";
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     if used {
                         self.mgr().mark_used_child_index(tx, acct, branch, child)
                     } else {
@@ -1083,7 +1149,7 @@ impl Runner {
             "mgr.for_each_account_address" | "mgr.for_each_active_account_address" => {
                 let acct = account_arg(&a)?;
                 let active = name == "mgr.for_each_active_account_address";
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let mut out = Vec::new();
                     let f = |m: ManagedAddress| {
                         out.push(managed_value(&m));
@@ -1099,7 +1165,7 @@ impl Runner {
             }
             "mgr.for_each_active_address" => {
                 a.check(&[])?;
-                self.view(|tx| {
+                self.view(cx, |tx| {
                     let mut out = Vec::new();
                     self.mgr().for_each_active_address(tx, |addr| {
                         out.push(json!(addr.encode()));
@@ -1131,8 +1197,8 @@ impl Runner {
                 self.group_ops = Some(records);
                 r
             }
-            other if txops::handles(other) => self.tx_op(&a)?,
-            other if auxops::handles(other) => self.aux_op(&a)?,
+            other if txops::handles(other) => self.tx_op(cx, &a)?,
+            other if auxops::handles(other) => self.aux_op(cx, &a)?,
             other => {
                 return Err(fault(format!(
                     "operation {other:?} is not ported to purse-udb yet"
@@ -1272,7 +1338,9 @@ fn network(name: &str) -> Result<ChainParams, String> {
 /// (every row decoded, the chain's, the record tables' and the transaction
 /// tables' with their decoded part, ADR-0018 BK4), on a read transaction.
 /// [`run`] holds the store to them after the setup's creation and opening,
-/// after every operation and before every export; tests that drive the
+/// after every operation (a group's after it commits or rolls back, its
+/// members inside its transaction: `groups::consistent_in`) and before
+/// every export; tests that drive the
 /// creation entry point outside the runner call it too.
 ///
 /// # Errors
@@ -1294,6 +1362,20 @@ pub fn consistent(tx: &purse_store::ReadTx) -> purse_store::Result<()> {
 /// A script fault, an operation not yet ported, a setup error (as Go, a
 /// setup error fails the run) or a store failure.
 pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
+    run_with(script, dir, None)
+}
+
+/// [`run`], with the store edited as `corrupt` says: a test of the
+/// consistency checks inside and after a group (`tests/groups.rs`).
+///
+/// # Errors
+///
+/// As [`run`]; a check that refuses the edited store is a failure.
+pub fn run_corrupted(script: &Value, dir: &Path, corrupt: Corruption) -> Result<Run, String> {
+    run_with(script, dir, Some(corrupt))
+}
+
+fn run_with(script: &Value, dir: &Path, corrupt: Option<Corruption>) -> Result<Run, String> {
     purse_errors::set_separator(purse_errors::DAEMON_SEPARATOR);
     let s = script
         .as_object()
@@ -1459,10 +1541,12 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         nonce: 0,
         digest,
         group_ops: None,
-        in_group: false,
         stream: None,
         stream_mark: 0,
         checkpoints: Vec::new(),
+        converted_live: false,
+        op_index: 0,
+        corrupt,
     };
     match runner.reopen()? {
         Ok(_) => {}
@@ -1490,8 +1574,11 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         .ok_or_else(|| fault("missing ops"))?;
     let mut results = Vec::with_capacity(ops.len());
     for (i, raw) in ops.iter().enumerate() {
+        runner.op_index = i;
         let before = runner.drawn.load(Ordering::Relaxed);
-        let (name, r) = runner.op(raw).map_err(|e| format!("op {i}: {e}"))?;
+        let (name, r) = runner
+            .op(&mut Cx::Top, raw)
+            .map_err(|e| format!("op {i}: {e}"))?;
         let drawn = runner.drawn.load(Ordering::Relaxed).saturating_sub(before);
         let mut rec = Map::new();
         rec.insert("i".to_owned(), json!(i));
@@ -1508,6 +1595,14 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
         }
         results.push(Value::Object(rec));
         if let Some(store) = runner.store.as_ref() {
+            if let Some(c) = runner.corrupt.filter(|c| c.op == i && c.member.is_none()) {
+                store
+                    .update(|tx| (c.edit)(tx))
+                    .map_err(|e| fault(format!("op {i}: the test's edit: {e}")))?;
+            }
+            // After a group, this checks the state its transaction left,
+            // committed or rolled back; its members were checked inside
+            // it (`groups.rs`).
             let tx = store.read().map_err(|e| fault(format!("read: {e}")))?;
             consistent(&tx).map_err(|e| {
                 format!("op {i} ({name}): the store fails the consistency checks: {e}")

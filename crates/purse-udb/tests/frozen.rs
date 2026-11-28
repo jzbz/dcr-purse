@@ -49,6 +49,10 @@
 //!   (`tests/support/generator.rs`, `creation_set`: same-seed creation of
 //!   ADR-0001 section 8 over seed lengths and kinds, public passphrases and
 //!   the creation flows, on every network).
+//! - `tests/data/ptr_genvectors.txt`: the same for a fixed set of generated
+//!   scripts shaped like dcrwallet's `processTransactionRecord`
+//!   (`tests/support/ptrgen.rs`, `generate_ptr`: address manager members
+//!   in the transaction store's `update` groups).
 //!
 //! A Go record of kind `Panic` is matched by any Rust error
 //! (`check_record`; ADR-0002 section 3, ADR-0012 Rule 2).
@@ -76,6 +80,7 @@ use support::generator::{
     ChangeKind, Shape, WatchKind, generate, generate_change_as, generate_passphrase_as,
     generate_watching_as,
 };
+use support::ptrgen::generate_ptr;
 use support::txgen::{
     generate_txstore, generate_txstore_cms, generate_txstore_credits, generate_txstore_select,
 };
@@ -152,6 +157,13 @@ const CREATION_SCRIPTS: usize = 121;
 const CREATION_ENTRIES: usize = 105;
 /// The seed of the creation set.
 const CREATION_SEED: u64 = 0x5eed_f402_0000_0c00;
+const PTR_VECTORS: &str = "ptr_genvectors.txt";
+/// The pinned number of generated `processTransactionRecord` scripts and
+/// of their result lines.
+const PTR_SCRIPTS: usize = 8;
+const PTR_ENTRIES: usize = 662;
+/// The seed of the generated `processTransactionRecord` set.
+const PTR_SEED: u64 = 0x5eed_f402_0000_0b07;
 
 /// One script's vector.
 struct Vector {
@@ -779,6 +791,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 "auxiliary records"
             } else if file == CREATION_VECTORS {
                 "wallet creation"
+            } else if file == PTR_VECTORS {
+                "update groups"
             } else {
                 "address manager"
             }
@@ -791,6 +805,8 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 "txgen.rs"
             } else if file == AUX_VECTORS {
                 "auxgen.rs"
+            } else if file == PTR_VECTORS {
+                "ptrgen.rs"
             } else {
                 "generator.rs"
             }
@@ -822,6 +838,7 @@ fn regenerate_generated(file: &str, set: &[(String, Value)], seed: u64, set_fn: 
                 TX_SELECT_VECTORS => "regenerate_txstore_select_vectors",
                 AUX_VECTORS => "regenerate_aux_vectors",
                 CREATION_VECTORS => "regenerate_creation_vectors",
+                PTR_VECTORS => "regenerate_ptr_vectors",
                 _ => "regenerate_change_vectors",
             }
         ),
@@ -1176,4 +1193,44 @@ fn regenerate_creation_vectors() {
         CREATION_SEED,
         "creation_set",
     );
+}
+
+/// The generated `processTransactionRecord` set (`generate_ptr`): script 0
+/// on regnet, 1 on testnet3, 2 on mainnet, the rest on simnet.
+fn ptr_set() -> Vec<(String, Value)> {
+    let mut rng = SplitMix64(PTR_SEED);
+    (0..PTR_SCRIPTS)
+        .map(|id| {
+            let network = match id {
+                0 => "regnet",
+                1 => "testnet3",
+                2 => "mainnet",
+                _ => "simnet",
+            };
+            let script = generate_ptr(&mut rng, id, Some(network));
+            let name = script["name"].as_str().expect("name").to_owned();
+            (name, script)
+        })
+        .collect()
+}
+
+#[test]
+fn replay_ptr_vectors() {
+    replay_generated(PTR_VECTORS, PTR_ENTRIES, PTR_SCRIPTS);
+}
+
+/// The `processTransactionRecord` vectors are the set the generator makes
+/// from the fixed seed.
+#[test]
+fn ptr_vectors_are_the_seeded_set() {
+    assert_seeded_set(PTR_VECTORS, PTR_ENTRIES, &ptr_set());
+}
+
+/// Regenerates the `processTransactionRecord` vectors from the oracle,
+/// checking that the Rust runner agrees with every record and export
+/// before writing.
+#[test]
+#[ignore = "regenerates tests/data from the Go oracle"]
+fn regenerate_ptr_vectors() {
+    regenerate_generated(PTR_VECTORS, &ptr_set(), PTR_SEED, "ptr_set");
 }

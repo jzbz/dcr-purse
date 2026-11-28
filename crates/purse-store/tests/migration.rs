@@ -1348,6 +1348,84 @@ fn the_transaction_tables_check_refuses_each_broken_invariant() {
     }
 }
 
+/// `WriteTx::check_rows`, `check_chain`, `check_records` and
+/// `check_tx_tables` check a write transaction's own uncommitted writes
+/// (the operation-script runner of `purse-udb` runs them after every
+/// member of an `update` group, before the group commits or rolls back):
+/// on the fixture's rows all four pass inside a transaction; after one
+/// direct edit per check, that check refuses inside the transaction while
+/// a read transaction opened beside it, which sees the committed store,
+/// passes; and the store passes again once the edit is rolled back.
+#[test]
+fn the_write_transaction_checks_see_its_own_writes() {
+    type Check = fn(&mut WriteTx<'_>) -> purse_store::Result<()>;
+    type Edit = fn(&mut WriteTx<'_>) -> purse_store::Result<()>;
+    let cases: [(&str, Check, Edit); 4] = [
+        (
+            "rows",
+            |tx| tx.check_rows(),
+            |tx| tx.put_raw(TableId::Accounts, b"not an account key", b"x"),
+        ),
+        (
+            "chain",
+            |tx| tx.check_chain(),
+            |tx| tx.delete::<Headers>(&purse_store::Height(1)).map(drop),
+        ),
+        (
+            "records",
+            |tx| tx.check_records(),
+            |tx| {
+                tx.put::<VspHosts>(
+                    &purse_store::VspHostId(0xffff),
+                    &purse_store::VspHost(b"unpaired".to_vec()),
+                )
+            },
+        ),
+        (
+            "transaction tables",
+            |tx| tx.check_tx_tables(),
+            |tx| {
+                let k = AcctHistoryKey {
+                    account: 1,
+                    height: 2,
+                    position: 1,
+                };
+                tx.delete::<AcctHistory>(&k).map(drop)
+            },
+        ),
+    ];
+    let store = OpenOptions::new()
+        .create_on_backend(Shared(PowerLoss::new(Vec::new(), true)), fixture_rows)
+        .expect("create");
+    let committed = |store: &Store| -> purse_store::Result<()> {
+        let tx = store.read()?;
+        tx.check_rows()?;
+        tx.check_chain()?;
+        tx.check_records()?;
+        tx.check_tx_tables()
+    };
+    committed(&store).expect("the fixture");
+    for (name, check, edit) in cases {
+        let undone = purse_store::Error::inconsistent("undone".to_owned());
+        let r = store.update(|tx| {
+            tx.check_rows()?;
+            tx.check_chain()?;
+            tx.check_records()?;
+            tx.check_tx_tables()?;
+            edit(tx)?;
+            check(tx).expect_err(&format!("{name}: the edit is not refused"));
+            committed(&store)
+                .unwrap_or_else(|e| panic!("{name}: the committed store refused: {e}"));
+            Err::<(), _>(purse_store::Error::inconsistent("undone".to_owned()))
+        });
+        assert_eq!(
+            r.expect_err("rolled back").inconsistency(),
+            undone.inconsistency()
+        );
+        committed(&store).unwrap_or_else(|e| panic!("{name}: refused once undone: {e}"));
+    }
+}
+
 /// The rows the current build should hold after opening the fixture of
 /// `version`: the fixture's rows, migrated. With version 1 current there
 /// is nothing to migrate; a later schema adds its steps' effect here.

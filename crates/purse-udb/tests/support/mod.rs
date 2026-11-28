@@ -16,6 +16,7 @@
 pub mod auxgen;
 pub mod compare;
 pub mod generator;
+pub mod ptrgen;
 pub mod runner;
 pub mod txgen;
 

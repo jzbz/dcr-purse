@@ -442,8 +442,9 @@
 //!   Setup creates the transaction store with the address manager, as Go's
 //!   `Initialize` does, so every script, the address manager's included,
 //!   has the genesis rows on both sides. The `update` and `view` groups
-//!   (with `tolerate`) take the slice's operations
-//!   (`tests/support/runner/groups.rs`); `rt.checkpoint` writes the export
+//!   (with `tolerate`) take the slice's operations, each group one
+//!   transaction of the store (`tests/support/runner/groups.rs`);
+//!   `rt.checkpoint` writes the export
 //!   of the store as it stands, and every checkpoint export is compared
 //!   with Go's, then the final one (scripts `01-create-open`,
 //!   `28-txstore-chain`, `32-txstore-credits`, `35-txstore-commitments` and
@@ -1312,9 +1313,11 @@
 //!     Go's `UnspentOutputCount` and `MakeInputSource` read bbolt's `KeyN`,
 //!     which leaves out the transaction's own writes; `purse-store`'s
 //!     count includes them (QK-0003, not reproduced, accepted 2026-11-19),
-//!     and so does the test runner, whose `update` groups commit each
-//!     member. So an `update` group that counts the table after a member
-//!     wrote it answers differently on the two sides. Evidence:
+//!     and so does the test runner, which runs an `update` group as one
+//!     transaction of the store (it committed each member until
+//!     2026-11-27, with the same counts). So an `update` group that
+//!     counts the table after a member wrote it answers differently on
+//!     the two sides. Evidence:
 //!     `a_count_after_an_unspent_write_in_a_group_is_gos_committed_count`
 //!     (`tests/guards.rs`: Go 2 against dcr-purse's 3 after a credit, 3
 //!     against 2 after a mined spend, 8 bytes drawn against 41 by a
@@ -1326,8 +1329,12 @@
 //!     from the store as the group began), which would check a behaviour
 //!     no dcr-purse caller has: no caller at the pin counts after such a
 //!     write in one transaction (QK-0003's obligation keeps the count
-//!     first), and once the runner runs a group as one store transaction
-//!     (not built) dcr-purse's answer is the production one.
+//!     first), and the runner's answer in a group is the production one:
+//!     since 2026-11-27 it runs a group as one store transaction
+//!     (`tests/support/runner/groups.rs`), and the pinning test passed
+//!     unchanged on that change, the same counts and bytes drawn on the
+//!     Rust side as when each member committed on its own; the exclusion
+//!     and the pin were left as they were.
 //!     Recommendation: keep the exclusion and the pinning test.
 //!     *Pending owner.*
 //!

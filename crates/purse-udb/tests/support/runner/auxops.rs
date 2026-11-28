@@ -24,7 +24,7 @@ use purse_udb::vsp::VspTicket;
 use purse_udb::{agendas, treasury, vsp};
 
 use super::txops::hs;
-use super::{Args, OpResult, Runner, fault};
+use super::{Args, Cx, OpResult, Runner, fault};
 
 /// This module's operations.
 pub const AUX_OPS: &[&str] = &[
@@ -112,7 +112,7 @@ impl Runner {
     }
 
     /// Runs one auxiliary record operation.
-    pub(super) fn aux_op(&mut self, a: &Args<'_>) -> Result<OpResult, String> {
+    pub(super) fn aux_op(&mut self, cx: &mut Cx<'_, '_>, a: &Args<'_>) -> Result<OpResult, String> {
         let ok_null = |r: Result<(), AnyError>| r.map(|()| Value::Null);
         Ok(match a.op {
             "udb.set_vsp_ticket" => {
@@ -133,18 +133,18 @@ impl Runner {
                     host: a.str("host")?.as_bytes().to_vec(),
                     pub_key: a.hex("pubkey")?,
                 };
-                self.update(|tx| vsp::set_vsp_ticket(tx, &ticket, &record))?
+                self.update(cx, |tx| vsp::set_vsp_ticket(tx, &ticket, &record))?
                     .map(|id| json!({"vsphostid": id}))
             }
             "udb.delete_vsp_ticket" => {
                 a.check(&["ticket"])?;
                 let ticket = self.arg_hash(a, "ticket")?;
-                ok_null(self.update(|tx| vsp::delete_vsp_ticket(tx, &ticket))?)
+                ok_null(self.update(cx, |tx| vsp::delete_vsp_ticket(tx, &ticket))?)
             }
             "udb.get_vsp_ticket" => {
                 a.check(&["ticket"])?;
                 let ticket = self.arg_hash(a, "ticket")?;
-                self.view(|r| vsp::get_vsp_ticket(r, &ticket))?
+                self.view(cx, |r| vsp::get_vsp_ticket(r, &ticket))?
                     .map(|t| ticket_value(&t))
             }
             "udb.get_vsp_tickets_by_fee_status" => {
@@ -153,7 +153,7 @@ impl Runner {
                 if !(i64::from(i32::MIN)..=i64::from(i32::MAX)).contains(&status) {
                     return Err(fault(format!("{}: argument \"status\" out of range", a.op)));
                 }
-                self.view(|r| vsp::get_vsp_tickets_by_fee_status(r, status))?
+                self.view(cx, |r| vsp::get_vsp_tickets_by_fee_status(r, status))?
                     .map(|mut list| {
                         list.sort_by_key(|(h, _)| hs(h));
                         Value::Array(
@@ -170,107 +170,112 @@ impl Runner {
             "udb.get_vsp_host" => {
                 a.check(&["id"])?;
                 let id = a.u32("id")?;
-                self.view(|r| vsp::get_vsp_host(r, id))?
+                self.view(cx, |r| vsp::get_vsp_host(r, id))?
                     .map(|h| json!(hex(&h)))
                     .map_err(canon_pointer)
             }
             "udb.get_vsp_pub_key" => {
                 a.check(&["host"])?;
                 let host = a.str("host")?.as_bytes().to_vec();
-                self.view(|r| vsp::get_vsp_pub_key(r, &host))?
+                self.view(cx, |r| vsp::get_vsp_pub_key(r, &host))?
                     .map(|(id, pk)| json!({"id": id, "pubkey": hex(&pk)}))
             }
             "udb.set_tspend_policy" => {
                 a.check(&["tspend", "policy"])?;
                 let h = self.arg_hash(a, "tspend")?;
                 let p = Self::policy_arg(a)?;
-                ok_null(self.update(|tx| treasury::set_tspend_policy(tx, &h, p))?)
+                ok_null(self.update(cx, |tx| treasury::set_tspend_policy(tx, &h, p))?)
             }
             "udb.set_vsp_tspend_policy" => {
                 a.check(&["ticket", "tspend", "policy"])?;
                 let t = self.arg_hash(a, "ticket")?;
                 let h = self.arg_hash(a, "tspend")?;
                 let p = Self::policy_arg(a)?;
-                ok_null(self.update(|tx| treasury::set_vsp_tspend_policy(tx, &t, &h, p))?)
+                ok_null(self.update(cx, |tx| treasury::set_vsp_tspend_policy(tx, &t, &h, p))?)
             }
             "udb.tspend_policy" => {
                 a.check(&["tspend"])?;
                 let h = self.arg_hash(a, "tspend")?;
-                self.view(|r| treasury::tspend_policy(r, &h))?
+                self.view(cx, |r| treasury::tspend_policy(r, &h))?
                     .map(|p| json!(p))
             }
             "udb.vsp_tspend_policy" => {
                 a.check(&["ticket", "tspend"])?;
                 let t = self.arg_hash(a, "ticket")?;
                 let h = self.arg_hash(a, "tspend")?;
-                self.view(|r| treasury::vsp_tspend_policy(r, &t, &h))?
+                self.view(cx, |r| treasury::vsp_tspend_policy(r, &t, &h))?
                     .map(|p| json!(p))
             }
             "udb.tspend_policies" => {
                 a.check(&[])?;
-                self.view(treasury::tspend_policies)?.map(|mut list| {
-                    list.sort_by_key(|(h, _)| hs(h));
-                    Value::Array(
-                        list.iter()
-                            .map(|(h, p)| json!({"tspend": hs(h), "policy": p}))
-                            .collect(),
-                    )
-                })
+                self.view(cx, |r| treasury::tspend_policies(r))?
+                    .map(|mut list| {
+                        list.sort_by_key(|(h, _)| hs(h));
+                        Value::Array(
+                            list.iter()
+                                .map(|(h, p)| json!({"tspend": hs(h), "policy": p}))
+                                .collect(),
+                        )
+                    })
             }
             "udb.vsp_tspend_policies" => {
                 a.check(&[])?;
-                self.view(treasury::vsp_tspend_policies)?.map(|mut list| {
-                    list.sort_by_key(|(k, _)| (hs(&k.ticket), hs(&k.tspend)));
-                    Value::Array(
-                        list.iter()
-                            .map(|(k, p)| {
-                                json!({"ticket": hs(&k.ticket), "tspend": hs(&k.tspend),
+                self.view(cx, |r| treasury::vsp_tspend_policies(r))?
+                    .map(|mut list| {
+                        list.sort_by_key(|(k, _)| (hs(&k.ticket), hs(&k.tspend)));
+                        Value::Array(
+                            list.iter()
+                                .map(|(k, p)| {
+                                    json!({"ticket": hs(&k.ticket), "tspend": hs(&k.tspend),
                                            "policy": p})
-                            })
-                            .collect(),
-                    )
-                })
+                                })
+                                .collect(),
+                        )
+                    })
             }
             "udb.set_treasury_key_policy" => {
                 a.check(&["pikey", "policy"])?;
                 let k = a.hex("pikey")?;
                 let p = Self::policy_arg(a)?;
-                ok_null(self.update(|tx| treasury::set_treasury_key_policy(tx, &k, p))?)
+                ok_null(self.update(cx, |tx| treasury::set_treasury_key_policy(tx, &k, p))?)
             }
             "udb.set_vsp_treasury_key_policy" => {
                 a.check(&["ticket", "pikey", "policy"])?;
                 let t = self.arg_hash(a, "ticket")?;
                 let k = a.hex("pikey")?;
                 let p = Self::policy_arg(a)?;
-                ok_null(self.update(|tx| treasury::set_vsp_treasury_key_policy(tx, &t, &k, p))?)
+                ok_null(self.update(cx, |tx| {
+                    treasury::set_vsp_treasury_key_policy(tx, &t, &k, p)
+                })?)
             }
             "udb.treasury_key_policy" => {
                 a.check(&["pikey"])?;
                 let k = a.hex("pikey")?;
-                self.view(|r| treasury::treasury_key_policy(r, &k))?
+                self.view(cx, |r| treasury::treasury_key_policy(r, &k))?
                     .map(|p| json!(p))
             }
             "udb.vsp_treasury_key_policy" => {
                 a.check(&["ticket", "pikey"])?;
                 let t = self.arg_hash(a, "ticket")?;
                 let k = a.hex("pikey")?;
-                self.view(|r| treasury::vsp_treasury_key_policy(r, &t, &k))?
+                self.view(cx, |r| treasury::vsp_treasury_key_policy(r, &t, &k))?
                     .map(|p| json!(p))
             }
             "udb.treasury_key_policies" => {
                 a.check(&[])?;
                 // Bytewise key order is Go's sort of its string keys.
-                self.view(treasury::treasury_key_policies)?.map(|list| {
-                    Value::Array(
-                        list.iter()
-                            .map(|(k, p)| json!({"pikey": hex(k), "policy": p}))
-                            .collect(),
-                    )
-                })
+                self.view(cx, |r| treasury::treasury_key_policies(r))?
+                    .map(|list| {
+                        Value::Array(
+                            list.iter()
+                                .map(|(k, p)| json!({"pikey": hex(k), "policy": p}))
+                                .collect(),
+                        )
+                    })
             }
             "udb.vsp_treasury_key_policies" => {
                 a.check(&[])?;
-                self.view(treasury::vsp_treasury_key_policies)?
+                self.view(cx, |r| treasury::vsp_treasury_key_policies(r))?
                     .map(|mut list| {
                         list.sort_by(|(x, _), (y, _)| {
                             (hs(&x.ticket), &x.pikey).cmp(&(hs(&y.ticket), &y.pikey))
@@ -290,11 +295,9 @@ impl Runner {
                 let v = a.u32("version")?;
                 let agenda = a.str("agenda")?.as_bytes().to_vec();
                 let choice = a.str("choice")?.as_bytes().to_vec();
-                ok_null(
-                    self.update(|tx| {
-                        agendas::set_default_agenda_preference(tx, v, &agenda, &choice)
-                    })?,
-                )
+                ok_null(self.update(cx, |tx| {
+                    agendas::set_default_agenda_preference(tx, v, &agenda, &choice)
+                })?)
             }
             "udb.set_ticket_agenda_preference" => {
                 a.check(&["ticket", "version", "agenda", "choice"])?;
@@ -302,7 +305,7 @@ impl Runner {
                 let v = a.u32("version")?;
                 let agenda = a.str("agenda")?.as_bytes().to_vec();
                 let choice = a.str("choice")?.as_bytes().to_vec();
-                ok_null(self.update(|tx| {
+                ok_null(self.update(cx, |tx| {
                     agendas::set_ticket_agenda_preference(tx, &t, v, &agenda, &choice)
                 })?)
             }
@@ -310,7 +313,7 @@ impl Runner {
                 a.check(&["version", "agenda"])?;
                 let v = a.u32("version")?;
                 let agenda = a.str("agenda")?.as_bytes().to_vec();
-                self.view(|r| agendas::default_agenda_preference(r, v, &agenda))?
+                self.view(cx, |r| agendas::default_agenda_preference(r, v, &agenda))?
                     .map(|c| text(&c))
             }
             "udb.ticket_agenda_preference" => {
@@ -318,7 +321,7 @@ impl Runner {
                 let t = self.arg_hash(a, "ticket")?;
                 let v = a.u32("version")?;
                 let agenda = a.str("agenda")?.as_bytes().to_vec();
-                self.view(|r| agendas::ticket_agenda_preference(r, &t, v, &agenda))?
+                self.view(cx, |r| agendas::ticket_agenda_preference(r, &t, v, &agenda))?
                     .map(|c| text(&c))
             }
             other => return Err(fault(format!("{other}: not an auxiliary operation"))),

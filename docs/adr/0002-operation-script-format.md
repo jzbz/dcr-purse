@@ -787,3 +787,79 @@ a seed's wallet, 256 for one from an extended public key), and
 `creation_draws_on_gos_stream` runs the creation on Go's stream to compare
 the bytes themselves (open item 2, dated note of 2026-11-27). No
 comparison of the differential reads either count.
+
+## Addendum, 2026-11-27 — Groups in the Rust runner as one store transaction
+
+Section 6 says a group is one redb write transaction (a `view` one read
+transaction). Until this change the Rust runner emulated that: each member
+ran in its own committed transaction, an `update` group that ended on an
+untolerated error put a copy of the store file back, and address manager
+operations were refused as members, since a file put back would bypass the
+manager's memory. The runner now runs an `update` group inside one
+`purse-store` write transaction, committed when no member's error ends the
+group and rolled back when one does, and a `view` group on one read
+transaction; every member reads and writes through the group's
+transaction (`crates/purse-udb/tests/support/runner/groups.rs`). Members
+are every operation Go's runner takes in a group, the address manager's
+included, with two exceptions refused as script faults:
+`mgr.change_passphrase` and `mgr.convert_to_watching_only`. dcr-purse's
+`Manager::change_passphrase` and `Manager::convert_to_watching_only` take
+the store and commit a transaction of their own, where Go's take the
+caller's bucket (QK-0733, dispositions of 2026-11-22), and `purse-store`
+runs one write transaction at a time, so they cannot share a group's. The
+runner's bookkeeping (section 2, "Runner state") is saved before a group
+and restored when it rolls back: block and address labels, account
+passphrases and the wallet's passphrases, as Go's runner restores them.
+The store's consistency checks, which the runner runs after every
+operation (ADR-0018 BK4), also run after every member on the group's
+transaction, before it commits or rolls back, and once more after the
+group.
+Since Go never tolerates a panic and the comparison accepts any error
+against Go's `Panic`, a member whose operation returns an error where Go
+panics may not tolerate that error's kind (a script fault): the
+transaction store's stand-ins, and the address manager's `IO` on
+`MarkUsed`, `MarkUsedChildIndex` and `MarkReturnedChildIndex` (QK-0039)
+and `Crypto` on `PrivateKey` between a conversion and the next reopen
+(QK-0763). `ImportVotingAccount` after a conversion succeeds where Go
+panics (QK-0765), so no refusal of a `tolerate` list applies; the
+comparison fails at that member, and its group-level effect is pinned.
+
+The in-memory state a rollback leaves (section 3) is now compared: the
+manager caches only what it reads from a committed snapshot, so after a
+rolled-back group dcr-purse answers from the store, and every case found
+where Go's memory answers otherwise is pinned on both sides by
+`crates/purse-udb/tests/groups.rs` (QK-0733 for `SetAccountPassphrase`,
+setting or removing a passphrase, and `RenameAccount`; QK-0790, an account read in the rolled-back transaction
+staying cached; QK-0791, a rolled-back SLIP0044 upgrade), all under
+decision item 2 above. Corpus script `15-rollback-bookkeeping` is refused
+as written, for its passphrase-change and conversion members; Go's results
+of it are asserted live, and the script without those four groups runs on
+both sides, equal but for the one recorded divergence. The Phase 0 corpus
+scripts whose groups hold address manager operations and no refused member
+(`01-accounts`, `02-addresses`, `16-tolerated-errors`,
+`17-resolution-errors`) run on both sides with every record and the
+exports equal. The count of `unspent` inside a group (QK-0003; crate
+`txstore`, choice 15) gives the same answers as under the emulation, which
+counted the same rows.
+
+Generated scripts shaped like dcrwallet's `processTransactionRecord`
+(`crates/purse-udb/tests/support/ptrgen.rs`) put the address manager
+operations that function runs in its transaction (`Address`, `MarkUsed`,
+`AccountProperties`, `SyncAccountToAddrIndex`, `RedeemScript`) and the
+imports in the transaction store's `update` groups beside `InsertMinedTx`,
+`InsertMemPoolTx`, `AddCredit`, `AddTicketCommitment` and
+`AddMultisigOut`, including groups that roll back after the manager
+wrote. They create accounts, and convert a wallet to watching-only, only
+at the top level, and never count `unspent` in a group after a write, so
+they reach neither QK-0790 nor the pending count. Their campaign ran equal
+against Go (PARITY.md, `purse-udb`, "Groups"), and a fixed set of 8 is
+frozen (`ptr_genvectors.txt`).
+
+Decision item 4 deferred freezing `15-rollback-bookkeeping` as a vector
+until the Rust runner existed. It exists, refuses the script as written,
+and the test above asserts Go's results only when the oracle runs. Whether
+to freeze Go's results of the script (and of the script without its
+refused groups) so that the pin also holds without Go: *pending owner*.
+Recommendation: freeze them with the next regeneration of the corpus
+vectors, with the refusal and the one divergent record asserted by the
+replay.

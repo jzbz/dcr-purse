@@ -78,6 +78,19 @@
 //! For the rest see the harness's documentation: they are statistical,
 //! they time one process's wall clock, and they fail only on a difference
 //! of a nanosecond an operation or more. A pass is not a proof.
+//!
+//! `chars` copies its input onto the stack, maps the copy and returns it,
+//! as purse-hdkeychain's does. A form that mapped the harness's input in
+//! place was measured on 2026-11-26 and not adopted, for the reasons
+//! purse-hdkeychain's module documentation and ADR-0012's addendum of
+//! that date give. Here, in five rebuilds that moved code (one of them
+//! by changing the number of codegen units), the in-place form found
+//! the multiplication and division plants at opt-level 3 in every run,
+//! as the copy did in all but the codegen-unit build (1 of 10 each
+//! there); it lowered the branch plant's cost at 3 (+0.78 to +0.29 ns
+//! an operation in the unperturbed binary, found in 1 of 30 runs
+//! against 3) and found the division plant at "s" in 35 of 50 rebuilt
+//! runs against 50 with the copy.
 
 use std::hint::black_box;
 

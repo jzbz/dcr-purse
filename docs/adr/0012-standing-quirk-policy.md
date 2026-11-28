@@ -60,6 +60,21 @@
   operation that works in place instead of copying its input to the
   stack) is planned as a separate, later change; it is not made. See the
   note of 2026-11-25 at the end of "Addendum, 2026-11-24".
+- **Recorded, 2026-11-26 (pending owner):** the change planned on
+  2026-11-25 was built and measured, and is not made. A `chars` target
+  that maps the harness's input in place, with no copy, removed the
+  copies' failed store-to-load forwards from the timed region, and it
+  traded one plant's detection for another's. In builds that moved code,
+  the dependent-multiplication plant in `hdkeychain chars` at opt-level
+  3, the plant of the bullet above, was found in every run in place (50
+  of 50, against 21 of 50 with the copy), as was the division plant in
+  the same cell (50 of 50 against 27 of 50); but the secret branch there
+  was found in 10 of 30 unperturbed runs against 27 of 30, and the
+  division in the same target at "s" in 8 of 30 against 30 of 30, with
+  the same losses in the builds that moved code. How far a plant's cost
+  moves between such builds narrowed for some plants and widened for
+  others. Records only: no code, no verdict rule and no workflow change.
+  See "Addendum, 2026-11-26" at the end.
 - **Date:** 2026-11-18
 
 ## Context
@@ -1229,3 +1244,315 @@ workflow changes with it, and none of it has been written or measured.
 Places amended with this note: the Status line (a dated bullet, and a
 pointer on the bullet of 2026-11-24); the dated pointer under "Detection
 lost, and why it is recorded rather than restored"; the ADR index.
+
+## Addendum, 2026-11-26 — A timed operation that works in place, measured and not made
+
+Records only, pending owner. The note of 2026-11-25 planned a change
+that would make the `chars` targets' timed operation less sensitive to
+code layout, "for example an operation that works in place instead of
+copying its input to the stack". That change was built and measured
+against `d61c5d4`, and the measurements do not support it: it is not
+made. Nothing in the harness (`crates/purse-testutil/src/ct.rs`), the
+targets or the workflows changes with this addendum; the module
+documentation of each crate's `src/ct_check.rs` gains a paragraph that
+points here.
+
+**What the timed region holds around the function under test.** The
+machine code of each `chars` target's timed loop (the harness's loop
+over a sample's batch, inlined into the test) was read at opt-levels 3
+and "s" in both crates. For each operation, at opt-level 3 in
+`hdkeychain chars`: the pointer to the input goes through a stack slot
+(`black_box`); seven 16-byte loads of the 111-byte input from the
+chunk of inputs on the heap and seven stores of it to a buffer on the
+stack, the last two overlapping; the call of `map_chars` on that
+buffer, which reads and writes it a byte at a time; seven 16-byte loads
+of the buffer just written byte by byte and seven stores to a second
+stack slot (the result through `black_box`); and, at the top of the
+next iteration, seven loads and stores of that slot into the vector of
+results. `dcrutil chars` does the same with 53 bytes (three 16-byte
+moves and one of 8 each time). At "s" the three copies in `hdkeychain
+chars` are three calls of the C library's `memcpy` of 111 bytes;
+`dcrutil chars` still moves its 53 bytes inline, as at 3. Hardware
+counters on a Zen 4 x86_64 Linux desktop (counted over whole runs, so
+including the building of inputs, whose code is the same in both forms
+below) gave, an operation, 10.5 failed store-to-load forwards in
+`hdkeychain chars` at opt-level 3 against 3.8 with no copy, 12.0
+against 3.6 at "s", 10.5 against 5.0 in `dcrutil chars` at 3 and 11.5
+against 3.9 at "s": the copy after the call reads in pieces what
+`map_chars` has just stored a byte at a time, and waits for those
+stores to reach the cache. Cache-line-crossing loads were 6.9 against
+0.0 an operation (`hdkeychain chars`, 3) and 41.7 against 16.7 (the
+same, "s").
+
+**The form measured.** Each `chars` target's operation (and its
+diagnostic pass's) called `map_chars` on the harness's own input, in
+place, as the encoders call it on their own digits, and returned
+nothing; the harness was not changed, since it already builds each
+chunk's inputs before timing any, hands each input to the operation
+once, and draws each sample's class at random, independently of where
+the sample's inputs lie in the chunk (their addresses, cache lines and
+alignments, which with strides of 111 and 53 bytes take every
+residue modulo 64). The timed loop became the pointer through its stack
+slot, the call and the loop's counters: six instructions at opt-level
+3, and at "s" also an increment of the (zero-sized) result vector's
+length kept on the stack. A harness test that every input reaches the operation at
+most once, as built, and a test that the operation maps the input
+itself were written with it. The random class's median time fell by
+3 to 7 ns an operation (`hdkeychain chars` 322.4 to 317.5 at 3).
+
+**How it was measured.** The three plants of the addendum of
+2026-11-24 (one dependent multiplication, one 64-bit division whose
+dividend is large for the secret, a branch on the secret whose two
+sides do the same work, each keyed on the first digit being 0) were
+copied into scratch copies of each crate's `base58.rs` and called from
+the `chars` target, chosen at run time by the environment, the same
+hook in a copy of `d61c5d4`'s tree and in a copy of the in-place form.
+Each run was the `chars` target alone at the push budget of 10 s,
+pinned with `taskset` to one of six processors of one core complex, six
+runs at a time, the two forms' runs of a cell in pairs, interleaved and
+in a shuffled order, while other jobs ran (load averages 2.1 to 73.4).
+A target counts as found when one of its judged classes fails by the
+rule; in brackets, the finds decided by the plant's own slower path
+(all 0 judged slower); then the median difference of all 0 in its
+deciding comparison over the runs that judged it slower, in
+nanoseconds an operation, as in the addendum of 2026-11-24.
+
+| plant, opt-level 3, sets of ten | `d61c5d4` | in place |
+| --- | --- | --- |
+| `hdkeychain chars`, multiplication | 29 of 30 (28), +1.31; sets +1.27, +1.33, +1.37 | 30 of 30 (29), +3.15; +3.13, +3.10, +3.17 |
+| `hdkeychain chars`, division | 9 of 30 (6), +0.95; 2, 5, 2 of 10 | 30 of 30 (27), +1.95; 10, 10, 10 of 10 |
+| `hdkeychain chars`, branch | 27 of 30 (25), +1.13; 9, 10, 8 of 10 | 10 of 30 (10), +0.71; 2, 3, 5 of 10 |
+| `dcrutil chars`, multiplication | 30 of 30 (29), +1.81 | 30 of 30 (29), +3.24 |
+| `dcrutil chars`, division | 30 of 30 (29), +1.35 | 30 of 30 (28), +1.50 |
+| `dcrutil chars`, branch | 3 of 30 (3), +0.78; 0, 2, 1 of 10 | 1 of 30 (0), +0.29; 0, 1, 0 of 10 |
+
+| plant, opt-level "s", sets of ten | `d61c5d4` | in place |
+| --- | --- | --- |
+| `hdkeychain chars`, multiplication | 30 of 30 (29), +3.35 | 30 of 30 (27), +3.42 |
+| `hdkeychain chars`, division | 30 of 30 (28), +1.19; sets +1.18, +1.20, +1.19 | 8 of 30 (6), +0.89; 3, 5, 0 of 10, +0.83, +0.99, +0.92 |
+| `hdkeychain chars`, branch | 30 of 30 (30), +1.25 | 30 of 30 (24), +2.27 |
+| `dcrutil chars`, multiplication | 30 of 30 (28), +2.79 | 30 of 30 (28), +3.00 |
+| `dcrutil chars`, division | 30 of 30 (29), +1.21 | 30 of 30 (26), +1.13 |
+| `dcrutil chars`, branch | 30 of 30 (28), +1.58 | 30 of 30 (27), +2.07 |
+
+Where a row gives no sets, every set found the plant in 10 of 10 and its
+median was within 0.10 ns of the whole's, but for two rows at "s" with
+the copy: the branch in `hdkeychain chars`, whose sets gave +1.21, +1.23
+and +1.52, and the multiplication in `dcrutil chars`, whose sets gave
++2.69, +2.85 and +2.78 (the first 0.11 ns from the whole's before
+rounding, 2.685 against 2.795). The in-place form raised eight plants'
+costs and lowered four. Seven of the rises are of more than 0.1 ns (the
+multiplication by about 1.4 to 1.8 ns at opt-level 3); the eighth, the
+multiplication in `hdkeychain chars` at "s", is of 0.07 ns. The four it
+lowered: the branch in `hdkeychain chars` at 3 (+1.13 to +0.71) and in
+`dcrutil chars` at 3 (+0.78 to +0.29), and the division in `hdkeychain
+chars` at "s" (+1.19 to +0.89) and in `dcrutil chars` at "s" (+1.21 to
++1.13, a fall of 0.08 ns, within the variation between sets). Two of
+those are losses of detection, far beyond the variation between sets: 27
+of 30 to 10 of 30, and 30 of 30 to 8 of 30.
+
+**Layout.** Each tree with the plants was rebuilt with perturbations
+that do not touch the timed code: an extra test function at the end of
+each crate's `ct_check.rs` (P1); a padding function of 48 arms ahead of
+that module's helpers (P3); a padding function of 40 (P5) or 13 (P6)
+arms in `base58.rs` ahead of `map_chars`; and 16 codegen units in place
+of 1 (P4, by `CARGO_PROFILE_RELEASE_CODEGEN_UNITS`), which also stops
+the harness's `time_target` being inlined into the test, so that the
+timed loop's code around the call differs. Moving `mod ct_check`'s
+declaration (tried first) left the binaries' code byte for byte the
+same and was dropped. At opt-level 3, P1, P3, P5 and P6 left the timed
+region's instructions and stack offsets exactly as they were, in both
+forms, and moved only where code lies: the loop and the planted
+function by multiples of 16 bytes at 3, and by any number of bytes at
+"s". Each perturbed binary was timed ten times beside the unperturbed
+sets, the same way (load averages 9.7 to 33.8). The median cost of each
+plant in each layout, P0 the unperturbed binary's thirty runs, and the
+spread (largest less smallest):
+
+| plant, opt-level 3 | `d61c5d4`: P0, P1, P3, P4, P5, P6 | spread | in place: P0, P1, P3, P4, P5, P6 | spread |
+| --- | --- | --- | --- | --- |
+| `hdkeychain chars`, multiplication | +1.31 +0.98 +1.09 +0.74 +0.97 +1.04 | 0.57 | +3.15 +3.20 +3.34 +1.41 +3.21 +3.39 | 1.98 |
+| `hdkeychain chars`, division | +0.95 +1.01 +1.08 +0.91 +0.78 +1.09 | 0.31 | +1.95 +1.98 +1.92 +1.31 +1.96 +2.00 | 0.69 |
+| `hdkeychain chars`, branch | +1.13 +1.31 +1.45 +1.02 +1.05 +1.29 | 0.42 | +0.71 +1.48 +0.76 +0.91 +0.46 +0.74 | 1.02 |
+| `dcrutil chars`, multiplication | +1.81 +1.80 +1.80 +0.51 +1.72 +1.80 | 1.30 | +3.24 +2.81 +3.19 +2.17 +3.22 +2.81 | 1.07 |
+| `dcrutil chars`, division | +1.35 +1.36 +1.34 +0.24 +1.28 +1.42 | 1.17 | +1.50 +1.41 +1.47 +1.27 +1.47 +1.42 | 0.23 |
+| `dcrutil chars`, branch | +0.78 +0.87 +0.73 +1.59 +0.73 +0.85 | 0.86 | +0.29 +0.86 +0.58 +0.99 +0.85 +0.86 | 0.70 |
+
+| plant, opt-level "s" | `d61c5d4`: P0, P1, P3, P4, P5, P6 | spread | in place: P0, P1, P3, P4, P5, P6 | spread |
+| --- | --- | --- | --- | --- |
+| `hdkeychain chars`, multiplication | +3.35 +3.33 +3.25 +3.31 +2.65 +3.25 | 0.70 | +3.42 +3.44 +3.42 +2.55 +3.33 +3.40 | 0.89 |
+| `hdkeychain chars`, division | +1.19 +1.21 +1.16 +1.13 +1.19 +1.24 | 0.11 | +0.89 +0.89 +0.86 +1.29 +0.87 +0.88 | 0.43 |
+| `hdkeychain chars`, branch | +1.25 +1.75 +1.23 +1.74 +1.92 +1.23 | 0.69 | +2.27 +2.38 +2.37 +1.77 +2.29 +2.36 | 0.61 |
+| `dcrutil chars`, multiplication | +2.79 +2.74 +2.81 +3.54 +2.83 +2.84 | 0.79 | +3.00 +3.08 +2.92 +2.33 +2.97 +3.14 | 0.81 |
+| `dcrutil chars`, division | +1.21 +1.22 +1.24 +1.05 +1.21 +1.21 | 0.19 | +1.13 +0.89 +1.13 +0.63 +1.11 +1.12 | 0.50 |
+| `dcrutil chars`, branch | +1.58 +1.53 +1.58 +2.11 +1.48 +1.50 | 0.63 | +2.07 +2.18 +2.04 +2.37 +2.04 +2.17 | 0.33 |
+
+The spread is smaller in place for 5 of the 12 plants and larger for 7.
+Leaving out P4, whose timed code differs, it is smaller for 6 and
+larger for 6. The in-place spread of 1.98 for the multiplication in
+`hdkeychain chars` at 3 comes from P4 alone, where that plant was still
+found in 10 of 10 runs; without P4 it is 0.24, against 0.34 with the
+copy. The largest in-place spread without P4 is the branch's in the
+same target at 3, 1.02 against 0.40 with the copy.
+
+How often each plant was found in each perturbed layout's ten runs (P1,
+P3, P4, P5, P6, in that order; in brackets the finds decided by the
+plant's own slower path), and the total over the five:
+
+| plant, opt-level 3 | `d61c5d4` | in place |
+| --- | --- | --- |
+| `hdkeychain chars`, multiplication | 4 (4), 6 (5), 1 (0), 4 (4), 6 (6): 21 of 50 | 10 (10) in each: 50 of 50 |
+| `hdkeychain chars`, division | 6 (6), 7 (7), 3 (3), 3 (2), 8 (7): 27 of 50 | 10 (10), 10 (10), 10 (10), 10 (9), 10 (10): 50 of 50 |
+| `hdkeychain chars`, branch | 10 (9), 9 (9), 7 (5), 8 (7), 10 (10): 44 of 50 | 7 (7), 3 (3), 4 (3), 0 (0), 2 (2): 16 of 50 |
+| `dcrutil chars`, multiplication | 10 (10), 10 (9), 1 (0), 10 (9), 10 (10): 41 of 50 | 10 (10), 10 (9), 10 (9), 10 (9), 10 (10): 50 of 50 |
+| `dcrutil chars`, division | 10 (9), 10 (9), 1 (0), 10 (9), 10 (10): 41 of 50 | 10 (10), 10 (10), 10 (10), 10 (9), 10 (10): 50 of 50 |
+| `dcrutil chars`, branch | 2 (1), 1 (1), 10 (10), 1 (0), 2 (2): 16 of 50 | 2 (1), 0 (0), 5 (5), 2 (1), 1 (1): 10 of 50 |
+
+| plant, opt-level "s" | `d61c5d4` | in place |
+| --- | --- | --- |
+| `hdkeychain chars`, multiplication | 10 (8), 10 (9), 10 (7), 10 (7), 10 (9): 50 of 50 | 10 (7), 10 (7), 10 (8), 10 (7), 10 (7): 50 of 50 |
+| `hdkeychain chars`, division | 10 (10), 10 (8), 10 (9), 10 (8), 10 (10): 50 of 50 | 1 (1), 4 (3), 10 (9), 3 (2), 2 (2): 20 of 50 |
+| `hdkeychain chars`, branch | 10 (9), 10 (9), 10 (8), 10 (8), 10 (8): 50 of 50 | 10 (10), 10 (9), 10 (8), 10 (7), 10 (7): 50 of 50 |
+| `dcrutil chars`, multiplication | 10 (8), 10 (8), 10 (10), 10 (7), 10 (8): 50 of 50 | 10 (8), 10 (6), 10 (9), 10 (7), 10 (7): 50 of 50 |
+| `dcrutil chars`, division | 10 (7), 10 (8), 10 (8), 10 (6), 10 (9): 50 of 50 | 5 (3), 10 (8), 0 (0), 10 (8), 10 (7): 35 of 50 |
+| `dcrutil chars`, branch | 10 (9), 10 (8), 10 (9), 10 (8), 10 (7): 50 of 50 | 10 (8), 10 (8), 10 (10), 10 (7), 10 (7): 50 of 50 |
+
+Over all perturbed planted runs the copy was found in 190 of 300 at
+opt-level 3 and 300 of 300 at "s", the in-place form in 226 of 300 and
+255 of 300. The in-place form thus traded one plant's detection for
+another's. The multiplication plant in `hdkeychain chars` at 3, the
+one the note of 2026-11-25 is about, was found in every perturbed run
+in place, at about three times the floor, where with the copy it was
+found in 1 to 6 of each layout's ten; the division plant in the same
+cell likewise, 50 of 50 against 27. Against that, the branch plant in
+`hdkeychain chars` at 3 fell from 44 of 50 to 16, the division plant
+in the same target at "s" from 50 of 50 to 20, and the division plant
+in `dcrutil chars` at "s" from 50 of 50 to 35, as in the unperturbed
+binaries for the first two.
+
+**Noise.** A median of ten runs of one binary moved by up to about
+0.35 ns from set to set in these measurements (the branch in
+`hdkeychain chars` at 3, in place: +0.65, +0.76, +1.00), and by up to
+about 0.6 ns in the second set of measurements below. P0's thirty runs
+were taken in other load windows (load averages 2.1 to 73.4) than the
+perturbed runs (9.7 to 33.8), so a P0 median set against a perturbed
+one mixes load with layout; the copy's multiplication plant in
+`hdkeychain chars` at 3, found in 29 of 30 unperturbed runs and 21 of
+50 perturbed ones, is such a comparison. A difference between layouts
+of 0.4 ns or less in a median of ten cannot be told from run-to-run
+variation on this machine, and most of the spreads without P4 are
+within that; the counts by layout are the clearer measure.
+
+**A second set of measurements.** The comparison was made again,
+independently, in a review of this addendum: the same plants and the
+same two forms, built with four other perturbations that leave the
+timed region's instructions and stack offsets unchanged and move the
+loop and the planted function (a padding function of 21 arms in
+`lib.rs`, Q1; one of 9 arms in `base58.rs` ahead of the plants, Q2; an
+extra test building a `BTreeMap` ahead of `ct_check.rs`'s helpers, Q3;
+one of 33 arms in `lib.rs`, or in `wif.rs` in `purse-dcrutil`, Q4).
+The unperturbed binary (Q0) was run in three sets of ten and Q1 to Q4
+ten times each, at 10 s, pinned to six processors, the two forms' runs
+paired and in a shuffled order, at load averages of 9.5 to 76.2. It
+agrees on the trade. At opt-level 3 in `hdkeychain chars` the
+multiplication plant was found with the copy in 10, 4, 2 and 10 of Q1
+to Q4's ten runs (Q0 30 of 30, +1.47) and in place in all 40 (Q0 30 of
+30, +3.11), its spread across Q0 to Q4 0.53 against 0.10; the division
+plant in 0, 3, 6 and 1 of ten against all 40 (Q0 18 of 30, +1.03,
+against 30 of 30, +1.94), spread 0.33 against 0.12. The losses
+reproduce: the branch plant in that target at 3 was found in 30 of 30
+unperturbed runs (+1.42) and 37 of 40 perturbed with the copy, against
+14 of 30 (+0.80) and 17 of 40 in place; the division plant in the same
+target at "s" in 30 of 30 (+1.22) and 40 of 40, against 10 of 30
+(+0.93) and 5 of 40; the branch plant in `dcrutil chars` at 3 in 5 of
+30 (+0.84) against 0 of 30 (+0.36). Its spreads across Q0 to Q4 were
+smaller in place for 5 of the 12 plants, equal for 1 and larger for 6.
+Over its perturbed planted runs the copy was found in 155 of 240 at 3
+and 240 of 240 at "s", the in-place form in 180 of 240 and 197 of 240.
+A median of ten runs of one binary moved there by up to 0.62 ns from
+set to set (the multiplication in `dcrutil chars` at 3 in place: +2.64,
++3.26, +3.21), and a plant's thirty unperturbed runs split by the
+load average at their start (below 30, or not) gave medians up to
+about 0.6 ns apart (the multiplication in `hdkeychain chars` at 3 with
+the copy, +1.27 against +1.85; the branch there in place, +0.64
+against +1.25).
+
+The in-place form has the plant that prompted the plan, and the
+division plant beside it, found in every run of every layout in both
+datasets, its cost 0.24 and 0.10 ns apart across the layouts that move
+code only, but it loses
+the branch plant in `hdkeychain chars` at 3 and the division plant at
+"s" in both datasets, and lowers four plants' costs in the unperturbed
+binaries. By the plan's own test, no plant's cost lower than before,
+it is not made.
+
+**What this shows, and what it does not.** With the copy, the
+perturbations that moved only code (P1, P3, P5, P6) moved a plant's
+median cost by up to 0.69 ns at "s" (the branch in `hdkeychain chars`,
+P5 +1.92 against P3 +1.23; the multiplication there by 0.68 ns, P1 +3.33
+against P5 +2.65) while the timed region's instructions and stack
+offsets stayed the same; at opt-level 3 by up to 0.40 ns, which is
+within the noise above. In place, with no copy at all, they moved one by
+up to 1.02 ns (the branch in `hdkeychain chars` at 3, P1 +1.48 against
+P5 +0.46), and the same plant was found in 7 of P1's ten runs and none
+of P5's. Those differences, each between layouts timed in the same
+window, the copy's counts of 10, 4, 2 and 10 for Q1 to Q4 above, and
+P4's shifts are beyond the run-to-run variation measured, so the copies,
+their stack buffers and their failed forwards are not needed to explain
+the movement: code placement moves these costs. Movements of 0.4 ns or
+less are not distinguishable from run-to-run variation on this machine.
+P4 moved costs furthest (the multiplication in `dcrutil chars` at 3 from
++1.81 to +0.51 with the copy, found in 1 of 10). Which part of the
+placement matters, the planted function's own alignment or the loop's,
+and through which mechanism of the processor (instruction fetch and
+decode boundaries, branch prediction, the forwarding of the masks
+`char_of` passes through `black_box`), was not examined. A plant is part
+of the function under test, so a harness change could not have held its
+own placement fixed. Why the in-place form raises the multiplication
+plant's cost and lowers the branch plant's at opt-level 3 is not
+explained. The cause of the failure on `f925cc2` remains unidentified;
+nothing here bears on it beyond showing again that costs near the floor
+move with the binary.
+
+**Controls, runs with no leak, wall time.** The controls (linear search)
+were found in every one of 237 runs of a timing step, each the twelve
+tests of a step: 30 a level of the in-place form, 10 a level of
+`d61c5d4`'s binaries and 30 a level of this addendum's tree (whose code
+section is `d61c5d4`'s byte for byte), each run as the test binaries
+with the workflow's arguments, pinned; and 49 at opt-level 3 and 48 at
+"s" of this addendum's tree as the workflow's steps are written, through
+cargo, pinned to the last processor. No judged target failed in any of
+them. Reported, and passing: in the in-place form `hdkeychain chars`
+once at "s"; in `d61c5d4`'s binaries `dcrutil chars` in 4 of 10 at "s";
+in this addendum's tree, of 79 runs at opt-level 3, `hdkeychain chars`
+in 2, `hdkeychain decode` in 1 and `dcrutil chars` in 5, and of 78 at
+"s", `dcrutil chars` in 22. In the 1,920 planted runs no class but all 0
+was ever found. Each step run from the binaries took 120.0 to 120.8 s at
+10 s a target, as in the addendum of 2026-11-24. Of the steps as the
+workflow writes them, wall time was measured in 39 of the runs at
+opt-level 3 and 38 at "s" (the first ten a level recorded none): in
+those, the timed step took 120.06 to 120.24 s at opt-level 3 and 120.06
+to 120.39 s at "s", and each `--no-run` build before it, timed in 39
+runs a level, 3.3 to 26.3 s on a warm target directory (the longest
+waiting on another job's lock on that directory), at most about 4.6
+minutes for the job's four steps, against the workflow's job timeout of
+60 minutes, which is unchanged. A build on a runner's cold cache was not
+timed.
+
+**What was run, and what was not.** On a Zen 4 x86_64 Linux desktop,
+locally and unrecorded, while other jobs ran: the reading of the
+machine code, the counters, the planted runs, the perturbed builds and
+the step runs above, and the timing job's steps and the disassembly
+job's as the workflows write them, on this addendum's tree. None of it
+ran on GitHub or on an EPYC processor; the plants were not timed at 60
+s; nothing is a run of record and there is no ledger entry. No other
+form of the operation was searched, for the reason the addendum of
+2026-11-24 gives for not searching arrangements of the trace: a form
+picked by these plants' results would fit these binaries. Whether
+anything else should be done about a cost near the floor moving with
+the binary is the project owner's to decide; pending owner.
+
+**Places amended with this addendum:** the Status line (a dated
+bullet); the module documentation of `src/ct_check.rs` in
+`purse-hdkeychain` and `purse-dcrutil` (a paragraph each); the ADR
+index.

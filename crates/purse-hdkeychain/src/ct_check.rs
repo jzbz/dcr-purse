@@ -91,6 +91,23 @@
 //! For the rest see the harness's documentation: they are statistical,
 //! they time one process's wall clock, and they fail only on a difference
 //! of a nanosecond an operation or more. A pass is not a proof.
+//!
+//! `chars` copies its input onto the stack, maps the copy and returns it,
+//! so that its timed region holds copies of the 111 bytes before and after
+//! the call of `map_chars`. A form that mapped the harness's input in
+//! place, with no copy, was built and measured on 2026-11-26 with leaks
+//! planted in `map_chars`, and was not adopted. It removed the copies'
+//! failed store-to-load forwards, and it traded one plant's detection for
+//! another's. Here at opt-level 3, in five rebuilds that moved code (one
+//! of them by changing the number of codegen units), the multiplication
+//! plant (the one the note of 2026-11-25 is about) and the division
+//! plant were found in 50 of 50 runs each in place against 21 and 27 of
+//! 50 with the copy; but the branch plant here at 3 was found in 16 of
+//! 50 against 44, and the division plant at "s" in 20 of 50 against 50,
+//! with the same losses in the unperturbed binaries. Across the twelve
+//! plant cells it narrowed how far a plant's cost moves between such
+//! builds for some and widened it for others (ADR-0012, addendum of
+//! 2026-11-26).
 
 extern crate std;
 

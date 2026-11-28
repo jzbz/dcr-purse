@@ -48,7 +48,10 @@
 //	        Returns the timings and, per query, a check value the Rust side
 //	        must give too.
 //
-// The workload format is the spike's (spikes/store-redb/src/workload.rs).
+// The workload format is the spike's (spikes/store-redb/src/workload.rs),
+// with one operation kind the spike does not write: 5, the 32-byte hash of
+// an unmined transaction to abandon (wallet.AbandonTransaction: TxDetails,
+// refused if mined, then RemoveUnconfirmed), a write transaction of its own.
 package main
 
 import (
@@ -446,6 +449,7 @@ const (
 	opUnmined   = 2
 	opTipBlock  = 3
 	opReorg     = 4
+	opAbandon   = 5
 )
 
 type addrRange struct {
@@ -458,6 +462,7 @@ type wlOp struct {
 	commit      bool
 	unpublished bool
 	rollbackTo  uint32
+	hash        chainhash.Hash
 	header      wire.BlockHeader
 	txs         []*wire.MsgTx
 }
@@ -569,6 +574,9 @@ func readWorkload(path string, headerOnly bool) (*workload, error) {
 			op.txs = []*wire.MsgTx{r.tx()}
 		case opReorg:
 			op.rollbackTo = r.u32()
+		case opAbandon:
+			op.commit = true
+			r.read(op.hash[:])
 		default:
 			return nil, fmt.Errorf("bad op kind %d", op.kind)
 		}
@@ -859,6 +867,31 @@ func (w *wallet) extendMainChain(dbtx walletdb.ReadWriteTx, header *wire.BlockHe
 	return &hash, nil
 }
 
+// abandon is wallet.AbandonTransaction (wallet/wallet.go:5071) inside the
+// caller's write transaction: the transaction's details, refused if mined in
+// the main chain, then RemoveUnconfirmed.
+func (w *wallet) abandon(dbtx walletdb.ReadWriteTx, hash *chainhash.Hash) error {
+	ns := dbtx.ReadWriteBucket(wtxmgrKey)
+	details, err := w.store.TxDetails(ns, hash)
+	if err != nil {
+		return fmt.Errorf("abandon %v: %w", hash, err)
+	}
+	if details.Block.Height != -1 {
+		return fmt.Errorf("abandon %v: mined in main chain", hash)
+	}
+	return w.store.RemoveUnconfirmed(ns, &details.MsgTx, hash)
+}
+
+// hasStake reports whether a block holds a stake transaction.
+func hasStake(txs []*wire.MsgTx) bool {
+	for _, tx := range txs {
+		if stake.DetermineTxType(tx) != stake.TxTypeRegular {
+			return true
+		}
+	}
+	return false
+}
+
 func cmdIngest(args json.RawMessage) (any, error) {
 	var a ingestArgs
 	if err := unmarshal(args, &a); err != nil {
@@ -876,9 +909,9 @@ func cmdIngest(args json.RawMessage) (any, error) {
 	ctx := context.Background()
 
 	var c ingestCounters
-	var syncTxns, syncBlocks, txs int
+	var syncTxns, syncBlocks, txs, pruned int
 	var syncNs int64
-	var tipBlock, unmined, reorg []int64
+	var tipBlock, tipBlockStake, unmined, unminedRemove, reorg []int64
 	io0 := ioWriteBytes()
 	start := time.Now()
 	for i := 0; i < len(wl.ops); {
@@ -906,6 +939,12 @@ func cmdIngest(args json.RawMessage) (any, error) {
 					}
 					continue
 				}
+				if op.kind == opAbandon {
+					if err := w.abandon(dbtx, &op.hash); err != nil {
+						return err
+					}
+					continue
+				}
 				if op.kind == opUnmined {
 					rec, err := udb.NewTxRecordFromMsgTx(op.txs[0], time.Now())
 					if err != nil {
@@ -924,7 +963,18 @@ func cmdIngest(args json.RawMessage) (any, error) {
 				last = h
 			}
 			if last != nil {
-				return w.store.UpdateProcessedTxsBlockMarker(dbtx, last)
+				if err := w.store.UpdateProcessedTxsBlockMarker(dbtx, last); err != nil {
+					return err
+				}
+				// ChainSwitch's last step (wallet/chainntfns.go:255), with
+				// the ticket price 0 it passes when the next one is unknown
+				// (no unmined ticket is pruned); its error is returned here
+				// where the wallet logs it.
+				hashes, err := w.store.PruneUnmined(dbtx, 0)
+				if err != nil {
+					return err
+				}
+				pruned += len(hashes)
 			}
 			return nil
 		})
@@ -939,8 +989,13 @@ func cmdIngest(args json.RawMessage) (any, error) {
 			syncNs += d
 		case opTipBlock:
 			tipBlock = append(tipBlock, d)
+			if hasStake(group[0].txs) {
+				tipBlockStake = append(tipBlockStake, d)
+			}
 		case opUnmined:
 			unmined = append(unmined, d)
+		case opAbandon:
+			unminedRemove = append(unminedRemove, d)
 		case opReorg:
 			reorg = append(reorg, d)
 		}
@@ -948,21 +1003,24 @@ func cmdIngest(args json.RawMessage) (any, error) {
 	}
 	elapsed := time.Since(start).Nanoseconds()
 	return map[string]any{
-		"elapsed":        elapsed,
-		"io_write_bytes": ioWriteBytes() - io0,
-		"reorg":          summarize(reorg),
-		"ops":            len(wl.ops),
-		"txs":            txs,
-		"sync_txns":      syncTxns,
-		"sync_blocks":    syncBlocks,
-		"sync_ns":        syncNs,
-		"tip_block":      summarize(tipBlock),
-		"unmined":        summarize(unmined),
-		"addr_sync_ns":   c.syncNs,
-		"credits":        c.credits,
-		"commitments":    c.commitments,
-		"lookups":        c.lookups,
-		"lookup_misses":  c.lookupMisses,
+		"elapsed":         elapsed,
+		"io_write_bytes":  ioWriteBytes() - io0,
+		"reorg":           summarize(reorg),
+		"ops":             len(wl.ops),
+		"txs":             txs,
+		"sync_txns":       syncTxns,
+		"sync_blocks":     syncBlocks,
+		"sync_ns":         syncNs,
+		"tip_block":       summarize(tipBlock),
+		"tip_block_stake": summarize(tipBlockStake),
+		"unmined":         summarize(unmined),
+		"unmined_remove":  summarize(unminedRemove),
+		"pruned":          pruned,
+		"addr_sync_ns":    c.syncNs,
+		"credits":         c.credits,
+		"commitments":     c.commitments,
+		"lookups":         c.lookups,
+		"lookup_misses":   c.lookupMisses,
 	}, nil
 }
 

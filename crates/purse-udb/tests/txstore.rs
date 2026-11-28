@@ -3137,6 +3137,81 @@ fn range_walks_read_what_they_visit() {
     assert_eq!(keys.get(), 7 + 5, "MissingCFiltersHeight keys");
 }
 
+/// `RangeTransactions` marks a credit spent when an unmined transaction
+/// spends it (Go's `existsRawUnminedInput`, a lookup of the encoded
+/// outpoint per credit), with none, some or all of a record's credits
+/// spent that way, and its answer equals `TxDetails`'. A key of another
+/// length in the unmined-inputs index matches no credit and fails no
+/// query, as Go's bucket `Get` neither matches nor decodes it.
+#[test]
+fn range_marks_credits_spent_by_unmined_as_tx_details_does() {
+    const OUTS: u32 = 8;
+    for (spent, foreign_key) in [(0, false), (3, false), (OUTS, false), (3, true)] {
+        let (store, ts, _) = tx_store("testnet3");
+        let mut g = BlockGenerator::new();
+        let b1 = g.generate(1);
+        let values: Vec<i64> = (1..=i64::from(OUTS)).collect();
+        let mined = outputs_tx(&values);
+        let mined_hash = mined.tx_hash();
+        let m = TxRecord::from_msg_tx(mined, 0).expect("record");
+        store
+            .update(|tx| {
+                insert_main_chain_headers(&ts, tx, &[&b1]);
+                let meta = make_block_meta(&b1);
+                ts.insert_mined_tx(tx, &m, &meta.block.hash)
+                    .expect("InsertMinedTx");
+                for i in 0..OUTS {
+                    ts.add_credit(tx, &m, Some(&meta), i, i % 2 == 1, 0)
+                        .expect("AddCredit");
+                }
+                for i in 0..spent {
+                    let u = TxRecord::from_msg_tx(spend_output(mined_hash, i, 0, &[1]), 0)
+                        .expect("record");
+                    ts.insert_mem_pool_tx(tx, &u).expect("InsertMemPoolTx");
+                }
+                if foreign_key {
+                    tx.put_raw(TableId::UnminedInputs, &[7u8; 35], &[0u8; 32])?;
+                }
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("update");
+        let mut r = store.read().expect("read");
+        assert_eq!(
+            r.table_len(TableId::UnminedInputs).expect("len"),
+            u64::from(spent) + u64::from(foreign_key)
+        );
+        let (mut got, mut unmined) = (Vec::new(), 0u32);
+        ts.range_transactions(&mut r, 0, -1, |d| {
+            for x in d {
+                if x.height() < 0 {
+                    unmined += 1;
+                } else {
+                    got.push(x.credits.clone());
+                }
+            }
+            Ok(false)
+        })
+        .expect("RangeTransactions");
+        assert_eq!(unmined, spent);
+        assert_eq!(got.len(), 1);
+        let credits = &got[0];
+        assert_eq!(credits.len(), OUTS as usize);
+        for c in credits {
+            assert_eq!(
+                c.spent,
+                c.index < spent,
+                "credit {} ({spent} spent, foreign key {foreign_key})",
+                c.index
+            );
+        }
+        let details = ts.tx_details(&mut r, m.hash()).expect("TxDetails");
+        assert_eq!(
+            &details.credits, credits,
+            "{spent} spent, foreign key {foreign_key}"
+        );
+    }
+}
+
 /// A ticket purchase of the simulation's shape spending an outpoint no
 /// other call's ticket spends (`n` distinct), so tickets never conflict.
 fn unique_ticket(sim: &mut Sim, n: u32) -> TxRecord {

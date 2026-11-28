@@ -16,6 +16,7 @@ import (
 
 	"decred.org/dcrwallet/v5/wallet/udb"
 	"decred.org/dcrwallet/v5/wallet/walletdb"
+	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
 )
@@ -65,6 +66,9 @@ type hotArgs struct {
 	// Store.RandomUTXO calls at minconf 1, all in one read transaction per
 	// repetition.
 	RandomUTXOs int `json:"random_utxos"`
+	// Store.UnspentTickets(tip, includeImmature) and a walk of
+	// Store.IterateTickets, each one call per repetition (before NextAddr).
+	Tickets bool `json:"tickets"`
 }
 
 type selectSpec struct {
@@ -178,7 +182,10 @@ func cmdHot(args json.RawMessage) (any, error) {
 	// its slice between calls, so the details are copied, as a caller
 	// keeping them must). The text the check compares is built after the
 	// timing, as the Rust side builds it from the batches its query
-	// returned (crates/purse-udb/tests/measure.rs, rust_hot).
+	// returned (crates/purse-udb/tests/measure.rs, rust_hot). Resetting a
+	// kept answer with [:0] frees nothing here (the old batches are left
+	// to the collector); the Rust side releases its previous answer before
+	// its timing starts, for every query that keeps one (repeat_kept).
 	for _, r := range a.Ranges {
 		name := "range/" + r.Name
 		var batches [][]udb.TxDetails
@@ -378,6 +385,50 @@ func cmdHot(args json.RawMessage) (any, error) {
 			return nil, err
 		}
 		checks["random_utxo/minconf=1"] = fmt.Sprintf("%d", found)
+	}
+
+	// Ticket queries. The answers are formatted after the timing, as the
+	// Rust side formats the vectors its queries return.
+	if a.Tickets {
+		var hashes []chainhash.Hash
+		err := timeIt("tickets/unspent", func() error {
+			return view(func(dbtx walletdb.ReadTx) error {
+				var err error
+				hashes, err = w.store.UnspentTickets(dbtx, tipHeight, true)
+				return err
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		lines := make([]string, len(hashes))
+		for i := range hashes {
+			lines[i] = hex.EncodeToString(hashes[i][:])
+		}
+		checks["tickets/unspent"] = digestText(len(lines), lines)
+
+		var tickets []udb.Ticket
+		err = timeIt("tickets/iterate", func() error {
+			tickets = tickets[:0]
+			return view(func(dbtx walletdb.ReadTx) error {
+				it := w.store.IterateTickets(dbtx)
+				defer it.Close()
+				for it.Next() {
+					tickets = append(tickets, it.Ticket)
+				}
+				return it.Err()
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		lines = make([]string, len(tickets))
+		for i := range tickets {
+			t := &tickets[i]
+			lines[i] = fmt.Sprintf("%s %d %s", hex.EncodeToString(t.Hash[:]), t.Block.Height,
+				hex.EncodeToString(t.SpenderHash[:]))
+		}
+		checks["tickets/iterate"] = digestText(len(lines), lines)
 	}
 
 	if a.NextAddr > 0 {

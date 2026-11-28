@@ -1873,7 +1873,37 @@ added to it.
      `purse-udb`'s transaction-store functions instead of its own
      composition, and with stake, unmined and reorganisation operations
      added to the workload. *2026-11-26: not done; it stays owed at
-     Phase 3's exit.*
+     Phase 3's exit.* *2026-11-27: M3's harness is built
+     (`crates/purse-udb/tests/measure.rs` and `storebench`). It ingests
+     through `TxStore`'s own functions with storebench's call sequence
+     (`Rollback` for a reorganisation, the unmined path, `AbandonTransaction`
+     and `PruneUnmined` included) and times `TxStore`'s own queries. The
+     workload adds ticket purchases with commitments, votes, revocations,
+     unmined transactions mined, replaced by a double spend or abandoned,
+     reorganisations of one to three blocks at the tip and, in the history,
+     blocks disapproving their parent and mining its regular transactions
+     again, in `PURSEWL1` with one operation kind added (abandon); the
+     generator avoids by construction only the sequences where a decided
+     divergence or a reproduced Go defect would make the exports differ
+     (the header lists them). The 21 figures keep their names, all now
+     over the extended workload, and the header says which also change
+     what they call against the entries of 2026-11-20 and 2026-11-26; six
+     figures are new (`commit/tip_block_stake`, `commit/reorg`,
+     `commit/unmined_insert`, `commit/unmined_remove`, `tickets/unspent`,
+     `tickets/iterate`). Each reorganisation's new chain leaves out one
+     send of the detached blocks, so `Rollback`'s return of a detached
+     transaction to the unmined ones is compared, not only timed; and the
+     Rust side releases a kept answer before a repetition's timing starts
+     (Go's collector reclaims its own later). Only unrecorded diagnostics
+     were run, on a loaded shared desktop; across them the range figures
+     fell under N = 1.5 in some sessions (as low as 1.30 times before
+     the disapprovals were added, 1.44 times after) and `tickets/iterate`
+     matched or trailed Go in some (up to 1.42 times Go's time); in the
+     two sessions on the final workload every other figure was faster
+     than Go's. Part of each Rust range figure is the test's deep copy of
+     the batches `range_transactions` lends (storebench's copy of udb's
+     is shallow); whether the batches are handed by value is pending
+     owner. The run of M3 is owed.*
 3. **The store's file name** is `wallet.redb` (ADR-0018 Open point BK1);
    item 5 of the addendum of 2026-11-19 "Decisions of the project owner"
    carries the dated pointer.

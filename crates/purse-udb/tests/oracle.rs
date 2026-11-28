@@ -75,7 +75,18 @@
 //! merges that only the unmined copy holds (and pins QK-0789), and
 //! `a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twice`,
 //! which pins QK-0781's doubled output in the UTXO queries and selection
-//! on both sides (reproduced; QK-0734's fix does not reach it).
+//! on both sides (reproduced; QK-0734's fix does not reach it). The
+//! consistency check of the transaction tables (ADR-0018 BK4) adds
+//! `a_spender_inserted_again_over_a_twice_credited_funder_matches_go`
+//! (QK-0095 over QK-0781, every record and the export equal) and
+//! `a_spender_of_a_detached_block_mined_again_at_its_height_differs_from_go`,
+//! which shows Go's records beside dcr-purse's where that state, rolled
+//! back, makes the store's spender without a block hash differ (PARITY.md,
+//! pending owner), and
+//! `a_funder_s_block_revalidated_over_a_twice_credited_funder_matches_go`
+//! (that state with the funder's block disapproved and approved again: an
+//! unspent output whose credit names a spender with no debit, or whose
+//! debit spends the outpoint's credit at another height).
 //!
 //! The auxiliary records add the hand-written scripts `39` to `41` (VSP
 //! tickets, treasury policies, agenda preferences, with groups and
@@ -2287,6 +2298,405 @@ fn a_transaction_mined_twice_and_rolled_back_is_listed_counted_and_selected_twic
         "{}",
         go[13]
     );
+}
+
+/// QK-0095 over QK-0781 (reproduced), the state the transaction tables'
+/// consistency check accepts (ADR-0018 BK4, `purse_store::txtables`): `f`
+/// pays the wallet and is credited in block 1, `s` spends it, then `f` is
+/// recorded and credited again in block 2, which moves the outpoint's
+/// unspent row to block 2's credit, and `s` is inserted again, in block 1
+/// or in block 2: its debit is overwritten to spend block 2's credit while
+/// block 1's still names `s`. The operation-script runner runs the
+/// consistency checks after every operation, so each state is held to
+/// pass them; every record and the final exports are equal on both sides.
+/// (A rollback of block 2 with `s` in it then leaves block 1's credit
+/// naming a spender with no debit, the state
+/// `every_state_of_go_s_reproduced_defects_passes_the_check` writes; the
+/// logical export cannot compare that store with Go's, since it names a
+/// credit's spender by the main-chain block at the spender's height,
+/// where Go's credit keeps the detached block's hash.)
+#[test]
+fn a_spender_inserted_again_over_a_twice_credited_funder_matches_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    for spender_block in ["b1", "b2"] {
+        let name = format!("QK-0095 over QK-0781, spender in {spender_block}");
+        let mut ops = vec![
+            json!({"op": "store.extend_main_chain", "label": "b1"}),
+            json!({"op": "store.extend_main_chain", "label": "b2"}),
+            json!({"op": "tx.build", "label": "f",
+             "inputs": [{"prev": {"tx": "5555555555555555555555555555555555555555555555555555555555555555", "index": 0}, "value": 9000}],
+             "outputs": [{"value": 5000, "pay": {"acct": 0, "branch": 0, "index": 0}}]}),
+            json!({"op": "tx.build", "label": "s",
+             "inputs": [{"prev": {"tx": "f", "index": 0}, "value": 5000}],
+             "outputs": [{"value": 4000, "pay": {"acct": 0, "branch": 0, "index": 1}}]}),
+            json!({"op": "store.insert_mined_tx", "tx": "f", "block": "b1"}),
+            json!({"op": "store.add_credit", "tx": "f", "index": 0, "account": 0, "block": "b1"}),
+            json!({"op": "store.insert_mined_tx", "tx": "s", "block": spender_block}),
+            json!({"op": "store.insert_mined_tx", "tx": "f", "block": "b2"}),
+            json!({"op": "store.add_credit", "tx": "f", "index": 0, "account": 0, "block": "b2"}),
+            json!({"op": "store.insert_mined_tx", "tx": "s", "block": spender_block}),
+        ];
+        let queries = ops.len();
+        ops.extend([
+            json!({"op": "store.tx_details", "tx": "f"}),
+            json!({"op": "store.tx_details", "tx": "s"}),
+            json!({"op": "store.spender", "outpoint": {"tx": "f", "index": 0}}),
+            json!({"op": "store.unspent_output_count"}),
+            json!({"op": "store.account_balances", "minconf": 0}),
+        ]);
+        let script = json!({
+            "format": "purse-opscript 1",
+            "name": name,
+            "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                      "pubpass": "public", "privpass": "private",
+                      "rand": "3838383838383838383838383838383838383838383838383838383838383838",
+                      "clock": 1_795_400_000},
+            "ops": ops,
+        });
+        let go = differential(&mut o, &name, &script);
+        for (i, r) in go.iter().enumerate().take(queries) {
+            assert!(r.get("err").is_none(), "{name}: op {i} failed in Go: {r}");
+        }
+        let spender = &go[queries + 2];
+        assert_eq!(
+            spender["ok"],
+            json!({"tx": go[3]["ok"]["hash"], "index": 0}),
+            "{name}: Go: {spender}"
+        );
+    }
+}
+
+/// The sequence above with `s` in block 2, then block 2 rolled back, a new
+/// block at height 2 connected and `s` mined into it: block 1's credit of
+/// `f:0` still names `s` at height 2 as its spender, with no debit (the
+/// state the consistency check accepts, QK-0095 over QK-0781). Go's credit
+/// keeps the detached block's hash beside the height; the store keeps the
+/// height alone (ADR-0003: a spender is a debit key, transaction, height
+/// and input), as it does for a debit's credit (PARITY.md, transaction
+/// store, item (14)). So once a block stands at that height again the two
+/// differ: Go's `Spender` of `f:0` looks for `s`'s record in the detached
+/// block and fails (kind `IO`, `tx record len 0`), where dcr-purse finds
+/// `s` mined at height 2 and answers it; and the logical export names the
+/// spender's block as the detached one on Go's side and as the main-chain
+/// block at the height on dcr-purse's (with no block there it refuses the
+/// store). Every other record is equal, and both sides fail `Spender`
+/// alike before `s` is mined again. Go's and dcr-purse's records are
+/// pinned (PARITY.md, the entry "`purse-udb` transaction store: a spent
+/// credit's spender block"; pending owner).
+#[test]
+fn a_spender_of_a_detached_block_mined_again_at_its_height_differs_from_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let script = json!({
+        "format": "purse-opscript 1",
+        "name": "QK-0095 over QK-0781, rolled back and mined again",
+        "setup": {"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "3838383838383838383838383838383838383838383838383838383838383838",
+                  "clock": 1_795_400_000},
+        "ops": [
+            {"op": "store.extend_main_chain", "label": "b1"},
+            {"op": "store.extend_main_chain", "label": "b2"},
+            {"op": "tx.build", "label": "f",
+             "inputs": [{"prev": {"tx": "5555555555555555555555555555555555555555555555555555555555555555", "index": 0}, "value": 9000}],
+             "outputs": [{"value": 5000, "pay": {"acct": 0, "branch": 0, "index": 0}}]},
+            {"op": "tx.build", "label": "s",
+             "inputs": [{"prev": {"tx": "f", "index": 0}, "value": 5000}],
+             "outputs": [{"value": 4000, "pay": {"acct": 0, "branch": 0, "index": 1}}]},
+            {"op": "store.insert_mined_tx", "tx": "f", "block": "b1"},
+            {"op": "store.add_credit", "tx": "f", "index": 0, "account": 0, "block": "b1"},
+            {"op": "store.insert_mined_tx", "tx": "s", "block": "b2"},
+            {"op": "store.insert_mined_tx", "tx": "f", "block": "b2"},
+            {"op": "store.add_credit", "tx": "f", "index": 0, "account": 0, "block": "b2"},
+            {"op": "store.insert_mined_tx", "tx": "s", "block": "b2"},
+            // 10, 11: the rollback; Spender fails alike on both sides.
+            {"op": "store.rollback", "height": 2},
+            {"op": "store.spender", "outpoint": {"tx": "f", "index": 0}},
+            // 12, 13: a block at height 2 again, `s` mined into it.
+            {"op": "store.extend_main_chain", "label": "b2x"},
+            {"op": "store.insert_mined_tx", "tx": "s", "block": "b2x"},
+            // 14: the difference; 15 to 17 equal.
+            {"op": "store.spender", "outpoint": {"tx": "f", "index": 0}},
+            {"op": "store.tx_details", "tx": "s"},
+            {"op": "store.account_balances", "minconf": 0},
+            {"op": "store.unspent_output_count"},
+        ],
+    });
+    let dir = scratch("detached-spender");
+    let (go, go_pe) = go_run(&mut o, &script, &dir.join("go"));
+    let rust = runner::run(&script, &dir.join("rust")).expect("Rust runner");
+    let rs = &rust.results;
+    assert_eq!(go.len(), rs.len());
+    for (i, (g, r)) in go.iter().zip(rs).enumerate() {
+        if i != 14 {
+            support::compare::check_record("detached spender", g, r);
+        }
+    }
+    let s = go[3]["ok"]["hash"].clone();
+    assert_eq!(go[11]["err"]["kind"], "IO", "{}", go[11]);
+    assert_eq!(
+        go[14]["err"],
+        json!({"kind": "IO", "text": "I/O error: tx record len 0"}),
+        "Go: {}",
+        go[14]
+    );
+    assert_eq!(
+        rs[14]["ok"],
+        json!({"tx": s, "index": 0}),
+        "dcr-purse: {}",
+        rs[14]
+    );
+    // The export: f's block-1 credit names the spender's block.
+    let spblock = |pe: &str| {
+        let f = go[2]["ok"]["hash"].as_str().expect("f").to_owned();
+        let line = pe
+            .lines()
+            .find(|l| l.starts_with(&format!("credit tx={f} height=1 ")))
+            .expect("f's block-1 credit")
+            .to_owned();
+        line.split(' ')
+            .find_map(|w| w.strip_prefix("spblock="))
+            .expect("spblock")
+            .to_owned()
+    };
+    assert_eq!(
+        spblock(&go_pe),
+        go[1]["ok"]["hash"],
+        "Go: the detached block"
+    );
+    assert_eq!(
+        spblock(&rust.export),
+        go[12]["ok"]["hash"],
+        "dcr-purse: the block at the height now"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// QK-0095 over QK-0781, then the funder's block disapproved and approved
+/// again (ADR-0018 BK4: the states the transaction tables' consistency
+/// check accepts under an unspent row). Go's `stakeValidate` puts the
+/// funder's credit back unchanged, spender included, and writes its
+/// unspent row unconditionally (QK-0785's mechanism, reproduced), so the
+/// outpoint is unspent while its credit names a spender:
+///
+/// - `C`: the spender `s` in block 2, block 2 rolled back (block 1's credit
+///   of `f:0` names `s` at height 2, which has no debit), then block 1
+///   disapproved and approved again: the credit names a spender with no
+///   debit;
+/// - `D`: `s` in block 1, below its funder, credited in blocks 2 and 3 and
+///   inserted again, block 3 rolled back (`s`'s debit names block 3's
+///   credit, gone: QK-0101), then block 2 disapproved and approved again:
+///   the credit names a spender whose live debit spends the outpoint's
+///   credit at another height.
+///
+/// The operation-script runner runs the consistency checks after every
+/// operation, so each state is held to pass them on dcr-purse's side.
+/// Every record before the queries is equal, and so is every query but
+/// those QK-0734's fix changes (PARITY.md, transaction store, item (23)):
+/// the rollback returned `f` to the unmined set beside its lower record,
+/// and the approval merges that unmined copy on dcr-purse's side where Go
+/// keeps it, so Go reports `f` as unmined and counts its output twice. In
+/// the exports, beside that unmined copy on Go's side, the spender's block
+/// (`C`, PARITY.md, the entry "`purse-udb` transaction store: a spent
+/// credit's spender block") and the debit's credit block (`D`, item (14))
+/// are the detached block on Go's side and the block now at that height
+/// on dcr-purse's.
+#[test]
+fn a_funder_s_block_revalidated_over_a_twice_credited_funder_matches_go() {
+    let Some(mut o) = oracle_or_skip("oprunner") else {
+        return;
+    };
+    let setup = json!({"network": "simnet", "seed": "000102030405060708090a0b0c0d0e0f",
+                  "pubpass": "public", "privpass": "private",
+                  "rand": "3838383838383838383838383838383838383838383838383838383838383838",
+                  "clock": 1_795_400_000});
+    let build = [
+        json!({"op": "tx.build", "label": "f",
+         "inputs": [{"prev": {"tx": "5555555555555555555555555555555555555555555555555555555555555555", "index": 0}, "value": 9000}],
+         "outputs": [{"value": 5000, "pay": {"acct": 0, "branch": 0, "index": 0}}]}),
+        json!({"op": "tx.build", "label": "s",
+         "inputs": [{"prev": {"tx": "f", "index": 0}, "value": 5000}],
+         "outputs": [{"value": 4000, "pay": {"acct": 0, "branch": 0, "index": 1}}]}),
+    ];
+    let queries = [
+        json!({"op": "store.unspent_output_count"}),
+        json!({"op": "store.unspent_outputs"}),
+        json!({"op": "store.account_balances", "minconf": 0}),
+        json!({"op": "store.tx_details", "tx": "f"}),
+        json!({"op": "store.tx_details", "tx": "s"}),
+        json!({"op": "store.exists_utxo", "outpoint": {"tx": "f", "index": 0}}),
+        json!({"op": "store.spender", "outpoint": {"tx": "f", "index": 0}}),
+    ];
+    let extend = |label: &str| json!({"op": "store.extend_main_chain", "label": label});
+    let ins =
+        |tx: &str, block: &str| json!({"op": "store.insert_mined_tx", "tx": tx, "block": block});
+    let credit = |block: &str| json!({"op": "store.add_credit", "tx": "f", "index": 0, "account": 0, "block": block});
+    let rollback = |height: u32| json!({"op": "store.rollback", "height": height});
+    let vote = |label: &str, bits: u16| json!({"op": "store.extend_main_chain", "label": label, "votebits": bits});
+    // C: 0 and 1 blocks, 2 and 3 the transactions, 4 to 9 the inserts and
+    // credits, 10 the rollback, 11 to 13 block 1 disapproved and approved.
+    let mut c = vec![extend("b1"), extend("b2")];
+    c.extend(build.iter().cloned());
+    c.extend([
+        ins("f", "b1"),
+        credit("b1"),
+        ins("s", "b2"),
+        ins("f", "b2"),
+        credit("b2"),
+        ins("s", "b2"),
+        rollback(2),
+        vote("b2d", 0),
+        rollback(2),
+        vote("b2a", 1),
+    ]);
+    c.extend(queries.iter().cloned());
+    // D: 0 to 2 blocks, 3 and 4 the transactions, 5 to 10 the inserts and
+    // credits, 11 the rollback, 12 to 14 block 2 disapproved and approved.
+    let mut d = vec![extend("b1"), extend("b2"), extend("b3")];
+    d.extend(build.iter().cloned());
+    d.extend([
+        ins("f", "b2"),
+        credit("b2"),
+        ins("s", "b1"),
+        ins("f", "b3"),
+        credit("b3"),
+        ins("s", "b1"),
+        rollback(3),
+        vote("b3d", 0),
+        rollback(3),
+        vote("b3a", 1),
+    ]);
+    d.extend(queries.iter().cloned());
+    // The export line of `kind` for transaction `tx` (`<kind> tx=<tx> ...`,
+    // or `utx hash=<tx> ...`), and one field of it.
+    let line = |pe: &str, start: &str| pe.lines().find(|l| l.starts_with(start)).map(str::to_owned);
+    let field = |l: &str, key: &str| {
+        l.split(' ')
+            .find_map(|w| w.strip_prefix(&format!("{key}=")).map(str::to_owned))
+            .unwrap_or_else(|| panic!("{key} in {l}"))
+    };
+    for (name, ops, first_query, funder_height) in [("C", c, 14, 1), ("D", d, 15, 2)] {
+        let script = json!({"format": "purse-opscript 1",
+            "name": format!("QK-0095 over QK-0781, the funder's block revalidated ({name})"),
+            "setup": setup, "ops": ops});
+        let dir = scratch("revalidated-funder");
+        let (go, go_pe) = go_run(&mut o, &script, &dir.join("go"));
+        let rust = runner::run(&script, &dir.join("rust"))
+            .unwrap_or_else(|e| panic!("{name}: Rust runner: {e}"));
+        let rs = &rust.results;
+        assert_eq!(go.len(), rs.len(), "{name}");
+        let f_index = if name == "C" { 2 } else { 3 };
+        let f = go[f_index]["ok"]["hash"].as_str().expect("f").to_owned();
+        // The queries QK-0734's merge changes: `C` the details of `f`;
+        // `D` also the unspent outputs and the balance.
+        let merged: &[usize] = if name == "C" {
+            &[first_query + 3]
+        } else {
+            &[first_query + 1, first_query + 2, first_query + 3]
+        };
+        for (i, (g, r)) in go.iter().zip(rs).enumerate() {
+            if !merged.contains(&i) {
+                support::compare::check_record(&format!("{name}: op {i}"), g, r);
+            }
+        }
+        // One unspent row on both sides, the output a UTXO.
+        assert_eq!(
+            rs[first_query]["ok"],
+            json!(1),
+            "{name}: {}",
+            rs[first_query]
+        );
+        assert_eq!(rs[first_query + 5]["ok"], json!(true), "{name}");
+        // The details of `f`: Go's unmined copy, dcr-purse's record at the
+        // funder's block.
+        let details = first_query + 3;
+        assert_eq!(
+            go[details]["ok"]["height"],
+            json!(-1),
+            "{name}: Go: {}",
+            go[details]
+        );
+        assert_eq!(
+            rs[details]["ok"]["height"],
+            json!(funder_height),
+            "{name}: dcr-purse: {}",
+            rs[details]
+        );
+        if name == "D" {
+            let outs = |v: &Value| v["ok"].as_array().map(Vec::len);
+            assert_eq!(
+                outs(&go[first_query + 1]),
+                Some(2),
+                "D: Go: {}",
+                go[first_query + 1]
+            );
+            assert_eq!(
+                outs(&rs[first_query + 1]),
+                Some(1),
+                "D: dcr-purse: {}",
+                rs[first_query + 1]
+            );
+            let total = |v: &Value| v["ok"][0]["total"].clone();
+            assert_eq!(total(&go[first_query + 2]), json!(10_000), "D: Go");
+            assert_eq!(total(&rs[first_query + 2]), json!(5000), "D: dcr-purse");
+        }
+        // The exports: Go's unmined copy of `f`, which dcr-purse merged.
+        let utx = format!("utx hash={f} ");
+        assert!(
+            line(&go_pe, &utx).is_some(),
+            "{name}: Go keeps the unmined copy"
+        );
+        assert!(
+            line(&rust.export, &utx).is_none(),
+            "{name}: dcr-purse merged it"
+        );
+        // The funder's credit, unspent and naming `s` on both sides.
+        let fc = format!("credit tx={f} height={funder_height} ");
+        let (gc, rc) = (
+            line(&go_pe, &fc).expect("Go"),
+            line(&rust.export, &fc).expect("Rust"),
+        );
+        for l in [&gc, &rc] {
+            assert_eq!(
+                (field(l, "spent"), field(l, "sptx"), field(l, "utxo")),
+                (
+                    "1".to_owned(),
+                    go[f_index + 1]["ok"]["hash"]
+                        .as_str()
+                        .expect("s")
+                        .to_owned(),
+                    "1".to_owned()
+                ),
+                "{name}: {l}"
+            );
+        }
+        let detached = |i: usize| go[i]["ok"]["hash"].as_str().expect("block").to_owned();
+        let now = |i: usize| rs[i]["ok"]["hash"].as_str().expect("block").to_owned();
+        if name == "C" {
+            // The spender's block: b2 detached on Go's side, b2a on ours.
+            assert_eq!(field(&gc, "spblock"), detached(1), "C: Go");
+            assert_eq!(field(&rc, "spblock"), now(13), "C: dcr-purse");
+        } else {
+            // `s`'s debit names block 3's credit: b3 detached on Go's side,
+            // b3a on ours.
+            let s = go[4]["ok"]["hash"].as_str().expect("s").to_owned();
+            let dl = format!("debit tx={s} height=1 ");
+            let (gd, rd) = (
+                line(&go_pe, &dl).expect("Go"),
+                line(&rust.export, &dl).expect("Rust"),
+            );
+            assert_eq!(
+                (field(&gd, "crtx"), field(&gd, "crheight")),
+                (f.clone(), "3".to_owned())
+            );
+            assert_eq!(field(&gd, "crblock"), detached(2), "D: Go");
+            assert_eq!(field(&rd, "crblock"), now(14), "D: dcr-purse");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// A group member whose operation returns an error where Go panics may

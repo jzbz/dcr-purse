@@ -758,6 +758,68 @@ impl<'a, 't> WriteReader<'a, 't> {
     meta_readers!();
 }
 
+/// Reads of either transaction kind through a shared borrow, so that a
+/// check can walk one table while it looks rows up in others (a
+/// [`WriteTx`]'s own ranges borrow it mutably). [`WriteTx::shared`] gives
+/// one over a write transaction with every table open.
+pub(crate) trait Rows {
+    /// The value at `key` in table `T`.
+    fn row<T: Table>(&self, key: &T::Key) -> Result<Option<T::Value>>;
+    /// Whether table `T` has `key`, the value neither copied nor decoded.
+    fn has<T: Table>(&self, key: &T::Key) -> Result<bool>;
+    /// The number of entries in table `table`.
+    fn count(&self, table: TableId) -> Result<u64>;
+    /// Entries of table `T` with keys in `(lo, hi)`, in key order.
+    fn rows<T: Table>(&self, lo: Bound<&T::Key>, hi: Bound<&T::Key>) -> Result<Iter<'_, T>>;
+    /// Every entry of table `T`, in key order.
+    fn all<T: Table>(&self) -> Result<Iter<'_, T>> {
+        self.rows::<T>(Bound::Unbounded, Bound::Unbounded)
+    }
+}
+
+impl Rows for ReadTx {
+    fn row<T: Table>(&self, key: &T::Key) -> Result<Option<T::Value>> {
+        self.get::<T>(key)
+    }
+    fn has<T: Table>(&self, key: &T::Key) -> Result<bool> {
+        self.contains::<T>(key)
+    }
+    fn count(&self, table: TableId) -> Result<u64> {
+        self.len(table)
+    }
+    fn rows<T: Table>(&self, lo: Bound<&T::Key>, hi: Bound<&T::Key>) -> Result<Iter<'_, T>> {
+        self.range::<T>(lo, hi)
+    }
+}
+
+impl Rows for WriteReader<'_, '_> {
+    fn row<T: Table>(&self, key: &T::Key) -> Result<Option<T::Value>> {
+        self.get::<T>(key)
+    }
+    fn has<T: Table>(&self, key: &T::Key) -> Result<bool> {
+        self.contains::<T>(key)
+    }
+    fn count(&self, table: TableId) -> Result<u64> {
+        self.len(table)
+    }
+    fn rows<T: Table>(&self, lo: Bound<&T::Key>, hi: Bound<&T::Key>) -> Result<Iter<'_, T>> {
+        let (lo, hi) = (encode_bound(lo), encode_bound(hi));
+        Ok(Iter {
+            inner: range_in(self.table(T::ID)?, &lo, &hi)?,
+            _table: PhantomData,
+        })
+    }
+}
+
+impl WriteTx<'_> {
+    /// Shared-borrow reads over this transaction, every table opened (and
+    /// created if missing) first.
+    pub(crate) fn shared(&mut self) -> Result<impl Rows + '_> {
+        self.open_all()?;
+        Ok(WriteReader(self))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -73,6 +73,44 @@ impl BalanceClass {
     pub fn is_windowed(self) -> bool {
         self <= BalanceClass::MinedTicketChange
     }
+
+    /// The class of a mined output with `flags` (an `unspent` row's;
+    /// dcrwallet's `balanceFullScan`, first pass), as each variant's
+    /// documentation states it. `purse-udb`'s `txstore::mined_class` is
+    /// this function.
+    pub fn mined(flags: &CreditFlags) -> BalanceClass {
+        match flags.tag {
+            OutputTag::NonStake | OutputTag::TreasuryGen => {
+                if flags.coinbase {
+                    BalanceClass::MinedCoinbase
+                } else {
+                    BalanceClass::MinedRegular
+                }
+            }
+            OutputTag::Ticket => BalanceClass::VotingAuthority,
+            OutputTag::Vote | OutputTag::Revocation => BalanceClass::MinedStakeGen,
+            OutputTag::TicketChange => BalanceClass::MinedTicketChange,
+        }
+    }
+
+    /// The class of an unmined credit with `flags` whose transaction is
+    /// `unpublished` or not (an `unmined_credits` row's;
+    /// `balanceFullScan`, second pass), as each variant's documentation
+    /// states it. `purse-udb`'s `txstore::unmined_class` is this function.
+    pub fn unmined(flags: &CreditFlags, unpublished: bool) -> BalanceClass {
+        match flags.tag {
+            OutputTag::NonStake => match (flags.coinbase, unpublished) {
+                (false, false) => BalanceClass::UnminedRegularPublished,
+                (false, true) => BalanceClass::UnminedRegularUnpublished,
+                (true, false) => BalanceClass::UnminedCoinbasePublished,
+                (true, true) => BalanceClass::UnminedCoinbaseUnpublished,
+            },
+            OutputTag::Ticket => BalanceClass::VotingAuthority,
+            OutputTag::Vote | OutputTag::Revocation => BalanceClass::UnminedStakeGen,
+            OutputTag::TicketChange => BalanceClass::UnminedTicketChange,
+            OutputTag::TreasuryGen => BalanceClass::UnminedTreasuryGen,
+        }
+    }
 }
 
 /// The opcode tag of an output's script, as a credit records it: the stake

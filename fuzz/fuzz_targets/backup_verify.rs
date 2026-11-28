@@ -8,7 +8,9 @@
 //! decodes must encode to the same bytes. Odd: the rest is applied as
 //! patches (a 3-byte offset, a length byte, then the bytes) to a backup of
 //! the checked-in version-1 store, made once with `backup_to_backend`, and
-//! the patched image is verified with `verify_backup_on_backend`, which
+//! the patched image is verified with `purse-udb`'s
+//! `txstore::verify_backup_on_backend` (the store's verify with the
+//! transaction tables' decoded checks, as the tool is to call it), which
 //! opens it with redb's integrity check. An image that verifies must carry
 //! the original backup record: the digest check stands between a damaged
 //! row and `Ok`.
@@ -23,10 +25,8 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use libfuzzer_sys::fuzz_target;
-use purse_store::{
-    BackendError, BackupInfo, BackupRecord, Codec, OpenOptions, StorageBackend,
-    verify_backup_on_backend,
-};
+use purse_store::{BackendError, BackupInfo, BackupRecord, Codec, OpenOptions, StorageBackend};
+use purse_udb::txstore::verify_backup_on_backend;
 
 static FIXTURE: &[u8] = include_bytes!("../../crates/purse-store/tests/data/schema-v1.redb");
 

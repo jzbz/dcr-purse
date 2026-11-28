@@ -174,6 +174,20 @@
 //! runs in the property tests after every operation (`tests/txstore.rs`,
 //! `check_rows`).
 //!
+//! *Since 2026-11-26 (ADR-0018 Open point BK4, addendum of that date)*
+//! these invariants, and those the later slices add (credits, debits,
+//! unspent outputs, balances, account history, commitments), are also a
+//! check of the library that verification runs: `purse-store`'s
+//! `ReadTx::check_tx_tables` (module `purse_store::txtables`, which lists
+//! them and the states of Go's reproduced defects it accepts) and, for
+//! those that need a transaction decoded (every record holding a
+//! transaction, every credit, unmined credit and debit against its
+//! transaction's output or input, an unmined input's spender, QK-0785's
+//! spender, no live row of a regular transaction in a block marked
+//! invalid), [`check_decoded`];
+//! [`verify_backup`] runs both. `check_rows` calls them after its own
+//! recomputation, so they pass every state the property tests reach.
+//!
 //! Block rows change in place only in their flag and their count, through
 //! the generic typed put of [`purse_store::Blocks`] with the hash kept, so
 //! the chain invariants of [`purse_store::chain`] (heights and hashes) hold
@@ -1406,6 +1420,7 @@
 
 mod balance;
 mod chain;
+mod check;
 mod commitment;
 mod credit;
 mod mined;
@@ -1422,6 +1437,7 @@ pub use chain::{
     BlockCFilter, birth_state, extract_block_header_height, extract_block_header_parent_hash,
     extract_block_header_time, set_birth_state,
 };
+pub use check::{check_decoded, verify_backup, verify_backup_on_backend};
 pub use credit::{OP_NONSTAKE, mined_class, tag_opcode, unmined_class};
 pub use mined::RolledBack;
 pub use multisig::{MultisigCredit, MultisigOut};

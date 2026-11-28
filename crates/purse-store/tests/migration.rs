@@ -28,6 +28,7 @@ mod support;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use dcroxide_wire::{MsgTx, OutPoint, TxIn, TxOut};
 use purse_errors::Kind;
 use purse_store::{
     AccountKey, AccountName, AccountNames, AccountNumber, AccountRow, Accounts, AcctHistory,
@@ -636,14 +637,52 @@ fn h32(b: u8) -> Hash32 {
     Hash32([b; 32])
 }
 
-/// The rows of the version-1 fixture: at least one valid row in every
-/// table, written through the typed API.
-fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
-    let script = ScriptLoc {
-        offset: 107,
-        len: 25,
-        class: 2,
+/// A transaction of the version-1 fixture, serialized: inputs spending
+/// `inputs`, and P2PKH outputs of `values` paying hashes of `fill` bytes;
+/// with each output's script location as `AddCredit` records it (dcrwallet's
+/// P2PKH script type code is 2).
+fn fixture_tx(inputs: &[(Hash32, u32)], values: &[i64], fill: u8) -> (Vec<u8>, Vec<ScriptLoc>) {
+    let msg = MsgTx {
+        tx_in: inputs
+            .iter()
+            .map(|(hash, index)| {
+                let mut prev = OutPoint::default();
+                prev.hash.0 = hash.0;
+                prev.index = *index;
+                TxIn {
+                    previous_out_point: prev,
+                    sequence: u32::MAX,
+                    ..TxIn::default()
+                }
+            })
+            .collect(),
+        tx_out: values
+            .iter()
+            .map(|value| TxOut {
+                value: *value,
+                version: 0,
+                pk_script: [&[0x76, 0xa9, 0x14][..], &[fill; 20], &[0x88, 0xac]].concat(),
+            })
+            .collect(),
+        ..MsgTx::default()
     };
+    let locs = msg
+        .pk_script_locs()
+        .into_iter()
+        .map(|offset| ScriptLoc {
+            offset: u32::try_from(offset).expect("small"),
+            len: 25,
+            class: 2,
+        })
+        .collect();
+    (msg.serialize(), locs)
+}
+
+/// The rows of the version-1 fixture: at least one valid row in every
+/// table, written through the typed API, the chain, record and transaction
+/// tables each passing their consistency check, so that the fixture (and a
+/// backup of it) passes everything `verify_backup` checks.
+fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
     let flags = CreditFlags {
         change: true,
         tag: OutputTag::NonStake,
@@ -703,12 +742,14 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
             key: [height as u8; 16],
             filter: vec![0xf0; 20],
         };
+        // Block 2 disapproves block 1, whose two wallet transactions'
+        // credits and debits are invalidated; block 2 holds two more.
         let row = BlockRow {
             hash,
             time: 1_700_000_000 + i64::from(height) * 300,
-            vote_bits: 1,
-            invalid: false,
-            wallet_txs: u32::from(height == 2),
+            vote_bits: u16::from(height != 2),
+            invalid: height == 1,
+            wallet_txs: if height == 0 { 0 } else { 2 },
         };
         tx.connect_block(
             height,
@@ -728,115 +769,139 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
             filter: vec![0xf1; 24],
         }),
     )?;
-    let txh = h32(0x7a);
-    tx.put::<TxMined>(
-        &TxRecKey {
-            hash: txh,
-            height: 2,
-        },
-        &TxMinedRow {
-            position: 1,
-            received: 1_700_000_100,
-            tx: vec![0x01; 250],
-        },
-    )?;
+    // The transaction tables, consistent (`ReadTx::check_tx_tables`): in
+    // the disapproved block 1, record 0x7c pays 7 atoms that record 0x7d
+    // spends, both rows invalidated; in block 2, record 0x7a pays three
+    // outputs (account 0: 1,000,000 atoms that the unmined 0x7b spends, and
+    // 2,000; account 1: 5,000, spent by record 0x79); the unpublished 0x7b
+    // pays account 1 500 atoms; a ticket's commitment locks 2,000. Each
+    // record holds a serialized transaction with those inputs and outputs,
+    // so that `purse-udb`'s decoded check (`txstore::verify_backup`) passes
+    // too; the records' keys are not their transactions' hashes, which no
+    // check reads.
+    let (t7c, s7c) = fixture_tx(&[(h32(0x60), 0)], &[7], 0x31);
+    let (t7d, s7d) = fixture_tx(&[(h32(0x7c), 0)], &[6], 0x32);
+    let (t7a, s7a) = fixture_tx(&[(h32(0x61), 0)], &[1_000_000, 5_000, 2_000], 0x33);
+    let (t79, _) = fixture_tx(&[(h32(0x7a), 1)], &[4_000], 0x34);
+    let (t7b, s7b) = fixture_tx(&[(h32(0x7a), 0)], &[990_000, 500], 0x35);
+    let rec = |hash: Hash32, height: u32, position: u32, tx: Vec<u8>| {
+        (
+            TxRecKey { hash, height },
+            HistoryKey { height, position },
+            TxMinedRow {
+                position,
+                received: 1_700_000_000 + i64::from(height) * 300 + i64::from(position),
+                tx,
+            },
+        )
+    };
+    for (key, at, row) in [
+        rec(h32(0x7c), 1, 0, t7c),
+        rec(h32(0x7d), 1, 1, t7d),
+        rec(h32(0x7a), 2, 0, t7a),
+        rec(h32(0x79), 2, 1, t79),
+    ] {
+        tx.put::<TxMined>(&key, &row)?;
+        tx.put::<History>(&at, &key.hash)?;
+    }
     tx.put::<TxUnmined>(
         &h32(0x7b),
         &TxUnminedRow {
             received: 1_700_000_200,
-            tx: vec![0x02; 220],
+            tx: t7b,
         },
     )?;
     tx.put::<Unpublished>(&h32(0x7b), &UnpublishedFlag)?;
-    tx.put::<History>(
-        &HistoryKey {
-            height: 2,
-            position: 1,
-        },
-        &txh,
-    )?;
-    tx.put::<AcctHistory>(
-        &AcctHistoryKey {
-            account: 0,
-            height: 2,
-            position: 1,
-        },
-        &txh,
-    )?;
-    let ck = CreditKey {
-        hash: txh,
-        height: 2,
-        index: 0,
-    };
-    let credit = CreditRow {
-        amount: 1_000_000,
-        flags,
-        account: 0,
-        script,
-        spender: None,
-    };
-    tx.put::<Credits>(&ck, &credit)?;
-    tx.put::<CreditsInvalidated>(
-        &CreditKey { index: 1, ..ck },
-        &CreditRow {
-            spender: Some(Spender {
-                hash: h32(0x7c),
-                height: 3,
-                input: 0,
-            }),
-            ..credit
-        },
-    )?;
-    let op = purse_store::Outpoint {
-        hash: txh,
-        index: 0,
-    };
-    tx.put::<Unspent>(
-        &op,
-        &UnspentRow {
-            height: 2,
-            account: 0,
-            amount: 1_000_000,
+    let credit =
+        |amount: i64, account: u32, script: ScriptLoc, spender: Option<Spender>| CreditRow {
+            amount,
             flags,
-            class: BalanceClass::MinedRegular,
+            account,
             script,
+            spender,
+        };
+    let ck = |hash: Hash32, height: u32, index: u32| CreditKey {
+        hash,
+        height,
+        index,
+    };
+    let spender = |hash: Hash32, height: u32| Spender {
+        hash,
+        height,
+        input: 0,
+    };
+    // Block 1, invalidated.
+    tx.put::<CreditsInvalidated>(
+        &ck(h32(0x7c), 1, 0),
+        &credit(7, 0, s7c[0], Some(spender(h32(0x7d), 1))),
+    )?;
+    tx.put::<CreditsInvalidated>(&ck(h32(0x7d), 1, 0), &credit(6, 0, s7d[0], None))?;
+    tx.put::<DebitsInvalidated>(
+        &ck(h32(0x7d), 1, 0),
+        &DebitRow {
+            amount: 7,
+            credit: ck(h32(0x7c), 1, 0),
         },
     )?;
-    let uop = purse_store::Outpoint {
-        hash: h32(0x7b),
-        index: 1,
-    };
+    // Block 2.
+    tx.put::<Credits>(&ck(h32(0x7a), 2, 0), &credit(1_000_000, 0, s7a[0], None))?;
+    tx.put::<Credits>(
+        &ck(h32(0x7a), 2, 1),
+        &credit(5_000, 1, s7a[1], Some(spender(h32(0x79), 2))),
+    )?;
+    tx.put::<Credits>(&ck(h32(0x7a), 2, 2), &credit(2_000, 0, s7a[2], None))?;
+    tx.put::<Debits>(
+        &ck(h32(0x79), 2, 0),
+        &DebitRow {
+            amount: 5_000,
+            credit: ck(h32(0x7a), 2, 1),
+        },
+    )?;
+    for (index, amount, script) in [(0u32, 1_000_000i64, s7a[0]), (2, 2_000, s7a[2])] {
+        tx.put::<Unspent>(
+            &purse_store::Outpoint {
+                hash: h32(0x7a),
+                index,
+            },
+            &UnspentRow {
+                height: 2,
+                account: 0,
+                amount,
+                flags,
+                class: BalanceClass::MinedRegular,
+                script,
+            },
+        )?;
+    }
+    for (account, position, hash) in [(0u32, 0u32, 0x7a), (1, 0, 0x7a), (1, 1, 0x79)] {
+        tx.put::<AcctHistory>(
+            &AcctHistoryKey {
+                account,
+                height: 2,
+                position,
+            },
+            &h32(hash),
+        )?;
+    }
+    // The unmined transaction.
+    tx.put::<UnminedInputs>(
+        &purse_store::Outpoint {
+            hash: h32(0x7a),
+            index: 0,
+        },
+        &h32(0x7b),
+    )?;
     tx.put::<UnminedCredits>(
-        &uop,
+        &purse_store::Outpoint {
+            hash: h32(0x7b),
+            index: 1,
+        },
         &UnminedCreditRow {
             amount: 500,
             flags,
             account: 1,
             class: BalanceClass::UnminedRegularUnpublished,
-            script,
-        },
-    )?;
-    tx.put::<UnminedInputs>(&op, &h32(0x7b))?;
-    tx.put::<Debits>(
-        &CreditKey {
-            hash: h32(0x7b),
-            height: 0,
-            index: 0,
-        },
-        &DebitRow {
-            amount: 1_000_000,
-            credit: ck,
-        },
-    )?;
-    tx.put::<DebitsInvalidated>(
-        &CreditKey {
-            hash: h32(0x7d),
-            height: 1,
-            index: 0,
-        },
-        &DebitRow {
-            amount: 7,
-            credit: ck,
+            script: s7b[1],
         },
     )?;
     let ticket = purse_store::Outpoint {
@@ -857,16 +922,18 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
             unmined_spent: false,
         },
     )?;
-    tx.put::<Balances>(
-        &BalanceKey {
-            account: 0,
-            class: BalanceClass::MinedRegular,
-        },
-        &BalanceRow {
-            sum: 1_000_000,
-            count: 1,
-        },
-    )?;
+    // The sums: 0x7a:0 is spent by an unmined transaction and counts in
+    // none.
+    for (account, class, sum) in [
+        (0u32, BalanceClass::MinedRegular, 2_000i64),
+        (1, BalanceClass::UnminedRegularUnpublished, 500),
+        (0, BalanceClass::Locked, 2_000),
+    ] {
+        tx.put::<Balances>(
+            &BalanceKey { account, class },
+            &BalanceRow { sum, count: 1 },
+        )?;
+    }
     tx.put::<BalanceHeights>(
         &BalanceHeightKey {
             account: 0,
@@ -874,7 +941,7 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
             height: 2,
         },
         &BalanceRow {
-            sum: 1_000_000,
+            sum: 2_000,
             count: 1,
         },
     )?;
@@ -999,7 +1066,7 @@ fn fixture_rows(tx: &mut WriteTx<'_>) -> purse_store::Result<()> {
 const FIXTURES: &[(u32, &str, &str)] = &[(
     1,
     "schema-v1.redb",
-    "7530933cabd9daeef7dfab58b6f2e95651ac4b8d6119ceae090cfb0767cdf977",
+    "971b62207e4ea9415a1d044304a41e6bdccfe4ab94c04e3d46fe6d1e4a603457",
 )];
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -1090,6 +1157,8 @@ fn every_table_decodes(tx: &ReadTx) {
     tx.check_records()
         .expect("the record tables hold their invariants");
     records_view(tx).expect("the record tables pass the independent check");
+    tx.check_tx_tables()
+        .expect("the transaction tables hold their invariants");
     assert_eq!(
         tx.unspent_multisig_for(&Hash160([0x33; 20]))
             .expect("multisig"),
@@ -1109,6 +1178,174 @@ fn every_table_decodes(tx: &ReadTx) {
             .expect("acct0")
             .is_some()
     );
+}
+
+/// `ReadTx::check_tx_tables` in this crate (ADR-0018 BK4): on the
+/// fixture's rows, which pass, one direct row edit per invariant of
+/// [`purse_store::txtables`]'s list is refused with that invariant's text,
+/// and the rows pass again once the edit is rolled back. `purse-udb`'s
+/// tests break every sub-rule on a store its operations build
+/// (`each_broken_invariant_of_the_transaction_tables_is_refused`); this
+/// test holds the store crate's verify to refuse at least one edit of each
+/// invariant on its own.
+#[test]
+fn the_transaction_tables_check_refuses_each_broken_invariant() {
+    type Edit = fn(&mut WriteTx<'_>) -> purse_store::Result<()>;
+    let cases: [(&str, &str, Edit); 13] = [
+        (
+            "1",
+            "block 2 counts 3 wallet transactions and has 2 history rows",
+            |tx| {
+                let mut b = tx.get::<Blocks>(&purse_store::Height(2))?.expect("block");
+                b.wallet_txs += 1;
+                tx.put::<Blocks>(&purse_store::Height(2), &b)
+            },
+        ),
+        ("2", "record ", |tx| {
+            let k = TxRecKey {
+                hash: h32(0x7a),
+                height: 2,
+            };
+            let mut m = tx.get::<TxMined>(&k)?.expect("record");
+            m.position = 5;
+            tx.put::<TxMined>(&k, &m)
+        }),
+        ("3", "unmined input ", |tx| {
+            let o = purse_store::Outpoint {
+                hash: h32(0xdd),
+                index: 3,
+            };
+            tx.put::<UnminedInputs>(&o, &h32(0xee))
+        }),
+        ("4", "unmined credit ", |tx| {
+            tx.delete::<Unpublished>(&h32(0x7b)).map(drop)
+        }),
+        ("5", "unspent output ", |tx| {
+            let o = purse_store::Outpoint {
+                hash: h32(0x7a),
+                index: 2,
+            };
+            let mut u = tx.get::<Unspent>(&o)?.expect("unspent");
+            u.amount += 1;
+            tx.put::<Unspent>(&o, &u)
+        }),
+        ("6", "credits row ", |tx| {
+            let k = CreditKey {
+                hash: h32(0x7a),
+                height: 2,
+                index: 2,
+            };
+            let c = tx.get::<Credits>(&k)?.expect("credit");
+            tx.put::<Credits>(
+                &CreditKey {
+                    hash: h32(0xee),
+                    ..k
+                },
+                &c,
+            )
+        }),
+        ("7", "debits row ", |tx| {
+            let k = CreditKey {
+                hash: h32(0x79),
+                height: 2,
+                index: 0,
+            };
+            let mut d = tx.get::<Debits>(&k)?.expect("debit");
+            d.amount += 1;
+            tx.put::<Debits>(&k, &d)
+        }),
+        ("8", "credits_invalidated row ", |tx| {
+            // 0x79's debit spends 0x7a:1, not 0x7c:0.
+            let k = CreditKey {
+                hash: h32(0x7c),
+                height: 1,
+                index: 0,
+            };
+            let mut c = tx.get::<CreditsInvalidated>(&k)?.expect("credit");
+            c.spender = Some(Spender {
+                hash: h32(0x79),
+                height: 2,
+                input: 0,
+            });
+            tx.put::<CreditsInvalidated>(&k, &c)
+        }),
+        ("9", "credits_invalidated row ", |tx| {
+            let mut b = tx.get::<Blocks>(&purse_store::Height(1))?.expect("block");
+            b.invalid = false;
+            tx.put::<Blocks>(&purse_store::Height(1), &b)
+        }),
+        ("10", "unspent commitment entry ", |tx| {
+            let o = purse_store::Outpoint {
+                hash: h32(0xee),
+                index: 1,
+            };
+            tx.put::<CommitmentsUnspent>(
+                &o,
+                &CommitmentUnspentRow {
+                    unmined_spent: false,
+                },
+            )
+        }),
+        ("11", "the balance of account 0 class MinedRegular ", |tx| {
+            let k = BalanceKey {
+                account: 0,
+                class: BalanceClass::MinedRegular,
+            };
+            let mut row = tx.get::<Balances>(&k)?.expect("balance");
+            row.sum += 1;
+            tx.put::<Balances>(&k, &row)
+        }),
+        (
+            "12",
+            "account 0 class MinedRegular has no balance row at height 2",
+            |tx| {
+                let k = BalanceHeightKey {
+                    account: 0,
+                    class: BalanceClass::MinedRegular,
+                    height: 2,
+                };
+                tx.delete::<BalanceHeights>(&k).map(drop)
+            },
+        ),
+        ("13", "record ", |tx| {
+            let k = AcctHistoryKey {
+                account: 1,
+                height: 2,
+                position: 1,
+            };
+            tx.delete::<AcctHistory>(&k).map(drop)
+        }),
+    ];
+    let store = OpenOptions::new()
+        .create_on_backend(Shared(PowerLoss::new(Vec::new(), true)), fixture_rows)
+        .expect("create");
+    store
+        .read()
+        .unwrap()
+        .check_tx_tables()
+        .expect("the fixture");
+    for (n, text, edit) in cases {
+        let undone = purse_store::Error::inconsistent("undone".to_owned());
+        let r = store.update(|tx| {
+            tx.check_tx_tables()?;
+            edit(tx)?;
+            let e = tx
+                .check_tx_tables()
+                .expect_err(&format!("invariant {n}: not refused"));
+            let why = e.inconsistency().expect("an inconsistency");
+            assert!(why.starts_with(text), "invariant {n}: refused as {why:?}");
+            Err::<(), _>(purse_store::Error::inconsistent("undone".to_owned()))
+        });
+        assert_eq!(
+            r.expect_err("rolled back").inconsistency(),
+            undone.inconsistency()
+        );
+        store
+            .read()
+            .unwrap()
+            .check_tx_tables()
+            .unwrap_or_else(|e| panic!("invariant {n}: refused once undone: {e}"));
+    }
 }
 
 /// The rows the current build should hold after opening the fixture of

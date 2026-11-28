@@ -7,7 +7,13 @@
 //!
 //! It reads the scripts Go's `tools/oracle/cmd/oprunner` reads and writes
 //! the same per-operation records (ADR-0002 sections 3 and 4) and, at the
-//! end, the logical export of its store. It implements the address
+//! end, the logical export of its store. After every operation, and before
+//! every export (each `rt.checkpoint`'s and the final one), it checks the
+//! store as `txstore::verify_backup` does (every row decoded, the chain,
+//! record and transaction tables' consistency checks, ADR-0018 BK4); a
+//! store that fails is a fault, so every state a script passes through,
+//! those of Go's reproduced defects included, is one the check accepts.
+//! It implements the address
 //! manager operations ported so far ([`SUPPORTED`]) and refuses any other
 //! operation as a script fault, so no script can pass by skipping one.
 //!
@@ -1133,7 +1139,10 @@ impl Runner {
     /// The logical export of the store as it stands, with the passphrases
     /// Go's runner would pass (`tools/oracle/cmd/oprunner/script.go`,
     /// `exportNow`): `what` names it in a failure, which is the runner's
-    /// fault, never an operation result.
+    /// fault, never an operation result. The store is checked first, on
+    /// the export's read transaction, as `txstore::verify_backup` checks
+    /// it ([`consistent`]), so no export, a checkpoint's or the final one,
+    /// is written from a store the check refuses.
     fn export_now(&self, what: &str) -> Result<String, String> {
         let acct_pass: Vec<(u32, &[u8])> = self
             .acct_pass
@@ -1152,6 +1161,8 @@ impl Runner {
             .store()
             .read()
             .map_err(|e| fault(format!("read: {e}")))?;
+        consistent(&tx)
+            .map_err(|e| format!("{what}: the store fails the consistency checks: {e}"))?;
         let text = export(&tx, &self.chain, &opts).map_err(|e| {
             fault(format!(
                 "{what}: {}",
@@ -1247,6 +1258,18 @@ impl Runner {
 
 fn network(name: &str) -> Result<ChainParams, String> {
     ChainParams::by_name(name).ok_or_else(|| fault(format!("unknown network {name:?}")))
+}
+
+/// The store's consistency checks as `txstore::verify_backup` runs them
+/// (every row decoded, the chain's, the record tables' and the transaction
+/// tables' with their decoded part, ADR-0018 BK4), on a read transaction.
+fn consistent(tx: &purse_store::ReadTx) -> purse_store::Result<()> {
+    tx.check_rows()?;
+    tx.check_chain()?;
+    tx.check_records()?;
+    tx.check_tx_tables()?;
+    let mut r = tx;
+    purse_udb::txstore::check_decoded(&mut r)
 }
 
 /// Runs `script` with its store in `dir` (created if missing).
@@ -1467,6 +1490,13 @@ pub fn run(script: &Value, dir: &Path) -> Result<Run, String> {
             rec.insert("ops".to_owned(), Value::Array(members));
         }
         results.push(Value::Object(rec));
+        if let Some(store) = runner.store.as_ref() {
+            let tx = store.read().map_err(|e| fault(format!("read: {e}")))?;
+            consistent(&tx).map_err(|e| {
+                format!("op {i} ({name}): the store fails the consistency checks: {e}")
+            })?;
+            tx.close().map_err(|e| fault(format!("close: {e}")))?;
+        }
     }
 
     let text = runner.export_now("final export")?;

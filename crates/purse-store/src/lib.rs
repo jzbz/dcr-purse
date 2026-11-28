@@ -152,6 +152,18 @@
 //! network directory is [`STORE_FILE_NAME`]. The JSON-RPC method and the
 //! tool that call these are later phases: [`backup`].
 //!
+//! # Consistency checks
+//!
+//! Each group of tables whose rows index one another has a check that
+//! walks it and names the first invariant that does not hold
+//! ([`Error::inconsistency`]): [`ReadTx::check_chain`] ([`chain`]),
+//! [`ReadTx::check_records`] ([`records`]) and
+//! [`ReadTx::check_tx_tables`] ([`txtables`]: the transaction store's
+//! history, records, credits, debits, unspent outputs, commitments,
+//! balances and account history, with the states dcrwallet's reproduced
+//! defects leave, which it accepts). [`verify_backup`] runs all three, after
+//! [`ReadTx::check_rows`] has decoded every row.
+//!
 //! # Cursors and ranges
 //!
 //! [`ReadTx::cursor`] and [`WriteTx::cursor`] give cursors with bbolt
@@ -217,12 +229,14 @@ mod schema;
 mod store;
 mod sync;
 mod txn;
+pub mod txtables;
 mod values;
 pub mod wallet;
 
 pub use backup::{
     BACKUP_RECORD_KEY, BACKUPS_DIR, Backup, BackupInfo, BackupRecord, BackupStep, PARTIAL_DIR,
     Verified, check_backup_name, verify_backup, verify_backup_on_backend,
+    verify_backup_on_backend_with, verify_backup_with,
 };
 pub use chain::{ChainBlock, GENESIS_AGAIN_TEXT, IN_MAIN_CHAIN_TEXT};
 pub use codec::{Codec, DecodeDetail, DecodeError};

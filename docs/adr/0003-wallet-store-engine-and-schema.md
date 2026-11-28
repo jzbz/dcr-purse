@@ -1412,7 +1412,14 @@ built" and "Chain tables keyed by height, as built"). The checked-in
 version-1 fixture (`crates/purse-store/tests/data/schema-v1.redb`) was
 regenerated with the documented command (`write_current_schema_fixture`,
 run twice, byte-identical; 282,624 bytes) and its pinned SHA-256 in
-`tests/migration.rs` changed with it.
+`tests/migration.rs` changed with it. *2026-11-26: regenerated once more
+the same way (282,624 bytes, SHA-256 `971b6220…603457`), its transaction
+rows rewritten to hold the indexes and balances of Decision items 2 and
+4, and its records to hold serialized transactions whose inputs and
+outputs its debits and credits name, which the consistency check of the
+transaction tables built for ADR-0018 Open point BK4 now verifies
+(ADR-0018, addendum of that date); no table, key, value or schema
+version changed.*
 
 **What was not held, and who reads it.** From specs 02, 03 and 05 and the
 Go source at the pin (`wallet/udb/txdb.go`, `vsp.go`, `treasury.go`,

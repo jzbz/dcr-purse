@@ -151,7 +151,13 @@ impl Error {
         }
     }
 
-    pub(crate) fn inconsistent(why: String) -> Error {
+    /// Rows that contradict each other, `why` naming the invariant that
+    /// does not hold (kind `Io`, [`Error::inconsistency`]): the error of the
+    /// store's consistency checks, public so that a check of rows made
+    /// outside this crate (`purse-udb`'s decoded checks of the transaction
+    /// tables, run through [`crate::verify_backup_with`]) reports the same
+    /// way.
+    pub fn inconsistent(why: String) -> Error {
         Error {
             repr: Repr::Inconsistent(why),
         }

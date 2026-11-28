@@ -48,6 +48,28 @@
 //! unmined copy) is reached by planned revalidations inside the random
 //! sequences, and by its own test in eight variants, each step checked
 //! against the rows and across a reopen.
+//!
+//! The library's consistency check of the transaction tables (ADR-0018
+//! BK4: `purse-store`'s `check_tx_tables` and `txstore::check_decoded`)
+//! runs inside `check_rows`, so every state above passes it, and the reopen
+//! steps run it on the read transaction with the chain and record checks.
+//! `each_broken_invariant_of_the_transaction_tables_is_refused` breaks
+//! each invariant and each sub-rule of one by one direct row edit (55
+//! edits) on a store the operations built, each refused by the check that
+//! holds it with its text and passing once undone, and writes four states
+//! of Go's reproduced defects that the check accepts;
+//! `verify_backup_runs_the_transaction_tables_check` takes the same edits
+//! through `txstore::verify_backup`'s path;
+//! `the_schema_fixture_passes_the_full_verify` verifies `purse-store`'s
+//! checked-in fixture with it;
+//! `verify_accepts_an_agenda_key_at_dcrwallet_s_limit` verifies a store
+//! holding the auxiliary records' longest keys (a 32,800-byte
+//! `ticket_agenda_prefs` key) beside the transaction tables; and
+//! `every_state_of_go_s_reproduced_defects_passes_the_check` writes, by the
+//! operations alone, each state of the transaction tables that a defect of
+//! Go's reproduced in docs/QUIRKS.md leaves (22 states, 16 QK numbers),
+//! asserts the rows that make it, and holds the check, the read side's
+//! checks and `txstore::verify_backup_on_backend` of a backup to accept it.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -960,6 +982,33 @@ fn check_rows(tx: &mut WriteTx<'_>) {
     check_multisig_rows(tx);
     check_credit_rows(tx);
     tx.check_chain_rows();
+    check_library(tx);
+}
+
+/// The library's consistency check of the transaction tables (ADR-0018
+/// BK4): `purse-store`'s `check_tx_tables` and `purse-udb`'s
+/// `check_decoded`, which `verify_backup` runs, must pass every state the
+/// recomputation above passes, so that the check never refuses a store the
+/// operations (and so Go's reproduced defects) legitimately leave. Every
+/// call of `check_rows` runs it, after every step of every random
+/// sequence and targeted test.
+fn check_library(tx: &mut WriteTx<'_>) {
+    if let Err(e) = tx.check_tx_tables() {
+        panic!("check_tx_tables refuses a state the row checker passes: {e}");
+    }
+    if let Err(e) = purse_udb::txstore::check_decoded(tx) {
+        panic!("check_decoded refuses a state the row checker passes: {e}");
+    }
+}
+
+/// The same checks on a read transaction, with the record tables' (the
+/// multisig index) and the chain's, as `verify_backup` runs them.
+fn check_library_read(r: &ReadTx) {
+    r.check_chain().expect("check_chain");
+    r.check_records().expect("check_records");
+    r.check_tx_tables().expect("check_tx_tables");
+    let mut r = r;
+    purse_udb::txstore::check_decoded(&mut r).expect("check_decoded");
 }
 
 /// The UTXO queries against the rows:
@@ -1404,6 +1453,22 @@ fn check_selection(ts: &TxStore, tx: &mut WriteTx<'_>, key: u8) -> (usize, usize
         };
         let got = ts.spender(tx, &wire(&op));
         match (c.spender, uinputs.get(&op)) {
+            // QK-0095 over QK-0781, then a rollback of the spender's
+            // block, leaves a credit naming a spender with no record
+            // there; Go's `Spender` fails to read it (kind `IO`).
+            (Some(sp), _)
+                if !tx
+                    .contains::<TxMined>(&purse_store::TxRecKey {
+                        hash: sp.hash,
+                        height: sp.height,
+                    })
+                    .expect("contains") =>
+            {
+                assert_eq!(
+                    got.expect_err("the spender's record is gone").as_kind(),
+                    Some(Kind::Io)
+                );
+            }
             (Some(sp), _) => {
                 let (m, i) = got.expect("Spender of a spent credit");
                 assert_eq!((Hash32(*m.tx_hash().as_bytes()), i), (sp.hash, sp.input));
@@ -1449,14 +1514,17 @@ fn all<T: Table>(tx: &mut WriteTx<'_>) -> Vec<(T::Key, T::Value)> {
 ///
 /// - every unspent output's credit is a live credit at the height the
 ///   unspent row names, and the row is what that credit makes;
-/// - an unspent output's credit names no spender, with one exception, the
-///   state of QK-0785, which Go makes and dcr-purse reproduces: a credit
-///   whose spender is a live debit that stake invalidation of the credit's
+/// - an unspent output's credit names no spender, with two exceptions
+///   from Go's stake validation, which moves an invalidated credit back,
+///   spender kept, with an unspent entry, and re-spends only what the
+///   validated block's own debits spend (Go makes both states and
+///   dcr-purse reproduces them): the state of QK-0785, a credit whose
+///   spender is a live debit of it that stake invalidation of the credit's
 ///   block does not move, that of a stake transaction or of a transaction
-///   recorded in another block (below the credit's, QK-0101's state);
-///   invalidation moves the credit, spender kept, to the invalidated table
-///   and leaves that debit live, and stake validation moves the credit
-///   back with an unspent entry;
+///   recorded in another block (below the credit's, QK-0101's state); and
+///   QK-0095 over QK-0781, a credit whose spender's debit, live or
+///   invalidated, is gone or spends the outpoint's credit at another
+///   height;
 /// - every unmined credit's class is the one its flags and its
 ///   transaction's unpublished mark give;
 /// - `balances` and `balance_heights` are the sums, by account and class
@@ -1619,10 +1687,13 @@ fn check_multisig_rows(tx: &mut WriteTx<'_>) {
     assert_eq!(have, want, "multisig_unspent against the records");
 }
 
-/// Whether `s` is a live debit of credit `ck` that stake invalidation of
-/// the credit's block leaves in place, by a mined transaction that is not
-/// regular or that is recorded at another height: the only spender an
-/// unspent output's credit may name (QK-0785).
+/// Whether an unspent output's credit `ck` may name the spender `s`:
+/// `s`'s debit, live or invalidated, is gone or spends the outpoint's
+/// credit at another height (QK-0095 over QK-0781, the credit's block
+/// then validated again), or `s` is a live debit of `ck` that stake
+/// invalidation of the credit's block leaves in place, by a mined
+/// transaction that is not regular or that is recorded at another height
+/// (QK-0785).
 fn spent_by_a_debit_invalidation_leaves(
     tx: &mut WriteTx<'_>,
     ck: &CreditKey,
@@ -1633,9 +1704,18 @@ fn spent_by_a_debit_invalidation_leaves(
         height: s.height,
         index: s.input,
     };
-    let Some(d) = tx.get::<Debits>(&dk).expect("get") else {
-        return false;
+    let other_height = |d: &purse_store::DebitRow| {
+        (d.credit.hash, d.credit.index) == (ck.hash, ck.index) && d.credit.height != ck.height
     };
+    let Some(d) = tx.get::<Debits>(&dk).expect("get") else {
+        return match tx.get::<purse_store::DebitsInvalidated>(&dk).expect("get") {
+            None => true,
+            Some(d) => other_height(&d),
+        };
+    };
+    if other_height(&d) {
+        return true;
+    }
     let Some(row) = tx
         .get::<TxMined>(&purse_store::TxRecKey {
             hash: s.hash,
@@ -2727,7 +2807,7 @@ fn sequences(
                 let mut r = store.read().expect("read");
                 assert_eq!(dump_read(&r), rows, "rows after a reopen");
                 assert_eq!(answers(&ts, &mut r, &sim), live, "answers after a reopen");
-                r.check_chain().expect("check_chain");
+                check_library_read(&r);
             }
         }
     }
@@ -3934,7 +4014,7 @@ fn checked_step(
             live,
             "{what}: answers after a reopen"
         );
-        r.check_chain().expect("check_chain");
+        check_library_read(&r);
     }
     store
 }
@@ -4302,4 +4382,2650 @@ fn a_transaction_mined_twice_and_rolled_back_is_selected_twice_as_go_does() {
         assert_eq!(twice, 1, "taken twice at depth 0 for account 0 only");
     });
     drop(store);
+}
+
+// ------------------------------------------- the consistency check (BK4)
+
+/// A transaction with inputs spending `inputs` and P2PKH outputs of
+/// `values` (scripts to hashes filled from `fill`).
+fn paying(inputs: &[(Hash, u32)], values: &[i64], fill: u64) -> MsgTx {
+    MsgTx {
+        tx_in: inputs
+            .iter()
+            .map(|(hash, index)| TxIn {
+                previous_out_point: OutPoint {
+                    hash: *hash,
+                    index: *index,
+                    tree: 0,
+                },
+                sequence: u32::MAX,
+                ..TxIn::default()
+            })
+            .collect(),
+        tx_out: values
+            .iter()
+            .zip(fill..)
+            .map(|(v, f)| TxOut {
+                value: *v,
+                version: 0,
+                pk_script: p2pkh(None, f),
+            })
+            .collect(),
+        ..MsgTx::default()
+    }
+}
+
+/// The hashes of the records of [`corruption_base`].
+struct Base {
+    rec1: Hash32,
+    rec2: Hash32,
+    rec3: Hash32,
+    rec4: Hash32,
+}
+
+/// A store built by the operations that holds a row of every kind the
+/// consistency check reads (testnet3): `a` mined in block 1 paying account
+/// 0, the ticket `t` spending it mined in block 2 with its credit and a
+/// tracked commitment; `rec1` mined in block 1 paying accounts 0 and 1;
+/// `rec2` spending `rec1:0` in block 2; `rec3` spending `rec2:0` in block 3,
+/// which block 4 disapproves (so `rec3`'s credit and debit are
+/// invalidated and `rec2:0` is unspent again); the unpublished unmined
+/// `rec4` spending `rec1:1` and paying account 1.
+fn corruption_base() -> (Store, std::path::PathBuf, Base) {
+    let (store, ts, path) = tx_store("testnet3");
+    let mut g = BlockGenerator::new();
+    let blocks = [g.generate(1), g.generate(1), g.generate(1), g.generate(0)];
+    let hash = |b: &BlockHeader| Hash32(*b.block_hash().as_bytes());
+    let (a, t) = funded_ticket();
+    let rec = |m: MsgTx| TxRecord::from_msg_tx(m, 1_795_400_000).expect("record");
+    let rec1 = rec(paying(&[(Hash([8; 32]), 0)], &[200_000_000, 50_000], 10));
+    let rec2 = rec(paying(
+        &[(Hash(rec1.hash().0), 0)],
+        &[100_000_000, 7_000],
+        20,
+    ));
+    let rec3 = rec(paying(&[(Hash(rec2.hash().0), 0)], &[90_000_000], 30));
+    let rec4 = rec(paying(&[(Hash(rec1.hash().0), 1)], &[40_000], 40));
+    store
+        .update(|tx| {
+            insert_main_chain_headers(&ts, tx, &[&blocks[0], &blocks[1], &blocks[2]]);
+            let mined =
+                |tx: &mut WriteTx<'_>, r: &TxRecord, b: &BlockHeader, outs: &[(u32, u32)]| {
+                    ts.insert_mined_tx(tx, r, &hash(b)).expect("InsertMinedTx");
+                    for &(index, account) in outs {
+                        ts.add_credit(tx, r, Some(&make_block_meta(b)), index, false, account)
+                            .expect("AddCredit");
+                    }
+                };
+            mined(tx, &a, &blocks[0], &[(0, 0)]);
+            mined(tx, &rec1, &blocks[0], &[(0, 0), (1, 1)]);
+            mined(tx, &t, &blocks[1], &[(0, 0)]);
+            ts.add_ticket_commitment(tx, &t, 1, 0)
+                .expect("AddTicketCommitment");
+            mined(tx, &rec2, &blocks[1], &[(0, 0), (1, 1)]);
+            mined(tx, &rec3, &blocks[2], &[(0, 0)]);
+            insert_main_chain_headers(&ts, tx, &[&blocks[3]]);
+            ts.insert_mem_pool_tx(tx, &rec4).expect("InsertMemPoolTx");
+            ts.add_credit(tx, &rec4, None, 0, false, 1)
+                .expect("AddCredit");
+            ts.set_published(tx, rec4.hash(), false)
+                .expect("SetPublished");
+            check_rows(tx);
+            for t in [
+                TableId::History,
+                TableId::TxMined,
+                TableId::TxUnmined,
+                TableId::Unpublished,
+                TableId::UnminedInputs,
+                TableId::UnminedCredits,
+                TableId::Credits,
+                TableId::CreditsInvalidated,
+                TableId::Debits,
+                TableId::DebitsInvalidated,
+                TableId::Unspent,
+                TableId::Commitments,
+                TableId::CommitmentsUnspent,
+                TableId::Balances,
+                TableId::BalanceHeights,
+                TableId::AcctHistory,
+            ] {
+                assert!(!tx.is_empty(t).expect("is_empty"), "{} is empty", t.name());
+            }
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+    let base = Base {
+        rec1: *rec1.hash(),
+        rec2: *rec2.hash(),
+        rec3: *rec3.hash(),
+        rec4: *rec4.hash(),
+    };
+    (store, path, base)
+}
+
+/// Puts every table back as `rows` (a [`dump`]) holds it.
+fn restore_rows(tx: &mut WriteTx<'_>, rows: &[(TableId, Vec<u8>, Vec<u8>)]) {
+    for t in TableId::ALL {
+        let keys: Vec<Vec<u8>> = tx
+            .range_raw(*t, Bound::Unbounded, Bound::Unbounded)
+            .expect("range")
+            .map(|r| r.expect("row").0)
+            .collect();
+        for k in keys {
+            tx.delete_raw(*t, &k).expect("delete");
+        }
+    }
+    for (t, k, v) in rows {
+        tx.put_raw(*t, k, v).expect("put");
+    }
+}
+
+/// Which check refuses a corruption: `purse-store`'s or `purse-udb`'s
+/// decoded part.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Refuser {
+    Store,
+    Decoded,
+}
+
+/// A direct row edit breaking one invariant, the check that refuses it,
+/// and the start of its text.
+type Edit = Box<dyn Fn(&mut WriteTx<'_>, &Base)>;
+
+fn corruptions() -> Vec<(&'static str, Refuser, &'static str, Edit)> {
+    use purse_store::{
+        BalanceKey, CommitmentUnspentRow, CreditRow, DebitRow, DebitsInvalidated, Height,
+        HistoryKey, Outpoint, Spender, TxRecKey, UnminedCreditRow, UnspentRow,
+    };
+    let edit = |f: fn(&mut WriteTx<'_>, &Base)| -> Edit { Box::new(f) };
+    vec![
+        (
+            "1: a block counting one more wallet transaction",
+            Refuser::Store,
+            "block 2 counts 3 wallet transactions and has 2 history rows",
+            edit(|tx, _| {
+                let mut b = tx.get::<Blocks>(&Height(2)).unwrap().unwrap();
+                b.wallet_txs += 1;
+                tx.put::<Blocks>(&Height(2), &b).unwrap();
+            }),
+        ),
+        (
+            "1: a history row above the main chain",
+            Refuser::Store,
+            "a history row at height 9 above the main chain",
+            edit(|tx, b| {
+                let k = purse_store::HistoryKey {
+                    height: 9,
+                    position: 0,
+                };
+                tx.put::<History>(&k, &b.rec1).unwrap();
+            }),
+        ),
+        (
+            "2: a record at another position than its history row",
+            Refuser::Store,
+            "record ",
+            edit(|tx, b| {
+                let k = TxRecKey {
+                    hash: b.rec2,
+                    height: 2,
+                };
+                let mut m = tx.get::<TxMined>(&k).unwrap().unwrap();
+                m.position += 7;
+                tx.put::<TxMined>(&k, &m).unwrap();
+            }),
+        ),
+        (
+            "3: an unmined input naming no unmined record",
+            Refuser::Store,
+            "unmined input ",
+            edit(|tx, _| {
+                let o = Outpoint {
+                    hash: Hash32([0xdd; 32]),
+                    index: 3,
+                };
+                tx.put::<UnminedInputs>(&o, &Hash32([0xee; 32])).unwrap();
+            }),
+        ),
+        (
+            "3 (decoded): an unmined input naming a transaction not spending it",
+            Refuser::Decoded,
+            "unmined input ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: Hash32([0xdd; 32]),
+                    index: 3,
+                };
+                tx.put::<UnminedInputs>(&o, &b.rec4).unwrap();
+            }),
+        ),
+        (
+            "4: an unmined credit without its unmined record",
+            Refuser::Store,
+            "unmined credit ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec4,
+                    index: 0,
+                };
+                let row: UnminedCreditRow = tx.get::<UnminedCredits>(&o).unwrap().unwrap();
+                let o = Outpoint {
+                    hash: Hash32([0xee; 32]),
+                    index: 0,
+                };
+                tx.put::<UnminedCredits>(&o, &row).unwrap();
+            }),
+        ),
+        (
+            "4: an unpublished mark removed without reclassing its credits",
+            Refuser::Store,
+            "unmined credit ",
+            edit(|tx, b| {
+                tx.delete::<Unpublished>(&b.rec4).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output at a height without its credit",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 0,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.height = 1;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output whose amount is not its credit's",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.amount += 1;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output of another class than its flags give",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.class = BalanceClass::MinedCoinbase;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output whose credit's spender debits another output of its transaction",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                // rec1:1 (unspent, an unmined input names it) names rec2's
+                // live debit, which spends rec1:0: same hash, another
+                // index. (A spender with no debit at all is QK-0095's over
+                // QK-0781's, accepted.)
+                let k = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 1,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&k).unwrap().unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec2,
+                    height: 2,
+                    input: 0,
+                });
+                tx.put::<Credits>(&k, &c).unwrap();
+            }),
+        ),
+        (
+            "5 (decoded): an unspent output spent by a regular debit of its own block",
+            Refuser::Decoded,
+            "unspent output ",
+            edit(|tx, b| {
+                // rec2 "spends" its own output 1 at input 5: a live debit
+                // naming the credit, of a regular record at its height.
+                // rec2 has no input 5, which `check_decoded` would refuse
+                // too (D3), but it checks QK-0785's spender first.
+                let credit = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let debit = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 5,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&credit).unwrap().unwrap();
+                tx.put::<Debits>(
+                    &debit,
+                    &DebitRow {
+                        amount: c.amount,
+                        credit,
+                    },
+                )
+                .unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec2,
+                    height: 2,
+                    input: 5,
+                });
+                tx.put::<Credits>(&credit, &c).unwrap();
+            }),
+        ),
+        (
+            "6: a credit without its record",
+            Refuser::Store,
+            "credits row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let c: CreditRow = tx.get::<Credits>(&k).unwrap().unwrap();
+                let k = CreditKey {
+                    hash: Hash32([0xee; 32]),
+                    ..k
+                };
+                tx.put::<Credits>(&k, &c).unwrap();
+            }),
+        ),
+        (
+            "6: a debit without its record",
+            Refuser::Store,
+            "debits row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: Hash32([0xee; 32]),
+                    height: 2,
+                    index: 0,
+                };
+                let credit = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 0,
+                };
+                tx.put::<Debits>(&k, &DebitRow { amount: 1, credit })
+                    .unwrap();
+            }),
+        ),
+        (
+            "7: a debit naming a credit that is not recorded",
+            Refuser::Store,
+            "debits row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 9,
+                };
+                let credit = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 9,
+                };
+                tx.put::<Debits>(&k, &DebitRow { amount: 1, credit })
+                    .unwrap();
+            }),
+        ),
+        (
+            "8: an invalidated credit naming a spender that is no debit of it",
+            Refuser::Store,
+            "credits_invalidated row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let mut c: CreditRow = tx.get::<CreditsInvalidated>(&k).unwrap().unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec2,
+                    height: 2,
+                    input: 0,
+                });
+                tx.put::<CreditsInvalidated>(&k, &c).unwrap();
+            }),
+        ),
+        (
+            "9: invalidated rows in a block not marked invalid",
+            Refuser::Store,
+            "credits_invalidated row ",
+            edit(|tx, _| {
+                let mut row = tx.get::<Blocks>(&Height(3)).unwrap().unwrap();
+                row.invalid = false;
+                tx.put::<Blocks>(&Height(3), &row).unwrap();
+            }),
+        ),
+        (
+            "10: an unspent commitment entry without its commitment",
+            Refuser::Store,
+            "unspent commitment entry ",
+            edit(|tx, _| {
+                let o = Outpoint {
+                    hash: Hash32([0xee; 32]),
+                    index: 1,
+                };
+                tx.put::<CommitmentsUnspent>(
+                    &o,
+                    &CommitmentUnspentRow {
+                        unmined_spent: false,
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "11: a balance sum off by one atom",
+            Refuser::Store,
+            "the balance of account 0 class MinedRegular ",
+            edit(|tx, _| {
+                let k = BalanceKey {
+                    account: 0,
+                    class: BalanceClass::MinedRegular,
+                };
+                let mut row = tx.get::<Balances>(&k).unwrap().unwrap();
+                row.sum += 1;
+                tx.put::<Balances>(&k, &row).unwrap();
+            }),
+        ),
+        (
+            "11: a balance row missing",
+            Refuser::Store,
+            "account 0 class Locked has no balance row",
+            edit(|tx, _| {
+                let k = BalanceKey {
+                    account: 0,
+                    class: BalanceClass::Locked,
+                };
+                assert!(tx.delete::<Balances>(&k).unwrap());
+            }),
+        ),
+        (
+            "11: a balance row of no output",
+            Refuser::Store,
+            "the balance of account 5 class MinedRegular ",
+            edit(|tx, _| {
+                let k = BalanceKey {
+                    account: 5,
+                    class: BalanceClass::MinedRegular,
+                };
+                tx.put::<Balances>(&k, &BalanceRow { sum: 0, count: 0 })
+                    .unwrap();
+            }),
+        ),
+        (
+            "12: a per-height balance at the wrong height",
+            Refuser::Store,
+            "the balance of account 1 class MinedRegular at height ",
+            edit(|tx, _| {
+                let rows: Vec<_> = tx
+                    .iter::<BalanceHeights>()
+                    .unwrap()
+                    .map(|r| r.unwrap())
+                    .filter(|(k, _)| k.account == 1)
+                    .collect();
+                let (k, row) = rows[0];
+                tx.delete::<BalanceHeights>(&k).unwrap();
+                let k = purse_store::BalanceHeightKey {
+                    height: k.height + 1,
+                    ..k
+                };
+                tx.put::<BalanceHeights>(&k, &row).unwrap();
+            }),
+        ),
+        (
+            "13: an account history row missing",
+            Refuser::Store,
+            "record ",
+            edit(|tx, b| {
+                let rows: Vec<_> = tx
+                    .iter::<AcctHistory>()
+                    .unwrap()
+                    .map(|r| r.unwrap())
+                    .filter(|(_, h)| *h == b.rec2)
+                    .collect();
+                assert!(tx.delete::<AcctHistory>(&rows[0].0).unwrap());
+            }),
+        ),
+        (
+            "13: an account history row too many",
+            Refuser::Store,
+            "acct_history holds ",
+            edit(|tx, b| {
+                let k = AcctHistoryKey {
+                    account: 9,
+                    height: 1,
+                    position: 0,
+                };
+                tx.put::<AcctHistory>(&k, &b.rec1).unwrap();
+            }),
+        ),
+        // Each sub-rule of the invariants above, so that weakening any one
+        // of them fails this test.
+        (
+            "1: a history position skipped, the record and account history moved with it",
+            Refuser::Store,
+            "the history of block 2 has position 2 where 1 is next",
+            edit(|tx, b| {
+                let rk = TxRecKey {
+                    hash: b.rec2,
+                    height: 2,
+                };
+                let mut m = tx.get::<TxMined>(&rk).unwrap().unwrap();
+                assert_eq!(m.position, 1, "rec2 is block 2's last record");
+                tx.delete::<History>(&HistoryKey {
+                    height: 2,
+                    position: 1,
+                })
+                .unwrap();
+                tx.put::<History>(
+                    &HistoryKey {
+                        height: 2,
+                        position: 2,
+                    },
+                    &b.rec2,
+                )
+                .unwrap();
+                m.position = 2;
+                tx.put::<TxMined>(&rk, &m).unwrap();
+                let rows: Vec<_> = tx
+                    .iter::<AcctHistory>()
+                    .unwrap()
+                    .map(|r| r.unwrap())
+                    .filter(|(_, h)| *h == b.rec2)
+                    .collect();
+                assert!(!rows.is_empty());
+                for (k, h) in rows {
+                    tx.delete::<AcctHistory>(&k).unwrap();
+                    tx.put::<AcctHistory>(&AcctHistoryKey { position: 2, ..k }, &h)
+                        .unwrap();
+                }
+            }),
+        ),
+        (
+            "2: a history row naming no record, its block counting it",
+            Refuser::Store,
+            "history holds 6 rows for 5 records",
+            edit(|tx, _| {
+                let mut row = tx.get::<Blocks>(&Height(2)).unwrap().unwrap();
+                let n = row.wallet_txs;
+                row.wallet_txs += 1;
+                tx.put::<Blocks>(&Height(2), &row).unwrap();
+                tx.put::<History>(
+                    &HistoryKey {
+                        height: 2,
+                        position: n,
+                    },
+                    &Hash32([0xee; 32]),
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "2: a history row naming another hash than its record",
+            Refuser::Store,
+            "record ",
+            edit(|tx, _| {
+                let k = HistoryKey {
+                    height: 2,
+                    position: 1,
+                };
+                tx.put::<History>(&k, &Hash32([0xee; 32])).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output of another account than its credit",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.account = 0;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output with other flags than its credit",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.flags.change = !u.flags.change;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output at another script location than its credit",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut u = tx.get::<Unspent>(&o).unwrap().unwrap();
+                u.script.offset += 1;
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "5: an unspent output whose credit names an invalidated debit of it",
+            Refuser::Store,
+            "unspent output ",
+            edit(|tx, b| {
+                let ck = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&ck).unwrap().unwrap();
+                tx.put::<DebitsInvalidated>(
+                    &CreditKey {
+                        hash: b.rec3,
+                        height: 3,
+                        index: 5,
+                    },
+                    &DebitRow {
+                        amount: c.amount,
+                        credit: ck,
+                    },
+                )
+                .unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec3,
+                    height: 3,
+                    input: 5,
+                });
+                tx.put::<Credits>(&ck, &c).unwrap();
+            }),
+        ),
+        (
+            "7: a debit naming a missing credit at its own height",
+            Refuser::Store,
+            "debits row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 9,
+                };
+                let credit = CreditKey {
+                    hash: Hash32([0xee; 32]),
+                    height: 2,
+                    index: 0,
+                };
+                tx.put::<Debits>(&k, &DebitRow { amount: 1, credit })
+                    .unwrap();
+            }),
+        ),
+        (
+            "7: a debit whose amount is not its credit's",
+            Refuser::Store,
+            "debits row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 0,
+                };
+                let mut d: DebitRow = tx.get::<Debits>(&k).unwrap().unwrap();
+                d.amount += 12_345;
+                tx.put::<Debits>(&k, &d).unwrap();
+            }),
+        ),
+        (
+            "9: a live debit moved to the invalidated table of a valid block",
+            Refuser::Store,
+            "debits_invalidated row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 0,
+                };
+                let d: DebitRow = tx.get::<Debits>(&k).unwrap().unwrap();
+                tx.delete::<Debits>(&k).unwrap();
+                tx.put::<DebitsInvalidated>(&k, &d).unwrap();
+            }),
+        ),
+        (
+            "12: a per-height balance row missing",
+            Refuser::Store,
+            "account 1 class MinedRegular has no balance row at height 2",
+            edit(|tx, _| {
+                let k = purse_store::BalanceHeightKey {
+                    account: 1,
+                    class: BalanceClass::MinedRegular,
+                    height: 2,
+                };
+                assert!(tx.delete::<BalanceHeights>(&k).unwrap());
+            }),
+        ),
+        (
+            "13: an account history row naming another hash",
+            Refuser::Store,
+            "record ",
+            edit(|tx, b| {
+                let (k, _) = tx
+                    .iter::<AcctHistory>()
+                    .unwrap()
+                    .map(|r| r.unwrap())
+                    .find(|(_, h)| *h == b.rec2)
+                    .unwrap();
+                tx.put::<AcctHistory>(&k, &Hash32([0xee; 32])).unwrap();
+            }),
+        ),
+        (
+            "6: an invalidated credit without its record",
+            Refuser::Store,
+            "credits_invalidated row ",
+            edit(|tx, b| {
+                // In block 3, which is marked invalid, so 9 holds.
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let c: CreditRow = tx.get::<CreditsInvalidated>(&k).unwrap().unwrap();
+                let k = CreditKey {
+                    hash: Hash32([0xee; 32]),
+                    ..k
+                };
+                tx.put::<CreditsInvalidated>(&k, &c).unwrap();
+            }),
+        ),
+        (
+            "6: an invalidated debit without its record",
+            Refuser::Store,
+            "debits_invalidated row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let d: DebitRow = tx.get::<DebitsInvalidated>(&k).unwrap().unwrap();
+                let k = CreditKey {
+                    hash: Hash32([0xee; 32]),
+                    ..k
+                };
+                tx.put::<DebitsInvalidated>(&k, &d).unwrap();
+            }),
+        ),
+        (
+            "7: a debit whose amount is not its invalidated credit's",
+            Refuser::Store,
+            "debits row ",
+            edit(|tx, b| {
+                // Block 1 marked invalid and rec1:0, which rec2 spends,
+                // moved to the invalidated table, its account history row
+                // with it (the same edit without the extra atom passes the
+                // store's part); rec2's debit one atom off.
+                let mut row = tx.get::<Blocks>(&Height(1)).unwrap().unwrap();
+                row.invalid = true;
+                tx.put::<Blocks>(&Height(1), &row).unwrap();
+                let k = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 0,
+                };
+                let c: CreditRow = tx.get::<Credits>(&k).unwrap().unwrap();
+                tx.delete::<Credits>(&k).unwrap();
+                tx.put::<CreditsInvalidated>(&k, &c).unwrap();
+                let rk = TxRecKey {
+                    hash: b.rec1,
+                    height: 1,
+                };
+                let position = tx.get::<TxMined>(&rk).unwrap().unwrap().position;
+                tx.delete::<AcctHistory>(&AcctHistoryKey {
+                    account: c.account,
+                    height: 1,
+                    position,
+                })
+                .unwrap();
+                let dk = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 0,
+                };
+                let mut d: DebitRow = tx.get::<Debits>(&dk).unwrap().unwrap();
+                d.amount += 1;
+                tx.put::<Debits>(&dk, &d).unwrap();
+            }),
+        ),
+        (
+            "8: a credit naming a debit of another output of its transaction",
+            Refuser::Store,
+            "credits row ",
+            edit(|tx, b| {
+                // rec1:1 names rec2's debit, which spends rec1:0; its
+                // unspent row dropped (an unmined input names it, so no
+                // balance counts it) so that 5 does not see it first.
+                let o = Outpoint {
+                    hash: b.rec1,
+                    index: 1,
+                };
+                assert!(tx.contains::<UnminedInputs>(&o).unwrap());
+                assert!(tx.delete::<Unspent>(&o).unwrap());
+                let k = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 1,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&k).unwrap().unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec2,
+                    height: 2,
+                    input: 0,
+                });
+                tx.put::<Credits>(&k, &c).unwrap();
+            }),
+        ),
+        (
+            "8: an invalidated credit naming an invalidated debit of another outpoint",
+            Refuser::Store,
+            "credits_invalidated row ",
+            edit(|tx, b| {
+                // rec3:0 names rec3's own invalidated debit, which spends
+                // rec2:0.
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let mut c: CreditRow = tx.get::<CreditsInvalidated>(&k).unwrap().unwrap();
+                c.spender = Some(Spender {
+                    hash: b.rec3,
+                    height: 3,
+                    input: 0,
+                });
+                tx.put::<CreditsInvalidated>(&k, &c).unwrap();
+            }),
+        ),
+        // The decoded invariants (`txstore::check_decoded`).
+        (
+            "D1 (decoded): a credit and its unspent output at another script location",
+            Refuser::Decoded,
+            "credits row ",
+            edit(|tx, b| {
+                let ck = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&ck).unwrap().unwrap();
+                let mut u: UnspentRow = tx.get::<Unspent>(&o).unwrap().unwrap();
+                c.script.offset += 1;
+                u.script.offset += 1;
+                tx.put::<Credits>(&ck, &c).unwrap();
+                tx.put::<Unspent>(&o, &u).unwrap();
+            }),
+        ),
+        (
+            "D1 (decoded): a credit and its unspent output past the record's outputs",
+            Refuser::Decoded,
+            "credits row ",
+            edit(|tx, b| {
+                let ck = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let c: CreditRow = tx.get::<Credits>(&ck).unwrap().unwrap();
+                let u: UnspentRow = tx.get::<Unspent>(&o).unwrap().unwrap();
+                tx.put::<Credits>(&CreditKey { index: 5, ..ck }, &c)
+                    .unwrap();
+                tx.put::<Unspent>(&Outpoint { index: 5, ..o }, &u).unwrap();
+                add_to_sums(tx, u.account, u.class, Some(u.height), u.amount);
+            }),
+        ),
+        (
+            "D1 (decoded): a credit and its unspent output holding another amount",
+            Refuser::Decoded,
+            "credits row ",
+            edit(|tx, b| {
+                let ck = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let o = Outpoint {
+                    hash: b.rec2,
+                    index: 1,
+                };
+                let mut c: CreditRow = tx.get::<Credits>(&ck).unwrap().unwrap();
+                let mut u: UnspentRow = tx.get::<Unspent>(&o).unwrap().unwrap();
+                c.amount += 1;
+                u.amount += 1;
+                tx.put::<Credits>(&ck, &c).unwrap();
+                tx.put::<Unspent>(&o, &u).unwrap();
+                // One atom more in the sums, the output counted once.
+                add_to_sums(tx, u.account, u.class, Some(u.height), 1);
+                undo_count(tx, u.account, u.class, Some(u.height));
+            }),
+        ),
+        (
+            "D1 (decoded): an invalidated credit of another script type",
+            Refuser::Decoded,
+            "credits_invalidated row ",
+            edit(|tx, b| {
+                let ck = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let mut c: CreditRow = tx.get::<CreditsInvalidated>(&ck).unwrap().unwrap();
+                c.script.class = if c.script.class == 6 { 2 } else { 6 };
+                tx.put::<CreditsInvalidated>(&ck, &c).unwrap();
+            }),
+        ),
+        (
+            "D2 (decoded): an unmined credit holding another amount",
+            Refuser::Decoded,
+            "unmined credit ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec4,
+                    index: 0,
+                };
+                let mut m: UnminedCreditRow = tx.get::<UnminedCredits>(&o).unwrap().unwrap();
+                m.amount += 1;
+                tx.put::<UnminedCredits>(&o, &m).unwrap();
+                add_to_sums(tx, m.account, m.class, None, 1);
+                undo_count(tx, m.account, m.class, None);
+            }),
+        ),
+        (
+            "D3 (decoded): a debit of an input the record does not have",
+            Refuser::Decoded,
+            "debits row ",
+            edit(|tx, b| {
+                // rec2's one input spends rec1:0; a second debit of input 1
+                // names rec1:1, which the unmined rec4 spends.
+                let credit = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 1,
+                };
+                let c: CreditRow = tx.get::<Credits>(&credit).unwrap().unwrap();
+                tx.put::<Debits>(
+                    &CreditKey {
+                        hash: b.rec2,
+                        height: 2,
+                        index: 1,
+                    },
+                    &DebitRow {
+                        amount: c.amount,
+                        credit,
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D3 (decoded): an invalidated debit naming another outpoint than its input spends",
+            Refuser::Decoded,
+            "debits_invalidated row ",
+            edit(|tx, b| {
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let credit = CreditKey {
+                    hash: b.rec2,
+                    height: 2,
+                    index: 1,
+                };
+                let c: CreditRow = tx.get::<Credits>(&credit).unwrap().unwrap();
+                tx.put::<DebitsInvalidated>(
+                    &k,
+                    &DebitRow {
+                        amount: c.amount,
+                        credit,
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D3 (decoded): an invalidated debit naming another transaction's output of its index",
+            Refuser::Decoded,
+            "debits_invalidated row ",
+            edit(|tx, b| {
+                // rec3's input 0 spends rec2:0; the debit names rec1:0.
+                let credit = CreditKey {
+                    hash: b.rec1,
+                    height: 1,
+                    index: 0,
+                };
+                let c: CreditRow = tx.get::<Credits>(&credit).unwrap().unwrap();
+                tx.put::<DebitsInvalidated>(
+                    &CreditKey {
+                        hash: b.rec3,
+                        height: 3,
+                        index: 0,
+                    },
+                    &DebitRow {
+                        amount: c.amount,
+                        credit,
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D4 (decoded): an unmined input naming its spender at another index",
+            Refuser::Decoded,
+            "unmined input ",
+            edit(|tx, b| {
+                let o = Outpoint {
+                    hash: b.rec1,
+                    index: 5,
+                };
+                tx.put::<UnminedInputs>(&o, &b.rec4).unwrap();
+            }),
+        ),
+        (
+            "D6 (decoded): a mined record no credit or debit names that holds no transaction",
+            Refuser::Decoded,
+            "record 7777",
+            edit(|tx, _| {
+                let mut row = tx.get::<Blocks>(&Height(2)).unwrap().unwrap();
+                let position = row.wallet_txs;
+                row.wallet_txs += 1;
+                tx.put::<Blocks>(&Height(2), &row).unwrap();
+                let x = Hash32([0x77; 32]);
+                tx.put::<History>(
+                    &HistoryKey {
+                        height: 2,
+                        position,
+                    },
+                    &x,
+                )
+                .unwrap();
+                tx.put::<TxMined>(
+                    &TxRecKey { hash: x, height: 2 },
+                    &purse_store::TxMinedRow {
+                        position,
+                        received: 1,
+                        tx: vec![0xff, 0x01],
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D6 (decoded): an unmined record no row names that holds no transaction",
+            Refuser::Decoded,
+            "unmined record 7878",
+            edit(|tx, _| {
+                tx.put::<TxUnmined>(
+                    &Hash32([0x78; 32]),
+                    &purse_store::TxUnminedRow {
+                        received: 1,
+                        tx: vec![0xff, 0x01],
+                    },
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D7 (decoded): a valid block with regular records marked invalid",
+            Refuser::Decoded,
+            "a block marked invalid at height 2 holds record ",
+            edit(|tx, _| {
+                let mut row = tx.get::<Blocks>(&Height(2)).unwrap().unwrap();
+                row.invalid = true;
+                tx.put::<Blocks>(&Height(2), &row).unwrap();
+            }),
+        ),
+        (
+            "D7 (decoded): a live credit of a regular record in a block marked invalid",
+            Refuser::Decoded,
+            "a block marked invalid at height 3 holds record ",
+            edit(|tx, b| {
+                // rec3:0 moved back to the live table, with the account
+                // history row a live credit gives its record.
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let c: CreditRow = tx.get::<CreditsInvalidated>(&k).unwrap().unwrap();
+                tx.delete::<CreditsInvalidated>(&k).unwrap();
+                tx.put::<Credits>(&k, &c).unwrap();
+                let rk = TxRecKey {
+                    hash: b.rec3,
+                    height: 3,
+                };
+                let position = tx.get::<TxMined>(&rk).unwrap().unwrap().position;
+                tx.put::<AcctHistory>(
+                    &AcctHistoryKey {
+                        account: c.account,
+                        height: 3,
+                        position,
+                    },
+                    &b.rec3,
+                )
+                .unwrap();
+            }),
+        ),
+        (
+            "D7 (decoded): a live debit of a regular record in a block marked invalid",
+            Refuser::Decoded,
+            "a block marked invalid at height 3 holds record ",
+            edit(|tx, b| {
+                // rec3's debit of rec2:0 moved back to the live table;
+                // rec2:0 names no spender, so no account history row is
+                // due.
+                let k = CreditKey {
+                    hash: b.rec3,
+                    height: 3,
+                    index: 0,
+                };
+                let d: DebitRow = tx.get::<DebitsInvalidated>(&k).unwrap().unwrap();
+                tx.delete::<DebitsInvalidated>(&k).unwrap();
+                tx.put::<Debits>(&k, &d).unwrap();
+            }),
+        ),
+    ]
+}
+
+/// Adds `amount` and one output to the sums of (`account`, `class`), and
+/// at `height` for a windowed class.
+fn add_to_sums(
+    tx: &mut WriteTx<'_>,
+    account: u32,
+    class: BalanceClass,
+    height: Option<u32>,
+    amount: i64,
+) {
+    let k = purse_store::BalanceKey { account, class };
+    let mut row = tx.get::<Balances>(&k).unwrap().unwrap_or_default();
+    row.sum += amount;
+    row.count += 1;
+    tx.put::<Balances>(&k, &row).unwrap();
+    if let Some(height) = height.filter(|_| class.is_windowed()) {
+        let k = purse_store::BalanceHeightKey {
+            account,
+            class,
+            height,
+        };
+        let mut row = tx.get::<BalanceHeights>(&k).unwrap().unwrap_or_default();
+        row.sum += amount;
+        row.count += 1;
+        tx.put::<BalanceHeights>(&k, &row).unwrap();
+    }
+}
+
+/// Takes one output off the counts [`add_to_sums`] added it to.
+fn undo_count(tx: &mut WriteTx<'_>, account: u32, class: BalanceClass, height: Option<u32>) {
+    let k = purse_store::BalanceKey { account, class };
+    let mut row = tx.get::<Balances>(&k).unwrap().unwrap();
+    row.count -= 1;
+    tx.put::<Balances>(&k, &row).unwrap();
+    if let Some(height) = height.filter(|_| class.is_windowed()) {
+        let k = purse_store::BalanceHeightKey {
+            account,
+            class,
+            height,
+        };
+        let mut row = tx.get::<BalanceHeights>(&k).unwrap().unwrap();
+        row.count -= 1;
+        tx.put::<BalanceHeights>(&k, &row).unwrap();
+    }
+}
+
+/// The check, purse-store's part and then the decoded part, as
+/// `txstore::verify_backup` runs them; which refused, and the text.
+fn refusal(tx: &mut WriteTx<'_>) -> Option<(Refuser, String)> {
+    if let Err(e) = tx.check_tx_tables() {
+        let why = e.inconsistency().expect("an inconsistency").to_owned();
+        return Some((Refuser::Store, why));
+    }
+    match purse_udb::txstore::check_decoded(tx) {
+        Ok(()) => None,
+        Err(e) => Some((
+            Refuser::Decoded,
+            e.inconsistency().expect("an inconsistency").to_owned(),
+        )),
+    }
+}
+
+/// ADR-0018 BK4: for each invariant of the transaction tables, and each
+/// sub-rule of one (every field an unspent output shares with its credit,
+/// each direction of the history index, the amount of a debit, ...), a
+/// store with exactly that rule broken by a direct row edit is refused by
+/// the check that holds it, with that invariant's text, and passes again
+/// once the edit is undone (in the same transaction, the rows put back as
+/// they were): 55 edits, 39 refused by `purse-store`'s `check_tx_tables`
+/// and 16 by the decoded part, `check_decoded` (one of those, QK-0785's
+/// spender, also leaves a debit of an input its record lacks, which
+/// `check_decoded` checks later). The base store, built by the
+/// operations, passes; so do the
+/// states of Go's reproduced defects written the same way: a debit naming
+/// a credit recorded above it that is gone (QK-0101), an unmined input
+/// row missing for an unmined transaction's input (QK-0060), an outpoint
+/// both an unspent output and an unmined credit, counted in both
+/// (QK-0781), and an `unpublished` mark of a hash with no unmined record
+/// (QK-0098).
+#[test]
+fn each_broken_invariant_of_the_transaction_tables_is_refused() {
+    let (store, _, base) = corruption_base();
+    let cases = corruptions();
+    assert_eq!(cases.len(), 55);
+    let decoded = cases.iter().filter(|c| c.1 == Refuser::Decoded).count();
+    assert_eq!(decoded, 16, "refused by the decoded part");
+    for (what, refuser, text, edit) in &cases {
+        let r: Result<(), TErr> = store.update(|tx| {
+            let before = dump(tx);
+            assert_eq!(refusal(tx), None, "{what}: the base refused");
+            edit(tx, &base);
+            let (by, why) = refusal(tx).unwrap_or_else(|| panic!("{what}: not refused"));
+            assert_eq!(by, *refuser, "{what}: refused by the other check: {why}");
+            assert!(why.starts_with(text), "{what}: refused as {why:?}");
+            restore_rows(tx, &before);
+            assert_eq!(dump(tx), before);
+            assert_eq!(refusal(tx), None, "{what}: refused once undone");
+            Err(TErr::Rollback)
+        });
+        assert!(matches!(r, Err(TErr::Rollback)));
+    }
+    // States the check accepts.
+    store
+        .update(|tx| {
+            use purse_store::{DebitRow, Outpoint, UnspentRow};
+            // QK-0101: rec1 (block 1) debits, at its input 0, a credit of
+            // the outpoint that input spends recorded in block 2 and gone,
+            // as after block 2's rollback.
+            let gone = CreditKey {
+                hash: Hash32([8; 32]),
+                height: 2,
+                index: 0,
+            };
+            let debit = CreditKey {
+                hash: base.rec1,
+                height: 1,
+                index: 0,
+            };
+            tx.put::<Debits>(
+                &debit,
+                &DebitRow {
+                    amount: 3,
+                    credit: gone,
+                },
+            )
+            .unwrap();
+            assert_eq!(refusal(tx), None, "QK-0101's dangling debit");
+            // QK-0060: rec4's input row deleted by the removal of another
+            // spender; rec1:1 counts in the balance again, as the mutators
+            // count it.
+            let o = Outpoint {
+                hash: base.rec1,
+                index: 1,
+            };
+            let u: UnspentRow = tx.get::<Unspent>(&o).unwrap().unwrap();
+            tx.delete::<UnminedInputs>(&o).unwrap();
+            let bump = |tx: &mut WriteTx<'_>, account, class, height: Option<u32>, amount| {
+                let k = purse_store::BalanceKey { account, class };
+                let mut row = tx.get::<Balances>(&k).unwrap().unwrap_or_default();
+                row.sum += amount;
+                row.count += 1;
+                tx.put::<Balances>(&k, &row).unwrap();
+                if let Some(height) = height {
+                    let k = purse_store::BalanceHeightKey {
+                        account,
+                        class,
+                        height,
+                    };
+                    let mut row = tx.get::<BalanceHeights>(&k).unwrap().unwrap_or_default();
+                    row.sum += amount;
+                    row.count += 1;
+                    tx.put::<BalanceHeights>(&k, &row).unwrap();
+                }
+            };
+            bump(tx, u.account, u.class, Some(u.height), u.amount);
+            assert_eq!(refusal(tx), None, "QK-0060's missing input row");
+            // QK-0781: rec2:1 also an unmined credit of an unmined copy of
+            // rec2, each counted.
+            let rec2: purse_store::TxMinedRow = tx
+                .get::<TxMined>(&purse_store::TxRecKey {
+                    hash: base.rec2,
+                    height: 2,
+                })
+                .unwrap()
+                .unwrap();
+            tx.put::<TxUnmined>(
+                &base.rec2,
+                &purse_store::TxUnminedRow {
+                    received: rec2.received,
+                    tx: rec2.tx,
+                },
+            )
+            .unwrap();
+            let o = Outpoint {
+                hash: base.rec2,
+                index: 1,
+            };
+            let u: UnspentRow = tx.get::<Unspent>(&o).unwrap().unwrap();
+            let class = BalanceClass::unmined(&u.flags, false);
+            tx.put::<UnminedCredits>(
+                &o,
+                &purse_store::UnminedCreditRow {
+                    amount: u.amount,
+                    flags: u.flags,
+                    account: u.account,
+                    class,
+                    script: u.script,
+                },
+            )
+            .unwrap();
+            bump(tx, u.account, class, None, u.amount);
+            assert_eq!(refusal(tx), None, "QK-0781's doubled output");
+            // QK-0098: a mark of a hash with no unmined record.
+            tx.put::<Unpublished>(&Hash32([0xee; 32]), &purse_store::UnpublishedFlag)
+                .unwrap();
+            assert_eq!(refusal(tx), None, "QK-0098's stray mark");
+            Err::<(), _>(TErr::Rollback)
+        })
+        .expect_err("abandoned");
+}
+
+/// `txstore::check_decoded` reads each table it walks (`unmined_inputs`,
+/// `unspent`, `tx_mined`, `tx_unmined`, and `unmined_credits` when a
+/// credit lacks its record) a page of 512 rows at a time. Each of these
+/// tables gets 2 × 512 + 1 rows the decoded check accepts and then one
+/// row, sorting last, that it refuses, which only a walk past the second
+/// page reaches: the check refuses it with that row's text, and passes
+/// once it is deleted. (The rows are not a store the operations write;
+/// only the decoded part is run, and it reads nothing else.)
+#[test]
+fn check_decoded_reads_past_the_first_page() {
+    use purse_store::{
+        CreditRow, DebitRow, Outpoint, Spender, TxMinedRow, TxRecKey, TxUnminedRow, UnspentRow,
+    };
+    const N: u32 = 2 * 512 + 1;
+    let last = Hash32([0xff; 32]);
+    let key = |i: u32| {
+        let mut h = [0u8; 32];
+        h[..4].copy_from_slice(&i.to_be_bytes());
+        Hash32(h)
+    };
+    let valid = TxRecord::from_msg_tx(paying(&[(Hash([0x31; 32]), 0)], &[1000], 1), 0)
+        .expect("record")
+        .serialized()
+        .to_vec();
+    let junk = vec![0xff, 0x01];
+    let (store, ts, _) = tx_store("testnet3");
+    let case = |what: &str,
+                text: &str,
+                fill: &dyn Fn(&TxStore, &mut WriteTx<'_>),
+                undo: &dyn Fn(&mut WriteTx<'_>)| {
+        let r: Result<(), TErr> = store.update(|tx| {
+            fill(&ts, tx);
+            let e = purse_udb::txstore::check_decoded(tx)
+                .expect_err(&format!("{what}: the row past two pages is refused"));
+            let why = e.inconsistency().expect("an inconsistency");
+            assert!(why.starts_with(text), "{what}: refused as {why:?}");
+            undo(tx);
+            purse_udb::txstore::check_decoded(tx)
+                .unwrap_or_else(|e| panic!("{what}: refused once undone: {e}"));
+            Err(TErr::Rollback)
+        });
+        assert!(matches!(r, Err(TErr::Rollback)));
+    };
+    case(
+        "tx_mined",
+        "record ffff",
+        &|_, tx| {
+            for i in 0..N {
+                let row = TxMinedRow {
+                    position: i,
+                    received: 0,
+                    tx: valid.clone(),
+                };
+                tx.put::<TxMined>(
+                    &TxRecKey {
+                        hash: key(i),
+                        height: 1,
+                    },
+                    &row,
+                )
+                .unwrap();
+            }
+            let row = TxMinedRow {
+                position: N,
+                received: 0,
+                tx: junk.clone(),
+            };
+            tx.put::<TxMined>(
+                &TxRecKey {
+                    hash: last,
+                    height: 1,
+                },
+                &row,
+            )
+            .unwrap();
+        },
+        &|tx| {
+            assert!(
+                tx.delete::<TxMined>(&TxRecKey {
+                    hash: last,
+                    height: 1
+                })
+                .unwrap()
+            );
+        },
+    );
+    case(
+        "tx_unmined",
+        "unmined record ffff",
+        &|_, tx| {
+            for i in 0..N {
+                let row = TxUnminedRow {
+                    received: 0,
+                    tx: valid.clone(),
+                };
+                tx.put::<TxUnmined>(&key(i), &row).unwrap();
+            }
+            let row = TxUnminedRow {
+                received: 0,
+                tx: junk.clone(),
+            };
+            tx.put::<TxUnmined>(&last, &row).unwrap();
+        },
+        &|tx| {
+            assert!(tx.delete::<TxUnmined>(&last).unwrap());
+        },
+    );
+    case(
+        "unmined_inputs",
+        "unmined input ffff",
+        &|_, tx| {
+            let inputs: Vec<(Hash, u32)> = (0..N).map(|i| (Hash([0x11; 32]), i)).collect();
+            let x = TxRecord::from_msg_tx(paying(&inputs, &[1], 2), 0).expect("record");
+            let row = TxUnminedRow {
+                received: 0,
+                tx: x.serialized().to_vec(),
+            };
+            tx.put::<TxUnmined>(x.hash(), &row).unwrap();
+            for i in 0..N {
+                let o = Outpoint {
+                    hash: Hash32([0x11; 32]),
+                    index: i,
+                };
+                tx.put::<UnminedInputs>(&o, x.hash()).unwrap();
+            }
+            let o = Outpoint {
+                hash: last,
+                index: 0,
+            };
+            tx.put::<UnminedInputs>(&o, x.hash()).unwrap();
+        },
+        &|tx| {
+            let o = Outpoint {
+                hash: last,
+                index: 0,
+            };
+            assert!(tx.delete::<UnminedInputs>(&o).unwrap());
+        },
+    );
+    case(
+        "unspent",
+        "unspent output ffff",
+        &|_, tx| {
+            let row = UnspentRow {
+                height: 1,
+                account: 0,
+                amount: 1,
+                flags: purse_store::CreditFlags::default(),
+                class: BalanceClass::MinedRegular,
+                script: purse_store::ScriptLoc::default(),
+            };
+            for i in 0..N {
+                let o = Outpoint {
+                    hash: key(i),
+                    index: 0,
+                };
+                tx.put::<Unspent>(&o, &row).unwrap();
+            }
+            // The last one's credit is spent by a live debit of it, of a
+            // regular transaction of its own block: QK-0785 allows only a
+            // stake spender or one at another height.
+            let s =
+                TxRecord::from_msg_tx(paying(&[(Hash(last.0), 0)], &[1], 3), 0).expect("record");
+            let ck = CreditKey {
+                hash: last,
+                height: 1,
+                index: 0,
+            };
+            tx.put::<Unspent>(
+                &Outpoint {
+                    hash: last,
+                    index: 0,
+                },
+                &row,
+            )
+            .unwrap();
+            let credit = CreditRow {
+                amount: 1,
+                spender: Some(Spender {
+                    hash: *s.hash(),
+                    height: 1,
+                    input: 0,
+                }),
+                ..CreditRow::default()
+            };
+            tx.put::<Credits>(&ck, &credit).unwrap();
+            let dk = CreditKey {
+                hash: *s.hash(),
+                height: 1,
+                index: 0,
+            };
+            tx.put::<Debits>(
+                &dk,
+                &DebitRow {
+                    amount: 1,
+                    credit: ck,
+                },
+            )
+            .unwrap();
+            let rec = TxMinedRow {
+                position: 0,
+                received: 0,
+                tx: s.serialized().to_vec(),
+            };
+            tx.put::<TxMined>(
+                &TxRecKey {
+                    hash: *s.hash(),
+                    height: 1,
+                },
+                &rec,
+            )
+            .unwrap();
+        },
+        &|tx| {
+            let o = Outpoint {
+                hash: last,
+                index: 0,
+            };
+            assert!(tx.delete::<Unspent>(&o).unwrap());
+        },
+    );
+    case(
+        "unmined_credits",
+        "unmined credit ffff",
+        &|ts, tx| {
+            let values: Vec<i64> = (0..N).map(|i| 1000 + i64::from(i)).collect();
+            let y = TxRecord::from_msg_tx(paying(&[(Hash([0x12; 32]), 0)], &values, 4), 0)
+                .expect("record");
+            ts.insert_mem_pool_tx(tx, &y).expect("InsertMemPoolTx");
+            for i in 0..N {
+                ts.add_credit(tx, &y, None, i, false, 0).expect("AddCredit");
+            }
+            let o = Outpoint {
+                hash: *y.hash(),
+                index: 0,
+            };
+            let row = tx.get::<UnminedCredits>(&o).unwrap().unwrap();
+            tx.put::<UnminedCredits>(
+                &Outpoint {
+                    hash: last,
+                    index: 0,
+                },
+                &row,
+            )
+            .unwrap();
+        },
+        &|tx| {
+            let o = Outpoint {
+                hash: last,
+                index: 0,
+            };
+            assert!(tx.delete::<UnminedCredits>(&o).unwrap());
+        },
+    );
+    store.close().expect("close");
+}
+
+/// A storage backend over shared bytes, so that a backup written into it
+/// can be verified from it (`Store::backup_to_backend`).
+#[derive(Clone, Debug, Default)]
+struct Image(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl purse_store::StorageBackend for Image {
+    fn len(&self) -> Result<u64, purse_store::BackendError> {
+        Ok(self.0.lock().expect("lock").len() as u64)
+    }
+
+    fn read(&self, offset: u64, out: &mut [u8]) -> Result<(), purse_store::BackendError> {
+        let data = self.0.lock().expect("lock");
+        let a = usize::try_from(offset).expect("offset");
+        out.copy_from_slice(&data[a..a + out.len()]);
+        Ok(())
+    }
+
+    fn set_len(&self, len: u64) -> Result<(), purse_store::BackendError> {
+        let len = usize::try_from(len).expect("length");
+        self.0.lock().expect("lock").resize(len, 0);
+        Ok(())
+    }
+
+    fn sync_data(&self) -> Result<(), purse_store::BackendError> {
+        Ok(())
+    }
+
+    fn write(&self, offset: u64, src: &[u8]) -> Result<(), purse_store::BackendError> {
+        let mut data = self.0.lock().expect("lock");
+        let a = usize::try_from(offset).expect("offset");
+        if data.len() < a + src.len() {
+            data.resize(a + src.len(), 0);
+        }
+        data[a..a + src.len()].copy_from_slice(src);
+        Ok(())
+    }
+}
+
+/// ADR-0018 BK4 through the verify path. A backup file of the corruption
+/// base verifies with `txstore::verify_backup`, and so does a plain copy
+/// of the stopped store. Then, for each corruption, a backup of the store
+/// with the edit committed (into memory, `backup_to_backend`, as
+/// `purse-store`'s fault-injection tests take theirs) is refused by
+/// `txstore::verify_backup_on_backend` with the same check's text, while
+/// `purse-store`'s verify alone refuses exactly the store's part; a backup
+/// taken once the edit is undone verifies again; and the last bad backup,
+/// written to a file, is refused by the file path too.
+#[test]
+fn verify_backup_runs_the_transaction_tables_check() {
+    let (mut store, path, base) = corruption_base();
+    let dir = path.parent().expect("dir").to_path_buf();
+    let backups = dir.join("backups");
+    let scratch = dir.join("verify");
+    let info = purse_store::BackupInfo {
+        network: "testnet3",
+        version: "test",
+        time: 0,
+    };
+    let b = store.backup(&backups, "base", &info).expect("backup");
+    let v = purse_udb::txstore::verify_backup(&b.path, &scratch, Some("testnet3"))
+        .expect("the base verifies");
+    assert!(v.consistency_checked);
+    assert_eq!(v.record.as_ref(), Some(&b.record));
+    store.close().expect("close");
+    let plain = dir.join("plain.redb");
+    std::fs::copy(&path, &plain).expect("copy the stopped store");
+    let v = purse_udb::txstore::verify_backup(&plain, &scratch, None).expect("a plain copy");
+    assert_eq!(v.record, None);
+    store = Store::open(&path).expect("reopen");
+    let image = |store: &Store| {
+        let out = Image::default();
+        let record = store.backup_to_backend(out.clone(), &info).expect("backup");
+        (out, record)
+    };
+    let cases = corruptions();
+    for (n, (what, refuser, text, edit)) in cases.iter().enumerate() {
+        let before = dump_read(&store.read().expect("read"));
+        store
+            .update(|tx| {
+                edit(tx, &base);
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("commit the edit");
+        let (bad, _) = image(&store);
+        let snapshot = bad.0.lock().expect("lock").clone();
+        let e =
+            purse_udb::txstore::verify_backup_on_backend(bad, Some("testnet3")).expect_err(what);
+        let why = e.inconsistency().unwrap_or_else(|| panic!("{what}: {e}"));
+        assert!(why.starts_with(text), "{what}: refused as {why:?}");
+        let store_only = purse_store::verify_backup_on_backend(
+            Image(std::sync::Arc::new(std::sync::Mutex::new(snapshot))),
+            Some("testnet3"),
+        );
+        assert_eq!(
+            store_only.is_ok(),
+            *refuser == Refuser::Decoded,
+            "{what}: purse-store's verify alone: {store_only:?}"
+        );
+        if n + 1 == cases.len() {
+            let b = store.backup(&backups, "bad", &info).expect("backup");
+            let e = purse_udb::txstore::verify_backup(&b.path, &scratch, Some("testnet3"))
+                .expect_err(what);
+            assert!(
+                e.inconsistency().is_some_and(|w| w.starts_with(text)),
+                "{e}"
+            );
+        }
+        store
+            .update(|tx| {
+                restore_rows(tx, &before);
+                Ok::<_, purse_store::Error>(())
+            })
+            .expect("undo the edit");
+        assert_eq!(dump_read(&store.read().expect("read")), before);
+        let (good, record) = image(&store);
+        let v = purse_udb::txstore::verify_backup_on_backend(good, Some("testnet3"))
+            .unwrap_or_else(|e| panic!("{what}: undone, refused: {e}"));
+        assert_eq!(v.record, Some(record));
+    }
+    store.close().expect("close");
+}
+
+/// `purse-store`'s checked-in version-1 fixture (a row in every table,
+/// `crates/purse-store/tests/data/schema-v1.redb`) passes the full verify,
+/// `txstore::verify_backup` with its decoded part, as a plain copy of a
+/// stopped store; and so does a backup of it.
+#[test]
+fn the_schema_fixture_passes_the_full_verify() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../purse-store/tests/data/schema-v1.redb");
+    let dir = scratch("fixture-verify");
+    let copy = dir.join("schema-v1.redb");
+    std::fs::copy(&src, &copy).expect("copy the fixture");
+    let verify = dir.join("verify");
+    let v = purse_udb::txstore::verify_backup(&copy, &verify, None)
+        .unwrap_or_else(|e| panic!("the fixture fails the full verify: {e}"));
+    assert!(v.consistency_checked);
+    assert_eq!(v.record, None);
+    let store = Store::open(&copy).expect("open the copy");
+    let info = purse_store::BackupInfo {
+        network: "simnet",
+        version: "test",
+        time: 0,
+    };
+    let b = store
+        .backup(&dir.join("backups"), "fixture", &info)
+        .expect("backup");
+    store.close().expect("close");
+    let v = purse_udb::txstore::verify_backup(&b.path, &verify, Some("simnet"))
+        .unwrap_or_else(|e| panic!("a backup of the fixture fails the full verify: {e}"));
+    assert_eq!(v.record.as_ref(), Some(&b.record));
+}
+
+/// The auxiliary records' longest keys beside the transaction tables pass
+/// every check verify runs. `put_ticket_agenda_pref` applies bbolt's key
+/// limit to dcrwallet's version ‖ agenda key inside the ticket's bucket,
+/// so its `ticket_agenda_prefs` key, the ticket hash before it, is 32,800
+/// bytes, 32 more than `MAX_KEY_SIZE`; a VSP host of `MAX_KEY_SIZE` bytes
+/// is a `vsp_hosts` value and a `vsp_pub_keys` key, which the record
+/// tables' index check reads. On the corruption base, the library's check
+/// accepts both inside the write transaction, the read side's checks
+/// (rows, chain, records, transaction tables and their decoded part)
+/// accept them once committed, and `txstore::verify_backup` accepts a
+/// backup file of the store and `verify_backup_on_backend` an in-memory
+/// one. No check reads a key's length (the store's writes hold the
+/// limits: `purse-store`'s `ticket_agenda_choices_take_dcrwallets_key_limit`
+/// refuses one byte more), so there is no longer key for verify to refuse.
+#[test]
+fn verify_accepts_an_agenda_key_at_dcrwallet_s_limit() {
+    use purse_store::{AgendaChoice, MAX_KEY_SIZE, TicketAgendaKey, TicketAgendaPrefs};
+    let (store, path, _) = corruption_base();
+    let key = TicketAgendaKey {
+        ticket: Hash32([0x3c; 32]),
+        version: 10,
+        agenda: vec![b'a'; MAX_KEY_SIZE - 4],
+    };
+    let host = vec![b'h'; MAX_KEY_SIZE];
+    store
+        .update(|tx| {
+            tx.put_ticket_agenda_pref(&key, &AgendaChoice(b"yes".to_vec()))?;
+            assert_eq!(tx.add_vsp_host(&host, &[7; 32])?, 1);
+            if let Some((by, why)) = refusal(tx) {
+                panic!("refused by {by:?}: {why}");
+            }
+            check_rows(tx);
+            Ok::<_, purse_store::Error>(())
+        })
+        .expect("update");
+    {
+        let r = store.read().expect("read");
+        let keys: Vec<usize> = r
+            .range_raw(
+                TableId::TicketAgendaPrefs,
+                Bound::Unbounded,
+                Bound::Unbounded,
+            )
+            .expect("range")
+            .map(|e| e.expect("row").0.len())
+            .collect();
+        assert_eq!(keys, [MAX_KEY_SIZE + 32]);
+        assert_eq!(
+            r.get::<TicketAgendaPrefs>(&key).expect("get"),
+            Some(AgendaChoice(b"yes".to_vec()))
+        );
+        r.check_rows().expect("check_rows");
+        check_library_read(&r);
+    }
+    let dir = path.parent().expect("dir").to_path_buf();
+    let info = purse_store::BackupInfo {
+        network: "testnet3",
+        version: "test",
+        time: 0,
+    };
+    let b = store
+        .backup(&dir.join("backups"), "agenda", &info)
+        .expect("backup");
+    let v = purse_udb::txstore::verify_backup(&b.path, &dir.join("verify"), Some("testnet3"))
+        .unwrap_or_else(|e| panic!("a backup file fails the full verify: {e}"));
+    assert!(v.consistency_checked);
+    assert_eq!(v.record.as_ref(), Some(&b.record));
+    let image = Image::default();
+    let record = store
+        .backup_to_backend(image.clone(), &info)
+        .expect("backup");
+    let v = purse_udb::txstore::verify_backup_on_backend(image, Some("testnet3"))
+        .unwrap_or_else(|e| panic!("an in-memory backup fails the full verify: {e}"));
+    assert_eq!(v.record, Some(record));
+    store.close().expect("close");
+}
+
+/// One state of Go's reproduced defects, written by the operations alone
+/// on a fresh testnet3 store in one write transaction (`build`, which also
+/// asserts that the state is there: rows a naive invariant would refuse).
+/// The library's check passes it inside the transaction, as the property
+/// tests' row checker does; once committed, the read side's checks pass it
+/// (chain, records, transaction tables and their decoded part); and
+/// `txstore::verify_backup_on_backend` verifies a backup of it.
+fn accepted(what: &str, build: impl FnOnce(&TxStore, &mut WriteTx<'_>)) {
+    let (store, ts, _) = tx_store("testnet3");
+    store
+        .update(|tx| {
+            build(&ts, tx);
+            if let Some((by, why)) = refusal(tx) {
+                panic!("{what}: refused by {by:?}: {why}");
+            }
+            check_rows(tx);
+            Ok::<_, purse_store::Error>(())
+        })
+        .unwrap_or_else(|e| panic!("{what}: {e:?}"));
+    check_library_read(&store.read().expect("read"));
+    let image = Image::default();
+    let info = purse_store::BackupInfo {
+        network: "testnet3",
+        version: "test",
+        time: 0,
+    };
+    let record = store
+        .backup_to_backend(image.clone(), &info)
+        .expect("backup");
+    let v = purse_udb::txstore::verify_backup_on_backend(image, Some("testnet3"))
+        .unwrap_or_else(|e| panic!("{what}: verify_backup refuses it: {e}"));
+    assert_eq!(v.record, Some(record), "{what}");
+    store.close().expect("close");
+}
+
+/// ADR-0018 BK4: every state of the transaction tables that Go's
+/// reproduced defects leave (docs/QUIRKS.md; the module documentation of
+/// `purse_store::txtables` lists them) passes the consistency check. Each
+/// is written by the store's operations, as a wallet would write it, on a
+/// store of its own, with the rows that make it asserted, so that the
+/// check is held to accept it whether or not a random sequence reaches it:
+///
+/// - QK-0781: a transaction mined in two blocks and rolled back from the
+///   higher, then credited unmined: an outpoint both an unspent output and
+///   an unmined credit, the hash both mined and unmined; and, credited at
+///   both heights, two credits sharing one unspent row, which the rollback
+///   deletes, leaving the lower credit live, naming no spender, with no
+///   unspent row, after the unmined copy is removed too;
+/// - QK-0100: a zero-value credit unspent by `Rollback` without its unspent
+///   row;
+/// - QK-0785: an unspent output whose credit is spent, by a ticket of its
+///   block and by a regular transaction recorded in a block below;
+/// - QK-0101: a debit naming a credit recorded above it that the rollback
+///   of that block removed;
+/// - QK-0095: a debit that `InsertMinedTx` of an already recorded
+///   transaction writes before its duplicate test, its credit spent; and,
+///   over QK-0781's second credit of the outpoint, a debit overwritten to
+///   spend that second credit while the first still names the spender,
+///   and after a rollback of the spender's block, the first credit naming
+///   a spender with no debit; and, the first credit's block then
+///   disapproved and approved again (QK-0785's mechanism), that credit
+///   unspent while naming a spender with no debit, or, the spender
+///   recorded below its funder, a spender whose live debit spends the
+///   outpoint's credit at another height;
+/// - QK-0060: an unmined transaction's input without its unmined-inputs
+///   row, by `RemoveUnconfirmed` of a transaction that is not unmined and
+///   by `Rollback` returning a spender over another's row; and a
+///   commitment's unspent entry re-created by `RemoveUnconfirmed` of the
+///   mined vote that redeemed it;
+/// - QK-0087 and QK-0780: an unmined coinbase's null outpoint in the
+///   unmined-inputs index;
+/// - QK-0098: an unpublished mark of a hash with no unmined record;
+/// - QK-0056: a ticket's row outliving every record of it;
+/// - QK-0736: a disapproved block's regular transaction keeping its mined
+///   record with its credit invalidated;
+/// - QK-0786: a multisig record unspent while the unmined transaction that
+///   `Rollback` returned still spends it;
+/// - QK-0787: a multisig record outliving its removed transaction;
+/// - QK-0097 and QK-0054: a mined transaction's multisig record reset
+///   unmined by `AddMultisigOut`, and a stake-tagged output's record that
+///   lost its stake-tree flag when spent;
+/// - QK-0079 (with QK-0066): a mined credit without the expiry flag its
+///   unmined credit had, classed by the flags it has.
+///
+/// QK-0789's state (a multisig record marked unmined by a rollback that did
+/// not detach its block) is reached by the multisig variant of
+/// `a_revalidated_transaction_merges_its_unmined_copy_keeping_the_row_invariants`,
+/// whose every step runs the check. QK-0053 and QK-0055 (stale spender
+/// bytes) are not representable in the store's rows; QK-0081, QK-0782
+/// (invalidated rows of a detached block, deleted by dcr-purse: decided
+/// divergence) and QK-0783 (a credit without its record, refused) cannot
+/// occur; QK-0734's and QK-0735's states are fixed and left by no
+/// operation.
+#[test]
+fn every_state_of_go_s_reproduced_defects_passes_the_check() {
+    use purse_store::{DebitsInvalidated, MultisigOuts, Outpoint, Tickets, TxRecKey};
+    let rec = |m: MsgTx| TxRecord::from_msg_tx(m, 1_795_400_000).expect("record");
+    let hash_of = |b: &BlockHeader| Hash32(*b.block_hash().as_bytes());
+    let credit = |ts: &TxStore, tx: &mut WriteTx<'_>, r: &TxRecord, b: Option<&BlockHeader>, i| {
+        let meta = b.map(make_block_meta);
+        ts.add_credit(tx, r, meta.as_ref(), i, false, 0)
+            .expect("AddCredit");
+    };
+    let op = |r: &TxRecord, index: u32| Outpoint {
+        hash: *r.hash(),
+        index,
+    };
+    let ck = |r: &TxRecord, height: u32, index: u32| CreditKey {
+        hash: *r.hash(),
+        height,
+        index,
+    };
+    let mined_at = |tx: &mut WriteTx<'_>, r: &TxRecord, height: u32| {
+        tx.contains::<TxMined>(&TxRecKey {
+            hash: *r.hash(),
+            height,
+        })
+        .expect("contains")
+    };
+    let to_p2sh = |values: &[i64], tag: Option<u8>, fill: u8| {
+        let ms = ms_scripts();
+        rec(MsgTx {
+            tx_in: vec![TxIn {
+                previous_out_point: OutPoint {
+                    hash: Hash([fill; 32]),
+                    index: 0,
+                    tree: 0,
+                },
+                sequence: u32::MAX,
+                ..TxIn::default()
+            }],
+            tx_out: values
+                .iter()
+                .map(|v| TxOut {
+                    value: *v,
+                    version: 0,
+                    pk_script: p2sh(tag, &ms[0]),
+                })
+                .collect(),
+            ..MsgTx::default()
+        })
+    };
+    let imported = 0x7fff_ffff;
+
+    accepted(
+        "QK-0781: an outpoint unspent and an unmined credit",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let t = rec(paying(&[(Hash([0x11; 32]), 0)], &[5000], 1));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b1)).expect("b1");
+            credit(ts, tx, &t, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b2)).expect("b2");
+            ts.rollback(tx, 2).expect("Rollback");
+            credit(ts, tx, &t, None, 0);
+            assert!(mined_at(tx, &t, 1));
+            assert!(tx.contains::<TxUnmined>(t.hash()).expect("contains"));
+            assert!(tx.contains::<Unspent>(&op(&t, 0)).expect("contains"));
+            assert!(tx.contains::<UnminedCredits>(&op(&t, 0)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0781: a live credit naming no spender without its unspent row",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let t = rec(paying(&[(Hash([0x11; 32]), 0)], &[5000], 1));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b1)).expect("b1");
+            credit(ts, tx, &t, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b2)).expect("b2");
+            credit(ts, tx, &t, Some(&b2), 0);
+            assert!(tx.contains::<Credits>(&ck(&t, 1, 0)).expect("contains"));
+            assert!(tx.contains::<Credits>(&ck(&t, 2, 0)).expect("contains"));
+            let u = tx
+                .get::<Unspent>(&op(&t, 0))
+                .expect("get")
+                .expect("one row");
+            assert_eq!(u.height, 2, "one unspent row for the two credits");
+            ts.rollback(tx, 2).expect("Rollback");
+            ts.remove_unconfirmed(tx, t.msg_tx(), t.hash())
+                .expect("RemoveUnconfirmed");
+            let c = tx
+                .get::<Credits>(&ck(&t, 1, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(c.spender, None);
+            assert!(!tx.contains::<Unspent>(&op(&t, 0)).expect("contains"));
+            assert!(!tx.contains::<TxUnmined>(t.hash()).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0100: a zero-value credit without its unspent row",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let z = rec(paying(&[(Hash([0x12; 32]), 0)], &[0, 500], 2));
+            let zh = Hash(z.hash().0);
+            let s = rec(paying(&[(zh, 0), (zh, 1)], &[400], 3));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &z, &hash_of(&b1)).expect("z");
+            credit(ts, tx, &z, Some(&b1), 0);
+            credit(ts, tx, &z, Some(&b1), 1);
+            ts.insert_mined_tx(tx, &s, &hash_of(&b2)).expect("s");
+            ts.rollback(tx, 2).expect("Rollback");
+            let c = tx
+                .get::<Credits>(&ck(&z, 1, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!((c.amount, c.spender), (0, None));
+            assert!(!tx.contains::<Unspent>(&op(&z, 0)).expect("contains"));
+            assert!(tx.contains::<Unspent>(&op(&z, 1)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0785: an unspent output a ticket of its block spends",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let mut g2 = BlockGenerator {
+                last_hash: g.last_hash,
+                last_height: g.last_height,
+            };
+            let (b2, b2x) = (g.generate(0), g2.generate(1));
+            let (a, t) = funded_ticket();
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &a, &hash_of(&b1)).expect("a");
+            credit(ts, tx, &a, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b1)).expect("t");
+            credit(ts, tx, &t, Some(&b1), 0);
+            insert_main_chain_headers(ts, tx, &[&b2]);
+            ts.rollback(tx, 2).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b2x]);
+            let c = tx
+                .get::<Credits>(&ck(&a, 1, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(c.spender.map(|s| s.hash), Some(*t.hash()));
+            assert!(tx.contains::<Unspent>(&op(&a, 0)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0785: an unspent output a transaction below it spends",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2, b3) = (g.generate(1), g.generate(1), g.generate(1));
+            let mut g2 = BlockGenerator {
+                last_hash: g.last_hash,
+                last_height: g.last_height,
+            };
+            let (b4, b4x) = (g.generate(0), g2.generate(1));
+            let f = rec(paying(&[(Hash([0x13; 32]), 0)], &[1100], 4));
+            let s = rec(paying(&[(Hash(f.hash().0), 0)], &[1000], 5));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2, &b3]);
+            ts.insert_mined_tx(tx, &f, &hash_of(&b3)).expect("f");
+            credit(ts, tx, &f, Some(&b3), 0);
+            ts.insert_mined_tx(tx, &s, &hash_of(&b2)).expect("s");
+            insert_main_chain_headers(ts, tx, &[&b4]);
+            ts.rollback(tx, 4).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b4x]);
+            let c = tx
+                .get::<Credits>(&ck(&f, 3, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(c.spender.map(|s| (s.hash, s.height)), Some((*s.hash(), 2)));
+            assert!(tx.contains::<Unspent>(&op(&f, 0)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0101: a debit of a credit recorded above it, gone",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let y = rec(paying(&[(Hash([0x14; 32]), 0)], &[700], 6));
+            let x = rec(paying(&[(Hash(y.hash().0), 0)], &[600], 7));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &y, &hash_of(&b2)).expect("y");
+            credit(ts, tx, &y, Some(&b2), 0);
+            ts.insert_mined_tx(tx, &x, &hash_of(&b1)).expect("x");
+            ts.rollback(tx, 2).expect("Rollback");
+            let d = tx
+                .get::<Debits>(&ck(&x, 1, 0))
+                .expect("get")
+                .expect("debit");
+            assert_eq!(d.credit, ck(&y, 2, 0));
+            assert!(!tx.contains::<Credits>(&d.credit).expect("contains"));
+            assert!(
+                !tx.contains::<CreditsInvalidated>(&d.credit)
+                    .expect("contains")
+            );
+        },
+    );
+
+    accepted(
+        "QK-0095: a debit written by InsertMinedTx of a recorded transaction",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let a = rec(paying(&[(Hash([0x1c; 32]), 0)], &[900], 18));
+            let x = rec(paying(&[(Hash(a.hash().0), 0)], &[800], 19));
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &x, &hash_of(&b1)).expect("x");
+            assert!(!tx.contains::<Debits>(&ck(&x, 1, 0)).expect("contains"));
+            ts.insert_mined_tx(tx, &a, &hash_of(&b1)).expect("a");
+            credit(ts, tx, &a, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &x, &hash_of(&b1))
+                .expect("x again, recorded");
+            let d = tx
+                .get::<Debits>(&ck(&x, 1, 0))
+                .expect("get")
+                .expect("debit");
+            assert_eq!(d.credit, ck(&a, 1, 0));
+            assert!(!tx.contains::<Unspent>(&op(&a, 0)).expect("contains"));
+        },
+    );
+
+    // QK-0095 over QK-0781: the funder recorded and credited again in a
+    // higher block (one unspent row, naming the higher credit), then the
+    // spender inserted again: its debit, one slot per (transaction, height,
+    // input), is overwritten to spend the higher credit, while the lower
+    // credit still names the spender. The property seeds 454, 509 and 523
+    // reach the first state.
+    let funder_twice = |ts: &TxStore,
+                        tx: &mut WriteTx<'_>,
+                        b1: &BlockHeader,
+                        b2: &BlockHeader,
+                        spender_at: u32| {
+        let f = rec(paying(&[(Hash([0x1d; 32]), 0)], &[900], 20));
+        let s = rec(paying(&[(Hash(f.hash().0), 0)], &[800], 21));
+        insert_main_chain_headers(ts, tx, &[b1, b2]);
+        let sb = if spender_at == 1 { b1 } else { b2 };
+        ts.insert_mined_tx(tx, &f, &hash_of(b1)).expect("f");
+        credit(ts, tx, &f, Some(b1), 0);
+        ts.insert_mined_tx(tx, &s, &hash_of(sb)).expect("s");
+        ts.insert_mined_tx(tx, &f, &hash_of(b2)).expect("f again");
+        credit(ts, tx, &f, Some(b2), 0);
+        assert_eq!(
+            tx.get::<Unspent>(&op(&f, 0))
+                .expect("get")
+                .map(|u| u.height),
+            Some(2),
+            "the higher credit is the unspent one"
+        );
+        ts.insert_mined_tx(tx, &s, &hash_of(sb))
+            .expect("s again, recorded");
+        let d = tx
+            .get::<Debits>(&ck(&s, spender_at, 0))
+            .expect("get")
+            .expect("debit");
+        assert_eq!(d.credit, ck(&f, 2, 0), "the debit spends the higher credit");
+        let low = tx
+            .get::<Credits>(&ck(&f, 1, 0))
+            .expect("get")
+            .expect("live");
+        assert_eq!(
+            low.spender.map(|p| (p.hash, p.height, p.input)),
+            Some((*s.hash(), spender_at, 0))
+        );
+        (f, s)
+    };
+    accepted(
+        "QK-0095 over QK-0781: a spent credit whose debit spends its outpoint's other credit",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            funder_twice(ts, tx, &b1, &b2, 1);
+        },
+    );
+    accepted(
+        "QK-0095 over QK-0781, rolled back: a spent credit naming a spender with no debit",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let (f, s) = funder_twice(ts, tx, &b1, &b2, 2);
+            ts.rollback(tx, 2).expect("Rollback");
+            let low = tx
+                .get::<Credits>(&ck(&f, 1, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(
+                low.spender.map(|p| (p.hash, p.height)),
+                Some((*s.hash(), 2))
+            );
+            assert!(!tx.contains::<Debits>(&ck(&s, 2, 0)).expect("contains"));
+            assert!(
+                !tx.contains::<DebitsInvalidated>(&ck(&s, 2, 0))
+                    .expect("contains")
+            );
+        },
+    );
+
+    // The rolled-back state above, then block 1 disapproved and approved
+    // again: stake validation puts block 1's credit back with its spender
+    // and its unspent row (QK-0785's mechanism, Go's `stakeValidate`), so
+    // an unspent output's credit names a spender with no debit. The
+    // property seeds 30021, 30197 and 30261 of a sweep biased toward
+    // rollbacks and disapprovals reach it.
+    let fork = |g: &BlockGenerator| BlockGenerator {
+        last_hash: g.last_hash,
+        last_height: g.last_height,
+    };
+    accepted(
+        "QK-0095 over QK-0781, rolled back, the funder's block revalidated: an unspent \
+         output whose credit names a spender with no debit",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let (mut gd, mut ga) = (fork(&g), fork(&g));
+            let (b2, b2d, b2a) = (g.generate(1), gd.generate(0), ga.generate(1));
+            let (f, s) = funder_twice(ts, tx, &b1, &b2, 2);
+            ts.rollback(tx, 2).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b2d]);
+            assert!(!tx.contains::<Unspent>(&op(&f, 0)).expect("contains"));
+            ts.rollback(tx, 2).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b2a]);
+            let low = tx
+                .get::<Credits>(&ck(&f, 1, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(
+                low.spender.map(|p| (p.hash, p.height)),
+                Some((*s.hash(), 2))
+            );
+            assert_eq!(
+                tx.get::<Unspent>(&op(&f, 0))
+                    .expect("get")
+                    .map(|u| u.height),
+                Some(1)
+            );
+            assert!(!tx.contains::<Debits>(&ck(&s, 2, 0)).expect("contains"));
+            assert!(
+                !tx.contains::<DebitsInvalidated>(&ck(&s, 2, 0))
+                    .expect("contains")
+            );
+        },
+    );
+    // The same over a spender recorded below its funder: `s` in block 1
+    // spends `f`'s credit of block 2 and, inserted again, the credit of
+    // block 3; block 3 rolled back leaves `s`'s debit naming that credit,
+    // gone (QK-0101); block 2 disapproved and approved again puts its
+    // credit back unspent, still naming `s`, whose live debit spends the
+    // outpoint's credit at another height.
+    accepted(
+        "QK-0095 over QK-0781 below the funder, the funder's block revalidated: an \
+         unspent output whose credit's spender debits the outpoint's other credit",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let (mut gd, mut ga) = (fork(&g), fork(&g));
+            let (b3, b3d, b3a) = (g.generate(1), gd.generate(0), ga.generate(1));
+            let f = rec(paying(&[(Hash([0x1e; 32]), 0)], &[900], 22));
+            let s = rec(paying(&[(Hash(f.hash().0), 0)], &[800], 23));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2, &b3]);
+            ts.insert_mined_tx(tx, &f, &hash_of(&b2)).expect("f");
+            credit(ts, tx, &f, Some(&b2), 0);
+            ts.insert_mined_tx(tx, &s, &hash_of(&b1)).expect("s");
+            ts.insert_mined_tx(tx, &f, &hash_of(&b3)).expect("f again");
+            credit(ts, tx, &f, Some(&b3), 0);
+            ts.insert_mined_tx(tx, &s, &hash_of(&b1))
+                .expect("s again, recorded");
+            assert_eq!(
+                tx.get::<Debits>(&ck(&s, 1, 0))
+                    .expect("get")
+                    .map(|d| d.credit),
+                Some(ck(&f, 3, 0))
+            );
+            ts.rollback(tx, 3).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b3d]);
+            ts.rollback(tx, 3).expect("Rollback");
+            insert_main_chain_headers(ts, tx, &[&b3a]);
+            let c = tx
+                .get::<Credits>(&ck(&f, 2, 0))
+                .expect("get")
+                .expect("live");
+            assert_eq!(c.spender.map(|p| (p.hash, p.height)), Some((*s.hash(), 1)));
+            assert_eq!(
+                tx.get::<Unspent>(&op(&f, 0))
+                    .expect("get")
+                    .map(|u| u.height),
+                Some(2)
+            );
+            assert_eq!(
+                tx.get::<Debits>(&ck(&s, 1, 0))
+                    .expect("get")
+                    .map(|d| d.credit),
+                Some(ck(&f, 3, 0))
+            );
+        },
+    );
+
+    accepted(
+        "QK-0060: an unmined input's row removed with another transaction",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let a = rec(paying(&[(Hash([0x15; 32]), 0)], &[900], 8));
+            let ah = Hash(a.hash().0);
+            let u = rec(paying(&[(ah, 0)], &[800], 9));
+            let w = rec(paying(&[(ah, 0)], &[700], 10));
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &a, &hash_of(&b1)).expect("a");
+            credit(ts, tx, &a, Some(&b1), 0);
+            ts.insert_mem_pool_tx(tx, &u).expect("u");
+            assert_eq!(
+                tx.get::<UnminedInputs>(&op(&a, 0)).expect("get"),
+                Some(*u.hash())
+            );
+            ts.remove_unconfirmed(tx, w.msg_tx(), w.hash())
+                .expect("RemoveUnconfirmed of a transaction not recorded");
+            assert!(tx.contains::<TxUnmined>(u.hash()).expect("contains"));
+            assert!(!tx.contains::<UnminedInputs>(&op(&a, 0)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0060: an unmined input's row taken by a returned spender",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let a = rec(paying(&[(Hash([0x16; 32]), 0)], &[900], 11));
+            let ah = Hash(a.hash().0);
+            let x = rec(paying(&[(ah, 0)], &[800], 12));
+            let z = rec(paying(&[(ah, 0)], &[700], 13));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &a, &hash_of(&b1)).expect("a");
+            credit(ts, tx, &a, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &x, &hash_of(&b2)).expect("x");
+            ts.insert_mem_pool_tx(tx, &z)
+                .expect("z, beside a mined spender");
+            ts.rollback(tx, 2).expect("Rollback");
+            assert!(tx.contains::<TxUnmined>(z.hash()).expect("contains"));
+            assert!(tx.contains::<TxUnmined>(x.hash()).expect("contains"));
+            assert_eq!(
+                tx.get::<UnminedInputs>(&op(&a, 0)).expect("get"),
+                Some(*x.hash())
+            );
+        },
+    );
+
+    accepted(
+        "QK-0060: a commitment's unspent entry re-created after its redemption",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let (a, t) = funded_ticket();
+            let mut sim = Sim {
+                rng: SplitMix64(1),
+                recs: Vec::new(),
+                tickets: Vec::new(),
+                blocks: Vec::new(),
+                nonce: 0,
+                plan: Vec::new(),
+                vote: None,
+            };
+            let v = sim.build_vote(t.hash(), &hash_of(&b1), 1);
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &a, &hash_of(&b1)).expect("a");
+            credit(ts, tx, &a, Some(&b1), 0);
+            ts.insert_mined_tx(tx, &t, &hash_of(&b1)).expect("t");
+            credit(ts, tx, &t, Some(&b1), 0);
+            ts.add_ticket_commitment(tx, &t, 1, 0)
+                .expect("AddTicketCommitment");
+            insert_main_chain_headers(ts, tx, &[&b2]);
+            ts.insert_mined_tx(tx, &v, &hash_of(&b2)).expect("v");
+            ts.redeem_ticket_commitments(tx, &v, Some(&make_block_meta(&b2)))
+                .expect("RedeemTicketCommitments");
+            assert!(
+                !tx.contains::<CommitmentsUnspent>(&op(&t, 1))
+                    .expect("contains")
+            );
+            ts.remove_unconfirmed(tx, v.msg_tx(), v.hash())
+                .expect("RemoveUnconfirmed of the mined vote");
+            assert!(mined_at(tx, &v, 2));
+            assert!(
+                tx.contains::<CommitmentsUnspent>(&op(&t, 1))
+                    .expect("contains")
+            );
+        },
+    );
+
+    accepted(
+        "QK-0087, QK-0780: an unmined coinbase's null input",
+        |ts, tx| {
+            let cb = rec(MsgTx {
+                tx_in: vec![TxIn {
+                    previous_out_point: OutPoint {
+                        hash: Hash::ZERO,
+                        index: u32::MAX,
+                        tree: 0,
+                    },
+                    sequence: u32::MAX,
+                    signature_script: vec![0x00, 0x00],
+                    ..TxIn::default()
+                }],
+                tx_out: vec![TxOut {
+                    value: 5000,
+                    version: 0,
+                    pk_script: p2pkh(None, 14),
+                }],
+                ..MsgTx::default()
+            });
+            ts.insert_mem_pool_tx(tx, &cb).expect("InsertMemPoolTx");
+            credit(ts, tx, &cb, None, 0);
+            let null = Outpoint {
+                hash: Hash32::default(),
+                index: u32::MAX,
+            };
+            assert_eq!(
+                tx.get::<UnminedInputs>(&null).expect("get"),
+                Some(*cb.hash())
+            );
+        },
+    );
+
+    accepted(
+        "QK-0098: a mark of a hash with no unmined record",
+        |ts, tx| {
+            let stray = Hash32([0x5a; 32]);
+            ts.set_published(tx, &stray, false).expect("SetPublished");
+            assert!(tx.contains::<Unpublished>(&stray).expect("contains"));
+            assert!(!tx.contains::<TxUnmined>(&stray).expect("contains"));
+        },
+    );
+
+    accepted("QK-0056: a ticket row outliving its records", |ts, tx| {
+        let (_, t) = funded_ticket();
+        ts.insert_mem_pool_tx(tx, &t).expect("InsertMemPoolTx");
+        ts.remove_unconfirmed(tx, t.msg_tx(), t.hash())
+            .expect("RemoveUnconfirmed");
+        assert!(tx.contains::<Tickets>(t.hash()).expect("contains"));
+        assert!(!tx.contains::<TxUnmined>(t.hash()).expect("contains"));
+        assert!(tx.is_empty(TableId::TxMined).expect("is_empty"));
+    });
+
+    accepted(
+        "QK-0736: a disapproved block's record with its credit invalidated",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(0));
+            let r = rec(paying(&[(Hash([0x17; 32]), 0)], &[900], 15));
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &r, &hash_of(&b1)).expect("r");
+            credit(ts, tx, &r, Some(&b1), 0);
+            insert_main_chain_headers(ts, tx, &[&b2]);
+            assert!(mined_at(tx, &r, 1));
+            assert!(!tx.contains::<Credits>(&ck(&r, 1, 0)).expect("contains"));
+            assert!(
+                tx.contains::<CreditsInvalidated>(&ck(&r, 1, 0))
+                    .expect("contains")
+            );
+            assert!(!tx.contains::<Unspent>(&op(&r, 0)).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0786: a multisig record unspent while a transaction spends it",
+        |ts, tx| {
+            import_ms_scripts(tx);
+            let mut g = BlockGenerator::new();
+            let (b1, b2) = (g.generate(1), g.generate(1));
+            let f = to_p2sh(&[3000], None, 0x18);
+            let s = rec(paying(&[(Hash(f.hash().0), 0)], &[2000], 16));
+            insert_main_chain_headers(ts, tx, &[&b1, &b2]);
+            ts.insert_mined_tx(tx, &f, &hash_of(&b1)).expect("f");
+            ts.add_credit(tx, &f, Some(&make_block_meta(&b1)), 0, false, imported)
+                .expect("AddCredit");
+            ts.add_multisig_out(tx, &f, Some(&make_block_meta(&b1)), 0)
+                .expect("AddMultisigOut");
+            ts.insert_mined_tx(tx, &s, &hash_of(&b2)).expect("s");
+            let fop = OutPoint {
+                hash: Hash(f.hash().0),
+                index: 0,
+                tree: 0,
+            };
+            ts.spend_multisig_out(tx, &fop, s.hash(), 0)
+                .expect("SpendMultisigOut");
+            ts.rollback(tx, 2).expect("Rollback");
+            let m = tx
+                .get::<MultisigOuts>(&op(&f, 0))
+                .expect("get")
+                .expect("row");
+            assert_eq!(m.spender, None);
+            assert_eq!(
+                tx.get::<UnminedInputs>(&op(&f, 0)).expect("get"),
+                Some(*s.hash())
+            );
+        },
+    );
+
+    accepted(
+        "QK-0787: a multisig record outliving its transaction",
+        |ts, tx| {
+            import_ms_scripts(tx);
+            let u = to_p2sh(&[3000], None, 0x19);
+            ts.insert_mem_pool_tx(tx, &u).expect("InsertMemPoolTx");
+            ts.add_multisig_out(tx, &u, None, 0)
+                .expect("AddMultisigOut");
+            ts.remove_unconfirmed(tx, u.msg_tx(), u.hash())
+                .expect("RemoveUnconfirmed");
+            assert!(tx.contains::<MultisigOuts>(&op(&u, 0)).expect("contains"));
+            assert!(!tx.contains::<TxUnmined>(u.hash()).expect("contains"));
+        },
+    );
+
+    accepted(
+        "QK-0097, QK-0054: a mined output's record reset unmined, its tree flag lost",
+        |ts, tx| {
+            import_ms_scripts(tx);
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let f = to_p2sh(&[3000, 4000], Some(0xba), 0x1a);
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &f, &hash_of(&b1)).expect("f");
+            for i in 0..2 {
+                ts.add_multisig_out(tx, &f, Some(&make_block_meta(&b1)), i)
+                    .expect("AddMultisigOut");
+            }
+            let m = tx
+                .get::<MultisigOuts>(&op(&f, 1))
+                .expect("get")
+                .expect("row");
+            assert!(m.stake_tree && m.block.is_some());
+            ts.add_multisig_out(tx, &f, None, 0)
+                .expect("AddMultisigOut unmined over the mined record");
+            let fop = OutPoint {
+                hash: Hash(f.hash().0),
+                index: 1,
+                tree: 1,
+            };
+            ts.spend_multisig_out(tx, &fop, &Hash32([0x77; 32]), 0)
+                .expect("SpendMultisigOut");
+            assert!(mined_at(tx, &f, 1));
+            let m = tx
+                .get::<MultisigOuts>(&op(&f, 0))
+                .expect("get")
+                .expect("row");
+            assert_eq!(m.block, None, "reset unmined (QK-0097)");
+            let m = tx
+                .get::<MultisigOuts>(&op(&f, 1))
+                .expect("get")
+                .expect("row");
+            assert!(!m.stake_tree, "tree flag lost (QK-0054)");
+        },
+    );
+
+    accepted(
+        "QK-0079: a mined credit without its unmined credit's expiry flag",
+        |ts, tx| {
+            let mut g = BlockGenerator::new();
+            let b1 = g.generate(1);
+            let mut m = paying(&[(Hash([0x1b; 32]), 0)], &[900], 17);
+            m.expiry = 500;
+            let e = rec(m);
+            ts.insert_mem_pool_tx(tx, &e).expect("InsertMemPoolTx");
+            credit(ts, tx, &e, None, 0);
+            let u = tx
+                .get::<UnminedCredits>(&op(&e, 0))
+                .expect("get")
+                .expect("unmined credit");
+            assert!(u.flags.expiry);
+            insert_main_chain_headers(ts, tx, &[&b1]);
+            ts.insert_mined_tx(tx, &e, &hash_of(&b1)).expect("e");
+            let c = tx
+                .get::<Credits>(&ck(&e, 1, 0))
+                .expect("get")
+                .expect("credit");
+            assert!(!c.flags.expiry);
+            let u = tx
+                .get::<Unspent>(&op(&e, 0))
+                .expect("get")
+                .expect("unspent");
+            assert_eq!(u.class, mined_class(&c.flags));
+        },
+    );
 }

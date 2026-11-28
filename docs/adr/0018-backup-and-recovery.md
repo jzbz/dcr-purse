@@ -10,6 +10,9 @@
   the addendum "The `purse-store` part, as built", each as recommended:
   the store's file name is `wallet.redb`. `libc` stays a direct, Unix-only
   dependency of `purse-store`. See "Addendum, 2026-11-21" at the end.
+- **Built, 2026-11-26:** BK4, the transaction tables' consistency check,
+  run by `verify_backup`; one open point, BK7 (where the check lives),
+  pending owner. See "Addendum, 2026-11-26" at the end.
 - **Date:** 2026-11-19
 
 ## Context
@@ -759,7 +762,8 @@ checks on a storage backend, for the fuzz target. Two limits of what
 store has no check yet of the transaction tables' indexes and balances,
 which come with the transaction store in Phase 3 (Open point BK4;
 *decided 2026-11-21: `verify_backup` runs that check when Phase 3 builds
-it, addendum of that date, item 4*); and for
+it, addendum of that date, item 4*; *built 2026-11-26, addendum of that
+date*); and for
 a store of an older schema version the consistency checks are skipped
 and the result says so (`consistency_checked: false`), because `restore`
 migrates before it checks, and no older version exists yet, so that path
@@ -935,7 +939,8 @@ is marked, and the addendum of that date records them.*
   transaction tables (ADR-0003 Decision item 4) have no check in
   `purse-store` yet. Recommended: when the transaction store builds that
   check in Phase 3, `verify_backup` runs it too, and the tool's
-  documentation says until then what verify does not check.
+  documentation says until then what verify does not check. *Built
+  2026-11-26 (addendum of that date).*
 - BK5. *The record's caller-stated fields*: the network as the data
   directory names it, the version string of ADR-0005 item 9, the time in
   Unix nanoseconds. Recommended: accept. **Decided as recommended
@@ -997,3 +1002,359 @@ dated pointer in item 5 of its addendum of 2026-11-19 "Decisions of the
 project owner";
 `docs/PHASE2-EXIT.md`, the brief (Phase 2 and D15), the README and the
 ADR index say the same.
+
+## Addendum, 2026-11-26 — BK4 built: the transaction tables' consistency check
+
+Open point BK4, decided on 2026-11-21 (item 4 of that addendum), has the
+check of the transaction tables' indexes and balances built with the
+transaction store and run by `verify_backup`. The transaction store is
+complete since its selection slice, so the check is built now. The text
+above stays as written, apart from the dated pointers added to it.
+
+**What was built.** In `purse-store`, `ReadTx::check_tx_tables` and
+`WriteTx::check_tx_tables` (module `purse_store::txtables`, whose
+documentation is the reference) check thirteen invariants of the
+transaction tables (ADR-0003 Decision items 2, 4 and 5) by one walk of
+each table with point lookups into the others: history rows against the
+blocks' counts; `tx_mined` and `history` as each other's index;
+unmined inputs and unmined credits against `tx_unmined`, an unmined
+credit's class against its flags and its transaction's unpublished mark;
+every unspent output against its live credit (amount, account, flags,
+script location, class); every credit and debit, live or invalidated,
+against its record; debits naming credits and carrying their amounts;
+a spent credit's debit, where it exists, spending the credit's
+outpoint; invalidated rows only in blocks marked invalid; unspent
+commitment entries against their commitments; `balances` and
+`balance_heights` against a recomputation from the unspent outputs,
+unmined credits and commitments; `acct_history` against a recomputation
+from the records' credits and debits. Each failure is a kind-`Io` error
+naming the invariant (`Error::inconsistency`); `Error::inconsistent`
+becomes public so that a check made outside the crate reports the same
+way. `verify_backup` and `verify_backup_on_backend` run it after
+`check_records`; `verify_backup_with` and `verify_backup_on_backend_with`
+take a caller's check, run last on the same read transaction. The
+balance classes' rules move into `purse-store` as `BalanceClass::mined`
+and `BalanceClass::unmined`, the definitions the variants' documentation
+already stated; `purse-udb`'s `txstore::mined_class` and `unmined_class`
+call them, so there is one definition. In `purse-udb`,
+`txstore::check_decoded` checks the seven invariants that need a
+transaction decoded: every record, mined or unmined, holds a
+transaction that decodes, whether or not a row names it; every credit,
+live or invalidated, is the output of
+its record's transaction it names (index in range, the output's value,
+the script location and type code `AddCredit` takes from it), and every
+unmined credit likewise against its unmined record; every debit, live or
+invalidated, is an input of its record's transaction spending the
+outpoint of the credit it names; an unmined input's spender has an input
+spending that outpoint; the spender an unspent output's credit may name
+by a live debit of it (QK-0785) is a stake transaction or a record at
+another height; and no regular transaction of a block marked invalid
+has a live credit or debit (the converse of invariant 9, which needs
+the transaction's type: dcrwallet's stake invalidation moves them all
+in the step that sets the mark, and `InsertMinedTx` and `AddCredit`
+write only invalidated rows for such a transaction). It reads each
+mined record's credits and debits by range and each unmined record's
+credits by range, and decodes each record once. `txstore::verify_backup` and `txstore::verify_backup_on_backend`
+are `purse-store`'s with it. The multisig index stays `check_records`'
+invariant, and the auxiliary tables (VSP records, treasury and agenda
+policies) are not part of the check: their invariants are those of
+`purse_store::records`, and anything more they need is a later addition.
+
+**Where the check lives (BK7, below).** `purse-udb` depends on
+`purse-store`, not the reverse. Every invariant the property tests'
+row checker recomputes is a relation between typed rows of
+`purse-store`'s tables except those that read a transaction's inputs or
+type, so those (invariants 1 to 5 and 10 to 13 of the module's list),
+and four more found to hold (6 to 9: credits and debits have their
+records, debits name credits, spent credits and their debits,
+invalidated rows lie in invalid blocks), live in `purse-store`, and
+`purse-store`'s `verify_backup` checks them on its own, without
+depending on a caller to remember a hook; the decoded seven live in
+`purse-udb`, which already decodes transactions and owns the script type
+codes `AddCredit` writes, and reach the verify path through
+`verify_backup_with`. The alternatives were the whole check
+in `purse-udb` behind a trait, which leaves `purse-store`'s verify
+checking nothing of these tables, and `dcroxide-wire` and
+`dcroxide-stake` as dependencies of `purse-store`, a new dependency edge
+and wallet rules in the store crate.
+
+**States the check accepts.** dcr-purse reproduces dcrwallet's defects
+under ADR-0012 Rule 1, so a check that refused the rows they leave would
+refuse stores dcr-purse legitimately writes. From docs/QUIRKS.md and the
+property tests' own exceptions, the check has no rule that: a hash is
+not both mined and unmined, an outpoint not both an unspent output and
+an unmined credit, and a live credit naming no spender has its unspent
+row (QK-0781, with QK-0734's state as dcrwallet leaves it: two credits of
+one outpoint at two heights share one unspent row, which a rollback of
+the higher block deletes while the lower credit stays; and QK-0100: a
+zero-value credit `Rollback` unspends gets no unspent row); an unspent
+output's credit names no spender (QK-0785: allowed for a live debit of
+that credit of the kinds stake invalidation leaves, and, by the same
+mechanism over the state QK-0095 over QK-0781 leaves (below), for a
+spender whose debit is gone or spends the outpoint's credit at another
+height: dcrwallet's `stakeValidate` puts an invalidated credit back
+unchanged, spender included, and its unspent row unconditionally, and
+re-spends only what the validated block's own debits spend); a debit's credit
+exists when the credit is recorded above it (QK-0101); an unmined
+transaction's inputs have rows naming it, or an unspent commitment entry
+belongs to an unredeemed commitment (QK-0060); the null outpoint has no
+unmined-inputs row (QK-0087, QK-0780); an unpublished mark has an
+unmined record (QK-0098, QK-0058); a ticket row has a record (QK-0056); a
+record's credits are live (QK-0736); a multisig record agrees with the
+transactions, debits or tree of its output (QK-0786, QK-0787, QK-0789,
+QK-0097, QK-0054); a spent credit's spender has a debit spending that
+credit (QK-0095 over QK-0781: `InsertMinedTx` debits a transaction's
+inputs before its test that the record exists; once a second credit of
+the spent outpoint is recorded at another height, the outpoint's unspent
+row names it, and inserting the recorded spender again spends that
+second credit and overwrites the debit, whose key has one slot per
+transaction, height and input, to name it, while the first credit still
+names the spender; a rollback of the spender's block then deletes the
+debit and leaves the first credit naming a spender with no debit at
+all; dcrwallet leaves the same rows, since its `InsertMinedTx` calls
+`spendCredit` on the credit `existsUnspent` names and `putDebit` under
+`keyDebit`; so invariant 8 refuses only a debit spending another
+outpoint, and invariant 5 only an invalidated debit of the unspent
+output's credit or a debit of another outpoint: once the first credit's
+block is disapproved and approved again, stake validation gives it its
+unspent row back with that spender, with no debit when the spender's
+block was rolled back, or with a live debit of the outpoint's credit at
+another height when the spender is recorded below its funder. The first
+form was found by review after the first version of the check refused
+it; both are written by the store's operations and run against Go, which
+leaves the same rows). A mined credit without the expiry flag of its unmined credit
+(QK-0079, QK-0066) agrees with every invariant: its class follows the
+flags it has, and no invariant compares a credit's flags with its
+transaction.
+Invariants 6 and 9 rely on two states dcr-purse never
+holds: a detached block's invalidated rows, which it deletes (ADR-0003
+Decision item 5; QK-0081, QK-0782), and a credit without its record,
+which it refuses (QK-0783). The stale spender bytes of QK-0053 and
+QK-0055 are not representable in the store's rows. QK-0734's and
+QK-0735's states are fixed (ADR-0012 Rule 7) and no operation leaves
+them. By a reading of each entry (not a test), the other entries of
+docs/QUIRKS.md that concern the transaction store are about what a query,
+an iterator or the input source answers, an error or its text, a Go
+panic, byte layouts the store's typed rows do not have (QK-0068,
+QK-0074), values no rule reads (QK-0080's record bytes, QK-0064's
+times), the unpublished mark a repeated insert leaves (QK-0058, which no
+rule reads beyond the credit classes) or the removals of `PruneUnmined`,
+whose rows are `RemoveUnconfirmed`'s (QK-0059, QK-0099, QK-0108); none
+leaves a row the check could refuse.
+
+**Not checked.** Neither part holds: a record's key against its
+transaction's hash (no transaction is hashed; that its bytes decode is
+checked); a credit's flags against
+its transaction (QK-0079 makes the expiry flag differ legitimately);
+that a spent credit's debit exists, since a deleted debit row leaves the
+rows of QK-0095 over QK-0781 after a rollback, so it is refused only
+where another rule sees it (the account history of the debit's record);
+a commitment against its ticket's commitment output; and the rules the
+states above rule out (`tickets`, `unpublished`, multisig records beyond
+their index). `purse_store::txtables` lists these under "Not checked",
+and `purse-store`'s backup module repeats them where it says what
+verify does not check.
+
+**The fixture.** The checked-in version-1 fixture held one row in every
+table, its transaction rows chosen independently (a history position
+past its block's count, debits without records, an invalidated credit
+in a valid block) and its records' bytes not transactions, so the check
+refused it and every backup of it, which the backup tests and the fuzz
+target verify. Its transaction rows are rewritten consistent for both
+parts of the check (block 1 disapproved by block 2, with an invalidated
+credit, a debit spending it and its spent credit; block 2 with two
+records, a spent and two unspent credits; an unpublished unmined
+transaction with an input and a credit; a commitment; the sums and
+account history they give), each record holding a serialized
+transaction with the inputs its debits and unmined inputs name and the
+outputs its credits name (values, P2PKH scripts at the locations the
+credits record); the records' keys stay placeholders, not their
+transactions' hashes, which no check reads. Every table still holds a
+row, and the fixture was regenerated with the documented command, run
+twice, byte-identical (282,624 bytes, SHA-256 `971b6220…603457`); its
+pinned SHA-256 changed with it, as for the three earlier changes to
+version 1 before any release (ADR-0003, pointer of this date). Its
+schema, tables, keys and values are unchanged;
+`every_released_schema_fixture_opens_and_upgrades_to_current` now also
+requires `check_tx_tables` to pass, and `purse-udb`'s
+`the_schema_fixture_passes_the_full_verify` verifies the fixture, and a
+backup of it, with `txstore::verify_backup`.
+
+**Tests.**
+
+- `check_rows` in `crates/purse-udb/tests/txstore.rs` runs
+  `check_tx_tables` and `check_decoded` after its own recomputation, so
+  every state of every random sequence and targeted test is checked by
+  both after every step; the reopen steps run them, with `check_chain`
+  and `check_records`, on the read transaction. Both random-sequence
+  tests passed at `PURSE_TEST_SEED` 0 to 399 (800 runs, 0 failures) and
+  at 454, 509, 519, 523 and 563, the seeds beyond 399 that reach QK-0095
+  over QK-0781 (454, 509, 523; 519 and 563 then roll the spender's block
+  back); by the tests' own comments and QK-0785's entry seeds 0 to 399
+  reach QK-0781's doubled output (76, 78 and 257) and QK-0785's state
+  (214), and every seed planned revalidations through QK-0734's fix. A
+  local variant of those tests biased toward rollbacks, credits and
+  disapprovals (300 steps, four rounds; not in the suite), with which
+  review found the revalidated form of QK-0095 over QK-0781 that the
+  check's first version refused (seeds 30021, 30197 and 30261), passed
+  at seeds 30000 to 30299 (600 runs) with the check as revised. The
+  input selection check of those tests expected `Spender` to answer for
+  every spent credit; for a credit whose spender has no record at the
+  height it names (the rolled-back state above) it now expects Go's
+  `IO` error, the answer `TxStore::spender` gives with Go's text.
+- The operation-script runner checks the store as
+  `txstore::verify_backup` does (every row decoded, the chain, record
+  and transaction tables) after every operation and before every export,
+  each `rt.checkpoint`'s and the final one, so every state a script
+  passes through is checked, not only its last: the 40 hand-written
+  corpus scripts (01 to 41; 38-upstream-tx-tests and the auxiliary
+  records' 39 to 41 among them) and the 192 generated scripts of the
+  frozen vectors (the auxiliary set's 8 among them) replayed without Go,
+  and every script of the oracle tests run against Go (among them the
+  tests and corpus records that reproduce QK-0054, QK-0060's re-created
+  commitment entries, QK-0081, QK-0082, QK-0097, QK-0101, QK-0734,
+  QK-0736, QK-0781 to QK-0789) passed.
+- `every_state_of_go_s_reproduced_defects_passes_the_check`: each state
+  above written by the store's operations alone, on a store of its own,
+  with the rows that make it asserted, so that the check is held to
+  accept it whether or not a random sequence or script reaches it: 22
+  states of 16 entries (QK-0054, QK-0056, QK-0060 three ways, QK-0079,
+  QK-0087 with QK-0780, QK-0095 five ways, alone, over QK-0781 before
+  and after the rollback, and, the funder's block then disapproved and
+  approved again, an unspent output whose credit names a spender with no
+  debit or, the spender below its funder, a spender whose live debit
+  spends the outpoint's credit at another height, QK-0097, QK-0098, QK-0100, QK-0101, QK-0736,
+  QK-0781 two ways, QK-0785 two ways, QK-0786, QK-0787). Each passes
+  `check_tx_tables` and `check_decoded` in the write transaction and the
+  property tests' row checker, the read side's checks once committed,
+  and `txstore::verify_backup_on_backend` of an in-memory backup.
+  QK-0789's state is reached, and checked after every step, by the
+  multisig variant of
+  `a_revalidated_transaction_merges_its_unmined_copy_keeping_the_row_invariants`.
+- `each_broken_invariant_of_the_transaction_tables_is_refused`: on a
+  store built by the operations holding a row of every kind the check
+  reads, 55 direct row edits, each breaking one invariant or one rule
+  within one (each field an unspent output shares with its credit, each
+  direction of the history index, a debit's amount against a live and an
+  invalidated credit, invariants 6 and 8 over the invalidated tables as
+  well as the live ones, a record whose bytes do not decode, a valid
+  block's mark flipped to invalid, a position skipped, a missing
+  per-height sum, ...), 39 refused by `check_tx_tables` and 16 by
+  `check_decoded`, each with that invariant's text and passing once
+  undone in the same transaction (one edit, a regular transaction of the
+  credit's own block as QK-0785's spender, also leaves a debit of an
+  input its record lacks, which `check_decoded` checks after the
+  spender); and four states of reproduced defects written the same way
+  accepted (a dangling debit, QK-0101; a missing unmined-inputs row,
+  QK-0060; an outpoint both unspent and an unmined credit, QK-0781; a
+  stray unpublished mark, QK-0098). Each of 26 mutations of the check's
+  first version that weakens one rule (dropping it, or a field or bound
+  of it) makes this test or `purse-store`'s own fail; review then found
+  five weakenings of invariants 6 to 8 that no edit separated, and each
+  of 15 mutations of the version described here (those five, invariant
+  5's accepted spenders widened, emptied or put back as first written,
+  each of the decoded rules 5 to 7 dropped or, for 7, made to refuse
+  stake transactions too, the paging cut to one page, the orphan count
+  skipped) makes this test, `check_decoded_reads_past_the_first_page`,
+  `every_state_of_go_s_reproduced_defects_passes_the_check`, the random
+  sequences or an oracle test fail. Both runs were by hand on a copy of
+  the tree and are not part of the suite.
+- `verify_backup_runs_the_transaction_tables_check`: a backup file of that
+  store and a plain copy of it stopped verify with `txstore::verify_backup`;
+  each of the 55 edits committed and backed up into memory is refused by
+  `txstore::verify_backup_on_backend` with its text, `purse-store`'s
+  verify alone refusing exactly the 39 of its part; each backup taken
+  once the edit is undone verifies; the last bad state, backed up to a
+  file, is refused through the file path.
+- `the_transaction_tables_check_refuses_each_broken_invariant`, in
+  `purse-store`'s `tests/migration.rs`: on the fixture's rows, one edit
+  per invariant (13) refused by `check_tx_tables` with its text and
+  passing once rolled back, so the store crate's verify is tested in its
+  own crate.
+- `the_schema_fixture_passes_the_full_verify` (`purse-udb`): the
+  checked-in fixture and a backup of it pass `txstore::verify_backup`.
+- `check_decoded_reads_past_the_first_page` (`purse-udb`):
+  `check_decoded` reads the tables it walks 512 rows at a time; each of
+  them (`unmined_inputs`, `unspent`, `tx_mined`, `tx_unmined`, and
+  `unmined_credits` when a credit lacks its record) gets 1,025 rows the
+  check accepts and then one, sorting last, that it refuses, refused
+  with its text and passing once deleted.
+- Against Go (`crates/purse-udb/tests/oracle.rs`):
+  `a_spender_inserted_again_over_a_twice_credited_funder_matches_go`
+  runs QK-0095 over QK-0781 with the spender in block 1 and in block 2,
+  the runner's checks after every operation, every record and the export
+  equal. The rolled-back form cannot be compared by export: the store
+  keeps a credit's spender by height, Go by height and block hash, and
+  `a_spender_of_a_detached_block_mined_again_at_its_height_differs_from_go`
+  shows the one difference that follows (a spender mined again at that
+  height in another block: Go's `Spender` fails with `IO`, dcr-purse's
+  answers; the export names a different spender block), recorded in
+  PARITY.md, pending owner.
+  `a_funder_s_block_revalidated_over_a_twice_credited_funder_matches_go`
+  runs the two revalidated states above, the runner's checks after every
+  operation: every record equal before the queries, and every query but
+  those QK-0734's fix changes (PARITY.md item (23): the approval merges
+  the unmined copy of the funder that the rollback returned, where Go
+  keeps it and counts the output twice), each side's answer to those
+  pinned; in the exports, beside Go's unmined copy, the spender's block
+  and the debit's credit block are the detached block on Go's side and
+  the block now at that height on dcr-purse's, as PARITY.md records.
+- The backup tests of `purse-store` (`tests/backup.rs`, 21 tests) pass on
+  the regenerated fixture with the check in the verify path, and the
+  fuzz target `backup_verify` now verifies through `purse-udb`'s
+  `txstore::verify_backup_on_backend`, so that it reaches the decoded
+  part (built, not run).
+
+**Cost.** `check_tx_tables`: one walk of each transaction table in key
+order with point lookups, `tx_mined` walked once for two invariants:
+O(n log n) in the rows. `check_decoded`: one walk of `unmined_inputs`,
+`unspent`, `tx_mined` and `tx_unmined`, a page of 512 rows at a time,
+four range lookups per mined record and one per unmined record, and one
+decoding of each record (and of the unmined record each unmined input
+names): O(n log n) in the rows plus a linear pass over the
+transactions' bytes. No
+table is collected: the balances are recomputed into one entry per
+(account, class) and per (account, windowed class, height) holding an
+output, the account history checked record by record with a final
+count, and `check_decoded` holds one record's credits and debits and
+one decoded transaction at a time. An unrecorded local timing, release
+build, on a synthetic consistent store of the measurement workload's
+size (40,000 blocks, 100,000 records, each a serialized one-input
+one-output transaction, and credits, 49,500 debits, 50,500 unspent
+outputs and per-height sums, 100,000 account history rows), warm, on
+an x86_64 Linux desktop under heavy load from other work: 0.28 to 0.35 s
+per `check_tx_tables` and 0.12 to 0.15 s per `check_decoded`, five
+rounds each, two runs, for the check's first version; for the version
+described here, which decodes every record and looks up the block of
+each record with a live row, 0.26 to 0.47 s and 0.15 to 0.27 s (0.26 to
+0.28 s and 0.15 s in the less loaded of the two runs). Not a run of
+record. Suite times are given with
+the commit, unrecorded.
+
+**Not built or not tested.**
+
+- The tool's `verify` and `restore` (Phase 8), which are to call
+  `purse-udb`'s `txstore::verify_backup`.
+- The fuzz targets were not run for this change; `backup_verify` reaches
+  the consistency checks only through images whose rows keep the backup
+  record's digest, which the verify path checks first.
+- The check is not run when a wallet opens its own store, only by the
+  verify path and the tests.
+- Windows and macOS: CI's.
+- The timing above is the only one; nothing was measured against a
+  wallet's real store.
+- The mutation runs above were by hand; they are not in the suite.
+
+**Open point**, for the owner, with a recommendation; pending owner:
+
+- BK7. *Where the check lives.* The thirteen invariants the store can
+  read from its typed rows in `purse-store`, run by its `verify_backup`
+  on its own; the seven that need a transaction decoded in `purse-udb`,
+  reaching the verify path through
+  `verify_backup_with`, so that the full check is `purse-udb`'s
+  `txstore::verify_backup`, which Phase 8's tool is to call. Evidence:
+  `purse-udb` depends on `purse-store`, and decoding a transaction in
+  `purse-store` would add `dcroxide-wire` and `dcroxide-stake` to its
+  dependencies. Recommended: accept as built; the alternative of a
+  `purse-store` check that decodes transactions is the one to revisit if
+  the tool should depend on `purse-store` alone.

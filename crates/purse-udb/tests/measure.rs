@@ -2741,6 +2741,27 @@ fn compare_exports(go_path: &Path, rust: &[String]) {
     assert_eq!(go.len(), rust.len(), "export lengths differ");
 }
 
+/// The store's consistency checks as `txstore::verify_backup` runs them
+/// (every row decoded, the chain's, the record tables' and the transaction
+/// tables' with their decoded part, ADR-0018 BK4), on the Rust side's
+/// store after `what`: the operation-script runner's check, held for the
+/// stores this workload writes.
+fn check_store(store: &Store, what: &str) {
+    let tx = store.read().expect("read");
+    let checked = (|| {
+        tx.check_rows()?;
+        tx.check_chain()?;
+        tx.check_records()?;
+        tx.check_tx_tables()?;
+        let mut r = &tx;
+        purse_udb::txstore::check_decoded(&mut r)
+    })();
+    if let Err(e) = checked {
+        panic!("the store fails the consistency checks after {what}: {e}");
+    }
+    tx.close().expect("close");
+}
+
 struct SessionResult {
     record: Record,
     notes: String,
@@ -2749,7 +2770,18 @@ struct SessionResult {
     left_out: Vec<[u8; 32]>,
 }
 
-fn run_session(dir: &Path, p: &Preset, reps: Reps, rounds: usize) -> Option<SessionResult> {
+/// One session over preset `p`. With `check`, the Rust side's store is
+/// held to the store's consistency checks ([`check_store`]) after the
+/// history sync and after each tip ingest, outside every timing; the
+/// measurement passes `false` so that no check runs between an ingest and
+/// the queries it times.
+fn run_session(
+    dir: &Path,
+    p: &Preset,
+    reps: Reps,
+    rounds: usize,
+    check: bool,
+) -> Option<SessionResult> {
     let mut first_oracle = oracle_or_skip("storebench")?;
     let bin = oracle_bin_or_skip("storebench")?;
     let info = first_oracle.build_info();
@@ -2851,6 +2883,9 @@ fn run_session(dir: &Path, p: &Preset, reps: Reps, rounds: usize) -> Option<Sess
             ing.sync_blocks,
             total / 1e9
         );
+        if check {
+            check_store(&rw.store, "the history sync");
+        }
         rw.store.close().expect("close");
     }
     let _ = writeln!(
@@ -2916,6 +2951,9 @@ fn run_session(dir: &Path, p: &Preset, reps: Reps, rounds: usize) -> Option<Sess
                 let rw = open_rust(&work, &chain);
                 let ing = rust_ingest(&rw, &w.tip);
                 rust_pruned.push(ing.pruned as u64);
+                if check {
+                    check_store(&rw.store, &format!("the tip ingest of round {round}"));
+                }
                 for (name, times) in [
                     ("commit/tip_block", &ing.tip_block),
                     ("commit/tip_block_stake", &ing.tip_block_stake),
@@ -3033,8 +3071,10 @@ fn scratch(label: &str) -> PathBuf {
 }
 
 /// The whole pipeline at a small size, one repetition of everything: the
-/// two databases' exports equal line for line, and every query's answer
-/// equal in both rounds of each side.
+/// two databases' exports equal line for line, every query's answer
+/// equal in both rounds of each side, and the Rust side's store passing
+/// the store's consistency checks after the history sync and after each
+/// tip ingest.
 #[test]
 fn same_data_and_answers_on_both_sides() {
     let dir = scratch("measure-small");
@@ -3043,7 +3083,7 @@ fn same_data_and_answers_on_both_sides() {
         max: 1,
         budget: Duration::ZERO,
     };
-    let Some(result) = run_session(&dir, &Preset::small(), reps, 2) else {
+    let Some(result) = run_session(&dir, &Preset::small(), reps, 2, true) else {
         return;
     };
     eprintln!("{}", result.notes);
@@ -3252,7 +3292,7 @@ fn hot_paths_against_dcrwallet() {
         max: 200,
         budget: Duration::from_secs(1),
     };
-    let Some(result) = run_session(&dir, &Preset::measure(), reps, rounds) else {
+    let Some(result) = run_session(&dir, &Preset::measure(), reps, rounds, false) else {
         return;
     };
     let mut tsv = String::from("side\tround\tfigure\tn\tp50_ns\tp90_ns\tmin_ns\tmax_ns\n");

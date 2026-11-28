@@ -360,7 +360,11 @@ point of items 1 and 2 as recommended and closed Phase 2 on these terms
    - the multisig records' differential against dcrwallet's udb, and the
      oracle run of `redeemmultisigouts` that decides QK-0054 (R4): Phase 3;
    - the transaction tables' consistency check, and `verify_backup`
-     running it (BK4): Phase 3;
+     running it (BK4): Phase 3; *built 2026-11-26 (ADR-0018, addendum of
+     that date): `purse-store`'s `ReadTx::check_tx_tables`, which
+     `verify_backup` runs, and `purse-udb`'s decoded part with
+     `txstore::verify_backup`; where the check lives is BK7, pending
+     owner;*
    - input selection itself, whose draws clause 3 checks only as the set
      of outputs dcrwallet may choose: Phase 3;
    - the dedicated-machine run (M2): before Phase 3's exit, together with

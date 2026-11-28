@@ -107,9 +107,30 @@
 //! the one asked for, or whose row count or digest is not that of the
 //! rows in the file ([`Error::unverified`]). A store of this build's
 //! version must then have every table of the schema, every row must decode
-//! by its table's types, and the chain and record tables must hold their
-//! invariants ([`ReadTx::check_rows`], [`ReadTx::check_chain`],
-//! [`ReadTx::check_records`]). A plain copy of a stopped wallet's store has
+//! by its table's types, and the chain, record and transaction tables must
+//! hold their invariants ([`ReadTx::check_rows`], [`ReadTx::check_chain`],
+//! [`ReadTx::check_records`], [`ReadTx::check_tx_tables`]; ADR-0018 Open
+//! point BK4). The invariants of the transaction tables that need a
+//! transaction decoded (every record's bytes a transaction, every credit,
+//! unmined credit and debit against the output or input of its transaction
+//! it names, an unmined input's spender spending the outpoint, QK-0785's
+//! spender, no live row of a regular transaction in a block marked
+//! invalid) are `purse-udb`'s, which a
+//! caller runs on the same read transaction through [`verify_backup_with`]
+//! (`purse-udb`'s `txstore::verify_backup`); [`verify_backup`] alone does
+//! not check them. Neither checks what [`crate::txtables`] lists as not
+//! checked: a record's key against its transaction's hash, a credit's
+//! flags against its transaction, that a spent credit's debit exists, a
+//! commitment against its ticket, and the rules the reproduced states rule
+//! out. Nor is anything checked of the auxiliary tables (VSP records,
+//! treasury and agenda policies) beyond their encodings and the index
+//! rules of [`crate::records`]; a consistency check of their own is a
+//! later addition. The checks accept every state of the transaction tables
+//! that dcrwallet's defects, which dcr-purse reproduces, leave (listed in
+//! [`crate::txtables`]), so a store that passes is consistent as dcr-purse
+//! writes it, not free of those states. A wallet does not run these checks
+//! when it opens its own store; only this verify path and the tests do.
+//! A plain copy of a stopped wallet's store has
 //! no backup record and is checked the same way without it (Decision item
 //! 5). The only bytes the verify path parses itself are the backup
 //! record's, which are bounded by its layout; the rest is redb's to read.
@@ -120,6 +141,9 @@
 //! `restore` commands of the separate tool (Phase 8) and the user
 //! documentation (Phase 13) are built on these functions later. Restoring
 //! (removing the record, migrating, renaming into place) is the tool's.
+//! The tool is to verify through `purse-udb`'s `txstore::verify_backup`,
+//! which adds the decoded checks, and its documentation is to state what
+//! verify does not check, as the paragraph above does (ADR-0018 BK4).
 //!
 //! [`DIR_MODE`]: crate::DIR_MODE
 //! [`FILE_MODE`]: crate::FILE_MODE
@@ -978,8 +1002,33 @@ fn scratch_file(dir: &Path) -> Result<(PathBuf, File)> {
 /// file's length when it was opened and no more: a file that grows
 /// meanwhile is checked as it was.
 ///
+/// The consistency checks are the store's own, the transaction tables'
+/// included ([`ReadTx::check_tx_tables`]); a caller that also checks what
+/// needs a transaction decoded passes that check to
+/// [`verify_backup_with`] (`purse-udb`'s `txstore::verify_backup`).
+///
 /// [`DIR_MODE`]: crate::DIR_MODE
 pub fn verify_backup(file: &Path, scratch: &Path, network: Option<&str>) -> Result<Verified> {
+    verify_backup_with(file, scratch, network, |_| Ok(()))
+}
+
+/// [`verify_backup`], with `check` run last on the copy, on the read
+/// transaction the store's consistency checks used, when those ran
+/// ([`Verified::consistency_checked`]; not for an older schema version).
+/// Its error is returned as the verification's. It is for the checks a
+/// crate above the store makes of the same rows: `purse-udb` passes the
+/// transaction tables' decoded checks (records holding transactions,
+/// credits, unmined credits and debits against their transactions'
+/// outputs and inputs, an unmined input's spender spending the outpoint,
+/// QK-0785's spender, no live row of a regular transaction in a block
+/// marked invalid), which the store cannot make without decoding
+/// transactions.
+pub fn verify_backup_with(
+    file: &Path,
+    scratch: &Path,
+    network: Option<&str>,
+    check: impl FnOnce(&ReadTx) -> Result<()>,
+) -> Result<Verified> {
     // By path first: Windows cannot open a directory as a file at all, and
     // would report that as an I/O error rather than as what it is.
     regular_file(fs::metadata(file))?;
@@ -1000,7 +1049,7 @@ pub fn verify_backup(file: &Path, scratch: &Path, network: Option<&str>) -> Resu
     let unnamed = cfg!(unix) && fs::remove_file(&copy).is_ok();
     let verified: Result<Verified> = (|| {
         io::copy(&mut io::Read::take(src, meta.len()), &mut dst).map_err(Error::io)?;
-        verify_backup_on_backend(FileBackend::new(dst), network)
+        verify_backup_on_backend_with(FileBackend::new(dst), network, check)
     })();
     // The copy's database is closed by now.
     if !unnamed {
@@ -1015,10 +1064,20 @@ pub fn verify_backup_on_backend(
     backend: impl StorageBackend,
     network: Option<&str>,
 ) -> Result<Verified> {
+    verify_backup_on_backend_with(backend, network, |_| Ok(()))
+}
+
+/// [`verify_backup_on_backend`] with a caller's check, as
+/// [`verify_backup_with`].
+pub fn verify_backup_on_backend_with(
+    backend: impl StorageBackend,
+    network: Option<&str>,
+    check: impl FnOnce(&ReadTx) -> Result<()>,
+) -> Result<Verified> {
     let db = verify_builder()
         .create_with_backend(backend)
         .map_err(|e| untrusted(Error::from(e)))?;
-    verify_db(Store::new(db), network).map_err(untrusted)
+    verify_db(Store::new(db), network, check).map_err(untrusted)
 }
 
 /// An engine error that a file of someone else's can cause and that the
@@ -1038,7 +1097,11 @@ fn untrusted(e: Error) -> Error {
     }
 }
 
-fn verify_db(store: Store, network: Option<&str>) -> Result<Verified> {
+fn verify_db(
+    store: Store,
+    network: Option<&str>,
+    check: impl FnOnce(&ReadTx) -> Result<()>,
+) -> Result<Verified> {
     let version = store.inspect()?;
     if version > SCHEMA_VERSION {
         return Err(Error::newer_version(version, SCHEMA_VERSION));
@@ -1096,6 +1159,8 @@ fn verify_db(store: Store, network: Option<&str>) -> Result<Verified> {
         tx.check_rows()?;
         tx.check_chain()?;
         tx.check_records()?;
+        tx.check_tx_tables()?;
+        check(&tx)?;
         tx.close()?;
     }
     store.close()?;

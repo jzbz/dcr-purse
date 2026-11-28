@@ -15,7 +15,7 @@ use std::ops::Bound;
 
 use dcroxide_stake::TxType;
 use dcroxide_txscript::stdscript::{ScriptType, determine_script_type};
-use dcroxide_wire::MsgTx;
+use dcroxide_wire::{MsgTx, TxOut};
 use purse_errors::{AnyError, Kind, e};
 use purse_store::{
     AcctHistory, AcctHistoryKey, BalanceClass, BalanceHeightKey, BalanceHeights, BalanceKey,
@@ -115,6 +115,13 @@ pub(crate) fn script_loc(msg: &MsgTx, index: u32) -> Result<ScriptLoc, AnyError>
         )
         .into());
     };
+    script_loc_at(index, out, offset)
+}
+
+/// [`script_loc`] of output `index`, `out`, whose script lies at `offset`
+/// in the serialized transaction (for a caller that walks
+/// `MsgTx::pk_script_locs` once for every output, the consistency check).
+pub(crate) fn script_loc_at(index: u32, out: &TxOut, offset: usize) -> Result<ScriptLoc, AnyError> {
     let len = u16::try_from(out.pk_script.len()).map_err(|_| {
         AnyError::from(e!(
             Kind::Invalid,
@@ -150,38 +157,18 @@ pub(crate) fn new_credit(msg: &MsgTx, index: u32, change: bool) -> Result<NewCre
 }
 
 /// The balance class of a mined unspent output (`balanceFullScan`'s first
-/// pass, `txmined.go:3410-3449`).
+/// pass, `txmined.go:3410-3449`): `purse-store`'s
+/// [`BalanceClass::mined`], the one definition, which the store's
+/// consistency check of the transaction tables also applies.
 pub fn mined_class(flags: &CreditFlags) -> BalanceClass {
-    match flags.tag {
-        OutputTag::NonStake | OutputTag::TreasuryGen => {
-            if flags.coinbase {
-                BalanceClass::MinedCoinbase
-            } else {
-                BalanceClass::MinedRegular
-            }
-        }
-        OutputTag::Ticket => BalanceClass::VotingAuthority,
-        OutputTag::Vote | OutputTag::Revocation => BalanceClass::MinedStakeGen,
-        OutputTag::TicketChange => BalanceClass::MinedTicketChange,
-    }
+    BalanceClass::mined(flags)
 }
 
 /// The balance class of an unmined credit (`balanceFullScan`'s second
 /// pass, `txmined.go:3486-3508`), which depends on the transaction's
-/// unpublished mark.
+/// unpublished mark: `purse-store`'s [`BalanceClass::unmined`].
 pub fn unmined_class(flags: &CreditFlags, unpublished: bool) -> BalanceClass {
-    match flags.tag {
-        OutputTag::NonStake => match (flags.coinbase, unpublished) {
-            (false, false) => BalanceClass::UnminedRegularPublished,
-            (false, true) => BalanceClass::UnminedRegularUnpublished,
-            (true, false) => BalanceClass::UnminedCoinbasePublished,
-            (true, true) => BalanceClass::UnminedCoinbaseUnpublished,
-        },
-        OutputTag::Ticket => BalanceClass::VotingAuthority,
-        OutputTag::Vote | OutputTag::Revocation => BalanceClass::UnminedStakeGen,
-        OutputTag::TicketChange => BalanceClass::UnminedTicketChange,
-        OutputTag::TreasuryGen => BalanceClass::UnminedTreasuryGen,
-    }
+    BalanceClass::unmined(flags, unpublished)
 }
 
 /// The unspent row of a mined credit at `height`.
